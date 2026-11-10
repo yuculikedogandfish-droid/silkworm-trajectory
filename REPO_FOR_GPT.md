@@ -6,12 +6,15 @@
 
 1. [HANDOFF_FOR_GPT.md](https://github.com/yuculikedogandfish-droid/silkworm-trajectory/blob/main/HANDOFF_FOR_GPT.md)
 2. [PROJECT_BRIEF.md](https://github.com/yuculikedogandfish-droid/silkworm-trajectory/blob/main/PROJECT_BRIEF.md)
-3. 主程序单文件 HTML：[editor/蚕轨迹描图器.html](https://github.com/yuculikedogandfish-droid/silkworm-trajectory/blob/main/editor/%E8%9A%95%E8%BD%A8%E8%BF%B9%E6%8F%8F%E5%9B%BE%E5%99%A8.html)
+3. **文件清单（发给 GPT 用）**：[FILES_FOR_GPT.md](./FILES_FOR_GPT.md)
 
-Raw（便于整文件拉取）：
+4. 主程序（请用 **英文路径**，避免 raw 404）：
 
-- HTML：<https://raw.githubusercontent.com/yuculikedogandfish-droid/silkworm-trajectory/main/editor/%E8%9A%95%E8%BD%A8%E8%BF%B9%E6%8F%8F%E5%9B%BE%E5%99%A8.html>
-- HANDOFF：<https://raw.githubusercontent.com/yuculikedogandfish-droid/silkworm-trajectory/main/HANDOFF_FOR_GPT.md>
+- [docs/index.html](https://github.com/yuculikedogandfish-droid/silkworm-trajectory/blob/main/docs/index.html) · Raw：<https://raw.githubusercontent.com/yuculikedogandfish-droid/silkworm-trajectory/main/docs/index.html>
+- [editor/silkworm-tracer.html](https://github.com/yuculikedogandfish-droid/silkworm-trajectory/blob/main/editor/silkworm-tracer.html) · Raw：<https://raw.githubusercontent.com/yuculikedogandfish-droid/silkworm-trajectory/main/editor/silkworm-tracer.html>
+- 本地中文名：[editor/蚕轨迹描图器.html](https://github.com/yuculikedogandfish-droid/silkworm-trajectory/blob/main/editor/%E8%9A%95%E8%BD%A8%E8%BF%B9%E6%8F%8F%E5%9B%BE%E5%99%A8.html)
+
+**在线**：<https://yuculikedogandfish-droid.github.io/silkworm-trajectory/>
 
 ## 视频
 
