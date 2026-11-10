@@ -123,7 +123,7 @@
   }
   .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .row label { flex: 0 0 70px; color: var(--muted); font-size: 12px; }
-  .row input[type="number"], .row input[type="text"] {
+  .row input[type="number"], .row input[type="text"], .row input[type="datetime-local"], .row select {
     flex: 1;
     background: var(--bg);
     border: 1px solid var(--border);
@@ -250,6 +250,37 @@
   </div>
 
   <aside>
+    <div class="section">
+      <h2>实验条件</h2>
+      <div class="hint">这是这份数据当时的记录，会写进工程文件。描图和预览载入后都能认出温度、湿度和时间。下面的数字可以手填，也可以先选一组常用值再改。</div>
+      <div class="row">
+        <label>记录时间</label>
+        <input type="datetime-local" id="condTime" oninput="onConditionsEdited()">
+      </div>
+      <div class="row">
+        <button type="button" onclick="fillConditionNow()" style="flex:1">填当前时间</button>
+      </div>
+      <div class="row">
+        <label>常用条件</label>
+        <select id="condPreset" onchange="applyConditionPreset()">
+          <option value="">手填</option>
+          <option value="25,65">25 °C · 65%</option>
+          <option value="22,70">22 °C · 70%</option>
+          <option value="28,60">28 °C · 60%</option>
+          <option value="30,55">30 °C · 55%</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>温度 °C</label>
+        <input type="number" id="condTemp" step="0.1" placeholder="例如 25" oninput="onConditionsEdited()">
+      </div>
+      <div class="row">
+        <label>湿度 %</label>
+        <input type="number" id="condHum" min="0" max="100" step="1" placeholder="例如 65" oninput="onConditionsEdited()">
+      </div>
+      <div class="stat" id="condStat">未填写实验条件</div>
+    </div>
+
     <div class="section">
       <h2>标定（像素 → mm）</h2>
       <div class="hint" id="calHint">格子是 <b>1 cm</b>。① 点「设原点」再在画面上点一下格子交点。② 点「量一格」再依次点同一格的两个对角（间距已填 10 mm）。</div>
@@ -513,6 +544,10 @@
   .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .row label { flex: 0 0 88px; color: var(--muted); font-size: 11px; }
   .row input[type=&quot;range&quot;] { flex: 1; }
+  .row input[type=&quot;number&quot;], .row input[type=&quot;datetime-local&quot;], .row select {
+    flex: 1; min-width: 0; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit;
+  }
   .stat { font-size: 11px; color: var(--muted); line-height: 1.6; }
   .stat b { color: var(--text); }
   .hint {
@@ -597,6 +632,36 @@
   <aside>
     <div class=&quot;hint&quot;>
       按<b>点序</b>模拟吐丝（非真实视频时间）。实测轨迹与合成轨迹分开展示；循环播放观察重复行为。
+    </div>
+    <div class=&quot;section&quot;>
+      <h2>实验条件</h2>
+      <div class=&quot;hint&quot;>记录这份数据当时的时间、温度和湿度。可以手填，也可以先选常用值。保存工程后，描图器和这里载入时都会显示同一组条件。这不是下方蚕室里的演示滑杆。</div>
+      <div class=&quot;row&quot;>
+        <label>记录时间</label>
+        <input type=&quot;datetime-local&quot; id=&quot;condTime&quot; oninput=&quot;onConditionsEdited()&quot;>
+      </div>
+      <div class=&quot;row&quot;>
+        <button type=&quot;button&quot; onclick=&quot;fillConditionNow()&quot; style=&quot;width:100%&quot;>填当前时间</button>
+      </div>
+      <div class=&quot;row&quot;>
+        <label>常用条件</label>
+        <select id=&quot;condPreset&quot; onchange=&quot;applyConditionPreset()&quot;>
+          <option value=&quot;&quot;>手填</option>
+          <option value=&quot;25,65&quot;>25 °C · 65%</option>
+          <option value=&quot;22,70&quot;>22 °C · 70%</option>
+          <option value=&quot;28,60&quot;>28 °C · 60%</option>
+          <option value=&quot;30,55&quot;>30 °C · 55%</option>
+        </select>
+      </div>
+      <div class=&quot;row&quot;>
+        <label>温度 °C</label>
+        <input type=&quot;number&quot; id=&quot;condTemp&quot; step=&quot;0.1&quot; placeholder=&quot;例如 25&quot; oninput=&quot;onConditionsEdited()&quot;>
+      </div>
+      <div class=&quot;row&quot;>
+        <label>湿度 %</label>
+        <input type=&quot;number&quot; id=&quot;condHum&quot; min=&quot;0&quot; max=&quot;100&quot; step=&quot;1&quot; placeholder=&quot;例如 65&quot; oninput=&quot;onConditionsEdited()&quot;>
+      </div>
+      <div class=&quot;stat&quot; id=&quot;condStat&quot;>未填写实验条件</div>
     </div>
     <div class=&quot;section&quot;>
       <h2>播放</h2>
@@ -2320,6 +2385,71 @@ cvs.addEventListener('pointerup', onPointerUp);
 cvs.addEventListener('pointercancel', onPointerUp);
 draw();
 
+let applyingConditions = false;
+
+function readConditions() {
+  const recordedAt = (document.getElementById('condTime').value || '').trim() || null;
+  const t = parseFloat(document.getElementById('condTemp').value);
+  const h = parseFloat(document.getElementById('condHum').value);
+  return {
+    recordedAt,
+    temperatureC: Number.isFinite(t) ? t : null,
+    humidity: Number.isFinite(h) ? h : null,
+  };
+}
+
+function formatConditions(c) {
+  if (!c || (!c.recordedAt &amp;&amp; c.temperatureC == null &amp;&amp; c.humidity == null)) return '未填写实验条件';
+  const when = c.recordedAt ? String(c.recordedAt).replace('T', ' ') : '时间未填';
+  const temp = c.temperatureC == null ? '温度未填' : c.temperatureC + ' °C';
+  const hum = c.humidity == null ? '湿度未填' : c.humidity + '%';
+  return when + ' · ' + temp + ' · 湿度 ' + hum;
+}
+
+function syncConditionPreset() {
+  const sel = document.getElementById('condPreset');
+  if (!sel) return;
+  const key = document.getElementById('condTemp').value + ',' + document.getElementById('condHum').value;
+  sel.value = [...sel.options].some(o => o.value === key) ? key : '';
+}
+
+function applyConditions(c) {
+  const next = c || { recordedAt: null, temperatureC: null, humidity: null };
+  applyingConditions = true;
+  document.getElementById('condTime').value = next.recordedAt ? String(next.recordedAt).slice(0, 16) : '';
+  document.getElementById('condTemp').value = next.temperatureC == null ? '' : next.temperatureC;
+  document.getElementById('condHum').value = next.humidity == null ? '' : next.humidity;
+  applyingConditions = false;
+  syncConditionPreset();
+  document.getElementById('condStat').textContent = formatConditions(readConditions());
+}
+
+function onConditionsEdited() {
+  syncConditionPreset();
+  const c = readConditions();
+  document.getElementById('condStat').textContent = formatConditions(c);
+  if (applyingConditions) return;
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'silkworm-studio/conditions', conditions: c }, '*');
+  }
+}
+
+function fillConditionNow() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  document.getElementById('condTime').value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  onConditionsEdited();
+}
+
+function applyConditionPreset() {
+  const v = document.getElementById('condPreset').value;
+  if (!v) return;
+  const parts = v.split(',');
+  document.getElementById('condTemp').value = parts[0];
+  document.getElementById('condHum').value = parts[1];
+  onConditionsEdited();
+}
+
 function numInput(id, fallback) {
   const el = document.getElementById(id);
   const n = el ? parseFloat(el.value) : NaN;
@@ -2393,6 +2523,7 @@ function saveStudioProject() {
     schema: 'silkworm-studio/project',
     projectVersion: 3,
     savedAt: new Date().toISOString(),
+    conditions: readConditions(),
     preview: studioPreviewSlice(),
     habitat: window.__studioHabitat ? window.__studioHabitat.export() : null,
   };
@@ -2429,7 +2560,13 @@ function loadStudioProject(e) {
         if (trajectories.length) ingestPayload({ type: 'silkworm-preview/v1', trajectories, behaviorBoxes, provenance: 'measured' });
       }
       if (data.habitat &amp;&amp; window.__studioHabitat) window.__studioHabitat.import(data.habitat);
-      if (!data.preview &amp;&amp; !data.habitat &amp;&amp; !data.trajectories &amp;&amp; !data.worms &amp;&amp; !data.curves &amp;&amp; !data.unifiedTrajectories) {
+      if (data.schema === 'silkworm-studio/project' || Object.prototype.hasOwnProperty.call(data, 'conditions')) {
+        applyConditions(data.conditions || null);
+        if (window.parent !== window) {
+          window.parent.postMessage({ type: 'silkworm-studio/conditions', conditions: readConditions() }, '*');
+        }
+      }
+      if (!data.preview &amp;&amp; !data.habitat &amp;&amp; !data.conditions &amp;&amp; !data.trajectories &amp;&amp; !data.worms &amp;&amp; !data.curves &amp;&amp; !data.unifiedTrajectories) {
         alert('这个 JSON 里没有可载入的工程、轨迹或蚕室数据');
       }
     } catch (err) {
@@ -2447,11 +2584,16 @@ window.addEventListener('message', (ev) => {
       type: 'silkworm-studio/export',
       preview: studioPreviewSlice(),
       habitat: window.__studioHabitat ? window.__studioHabitat.export() : null,
+      conditions: readConditions(),
     }, '*');
   }
   if (ev.data.type === 'silkworm-studio/import') {
     applyStudioPreview(ev.data.preview);
     if (ev.data.habitat &amp;&amp; window.__studioHabitat) window.__studioHabitat.import(ev.data.habitat);
+    if (ev.data.conditions) applyConditions(ev.data.conditions);
+  }
+  if (ev.data.type === 'silkworm-studio/conditions' &amp;&amp; ev.data.conditions) {
+    applyConditions(ev.data.conditions);
   }
 });
 
@@ -5585,7 +5727,14 @@ function toggleSplitPreview() {
 }
 
 function onPreviewFrameReady(ev) {
-  if (ev.data && ev.data.type === 'silkworm-preview-ready') pushPreviewToPane(true);
+  if (!ev.data) return;
+  if (ev.data.type === 'silkworm-preview-ready') {
+    pushPreviewToPane(true);
+    pushConditionsToPreview();
+  }
+  if (ev.data.type === 'silkworm-studio/conditions' && ev.data.conditions) {
+    applyConditions(ev.data.conditions);
+  }
 }
 
 function importTrackingJson(e) {
@@ -5689,12 +5838,84 @@ function exportCanvasImage() {
   }, 'image/png');
 }
 
+// ==================== 实验条件 ====================
+let applyingConditions = false;
+
+function readConditions() {
+  const recordedAt = (document.getElementById('condTime').value || '').trim() || null;
+  const t = parseFloat(document.getElementById('condTemp').value);
+  const h = parseFloat(document.getElementById('condHum').value);
+  return {
+    recordedAt,
+    temperatureC: Number.isFinite(t) ? t : null,
+    humidity: Number.isFinite(h) ? h : null,
+  };
+}
+
+function formatConditions(c) {
+  if (!c || (!c.recordedAt && c.temperatureC == null && c.humidity == null)) return '未填写实验条件';
+  const when = c.recordedAt ? String(c.recordedAt).replace('T', ' ') : '时间未填';
+  const temp = c.temperatureC == null ? '温度未填' : c.temperatureC + ' °C';
+  const hum = c.humidity == null ? '湿度未填' : c.humidity + '%';
+  return when + ' · ' + temp + ' · 湿度 ' + hum;
+}
+
+function syncConditionPreset() {
+  const sel = document.getElementById('condPreset');
+  if (!sel) return;
+  const key = document.getElementById('condTemp').value + ',' + document.getElementById('condHum').value;
+  sel.value = [...sel.options].some(o => o.value === key) ? key : '';
+}
+
+function applyConditions(c) {
+  const next = c || { recordedAt: null, temperatureC: null, humidity: null };
+  applyingConditions = true;
+  document.getElementById('condTime').value = next.recordedAt ? String(next.recordedAt).slice(0, 16) : '';
+  document.getElementById('condTemp').value = next.temperatureC == null ? '' : next.temperatureC;
+  document.getElementById('condHum').value = next.humidity == null ? '' : next.humidity;
+  applyingConditions = false;
+  syncConditionPreset();
+  const stat = document.getElementById('condStat');
+  if (stat) stat.textContent = formatConditions(readConditions());
+}
+
+function pushConditionsToPreview() {
+  const frame = document.getElementById('previewFrame');
+  if (!frame || !frame.contentWindow || frame.style.display === 'none') return;
+  frame.contentWindow.postMessage({ type: 'silkworm-studio/conditions', conditions: readConditions() }, '*');
+}
+
+function onConditionsEdited() {
+  syncConditionPreset();
+  const stat = document.getElementById('condStat');
+  if (stat) stat.textContent = formatConditions(readConditions());
+  if (applyingConditions) return;
+  pushConditionsToPreview();
+}
+
+function fillConditionNow() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  document.getElementById('condTime').value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  onConditionsEdited();
+}
+
+function applyConditionPreset() {
+  const v = document.getElementById('condPreset').value;
+  if (!v) return;
+  const parts = v.split(',');
+  document.getElementById('condTemp').value = parts[0];
+  document.getElementById('condHum').value = parts[1];
+  onConditionsEdited();
+}
+
 // ==================== 工程保存/打开 ====================
 function tracerProjectCore() {
   return {
     schema: 'silkworm-studio/project',
     projectVersion: PROJECT_FILE_VERSION,
     savedAt: new Date().toISOString(),
+    conditions: readConditions(),
     calibration: state.cal,
     worms: state.worms,
     activeId: state.activeId,
@@ -5729,6 +5950,11 @@ function saveProject() {
     if (extra) {
       data.preview = extra.preview || null;
       data.habitat = extra.habitat || null;
+      const local = data.conditions || readConditions();
+      const remote = extra.conditions;
+      const localEmpty = !local.recordedAt && local.temperatureC == null && local.humidity == null;
+      const remoteHas = remote && (remote.recordedAt || remote.temperatureC != null || remote.humidity != null);
+      if (localEmpty && remoteHas) data.conditions = remote;
     }
     downloadProject(data);
   };
@@ -5787,16 +6013,18 @@ function loadProject(e) {
     }
     renderTabs(); syncStyleUI(); updateCalStat(); updateSegStat(); updateStat(); updateBehaviorStat();
     scheduleDraw({ traj: true });
+    applyConditions(data.conditions || null);
     if (data.videoFileName) {
       const seg = document.getElementById('segStat');
       if (seg) seg.textContent = '工程记录的视频：' + data.videoFileName + '（请重新载入该文件）';
     }
     const frame = document.getElementById('previewFrame');
-    if (frame && frame.contentWindow && (data.preview || data.habitat)) {
+    if (frame && frame.contentWindow && (data.preview || data.habitat || data.conditions)) {
       frame.contentWindow.postMessage({
         type: 'silkworm-studio/import',
         preview: data.preview || null,
         habitat: data.habitat || null,
+        conditions: data.conditions || null,
       }, '*');
     }
     else if (document.body.classList.contains('split-preview')) pushPreviewToPane(true);
