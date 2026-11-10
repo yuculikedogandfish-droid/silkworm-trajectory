@@ -270,10 +270,10 @@
       <div class="hint">可以在同一画面里拖出多个活动框，每个框有编号。新框不会清掉已有的框，也不会清掉已经描好的丝。要删框或删丝，用下面单独的按钮。</div>
       <div class="row">
         <button type="button" data-tip="按住拖出一个新框，编号自动加一" onclick="setMode('region')" style="flex:1">拖一个新框</button>
-        <button type="button" data-tip="先点中一个框，再拖动它换位置" onclick="setMode('movebox')" style="flex:1">挪动选中框</button>
+        <button type="button" data-tip="点中框后可拖动；拖四角或四边可改大小" onclick="setMode('movebox')" style="flex:1">挪动 / 缩放框</button>
       </div>
       <div class="row">
-        <button type="button" data-tip="按当前标定再放一个 1.5×1 格的新框" onclick="presetBehaviorBox15()" style="flex:1">再放 1.5×1 框</button>
+        <button type="button" data-tip="按当前标定再放一个 1.5×1.5 格的新框" onclick="presetBehaviorBox15()" style="flex:1">再放 1.5×1.5 框</button>
         <button type="button" class="danger" data-tip="只删除当前选中的框，不删除丝线" onclick="deleteSelectedBehaviorBox()" style="flex:1">删除选中框</button>
       </div>
       <div class="stat" id="behaviorStat">未框选</div>
@@ -335,23 +335,23 @@
       <h2>曲线样式（当前蚕）</h2>
       <div class="row">
         <label>颜色</label>
-        <input type="color" id="sColor" value="#e8a04c" oninput="updateStyle()">
+        <input type="color" id="sColor" value="#ffffff" oninput="updateStyle()">
       </div>
       <canvas id="stylePreview" width="276" height="44" style="width:100%;height:44px;background:#0a0b0d;border-radius:4px;border:1px solid var(--border);margin-bottom:8px"></canvas>
       <div class="row">
         <label>头端粗</label>
-        <input type="range" id="sHead" min="0.1" max="4" step="0.05" value="0.5" oninput="updateStyle()">
-        <span class="val" id="vHead">0.50</span>
+        <input type="range" id="sHead" min="0.05" max="4" step="0.05" value="0.2" oninput="updateStyle()">
+        <span class="val" id="vHead">0.20</span>
       </div>
       <div class="row">
         <label>中段粗</label>
-        <input type="range" id="sMid" min="0.2" max="8" step="0.1" value="2.5" oninput="updateStyle()">
-        <span class="val" id="vMid">2.50</span>
+        <input type="range" id="sMid" min="0.05" max="8" step="0.05" value="0.2" oninput="updateStyle()">
+        <span class="val" id="vMid">0.20</span>
       </div>
       <div class="row">
         <label>尾端粗</label>
-        <input type="range" id="sTail" min="0.1" max="4" step="0.05" value="0.35" oninput="updateStyle()">
-        <span class="val" id="vTail">0.35</span>
+        <input type="range" id="sTail" min="0.05" max="4" step="0.05" value="0.2" oninput="updateStyle()">
+        <span class="val" id="vTail">0.20</span>
       </div>
       <div class="row">
         <label>透明度</label>
@@ -361,8 +361,8 @@
       <div class="row">
         <label>材质</label>
         <select id="sMat" oninput="updateStyle()" onchange="updateStyle()">
-          <option value="line">line（线）</option>
-          <option value="ribbon" selected>ribbon（丝带）</option>
+          <option value="line" selected>line（线）</option>
+          <option value="ribbon">ribbon（丝带）</option>
           <option value="tube">tube（管状高光）</option>
           <option value="silk">silk（蚕丝光泽）</option>
         </select>
@@ -583,6 +583,9 @@
   <span class=&quot;badge&quot; id=&quot;dataBadge&quot;>无数据</span>
   <span class=&quot;spacer&quot;></span>
   <button type=&quot;button&quot; class=&quot;primary&quot; onclick=&quot;togglePlay()&quot;>▶ 播放 / 暂停</button>
+  <button type=&quot;button&quot; onclick=&quot;saveStudioProject()&quot;>保存工程</button>
+  <button type=&quot;button&quot; onclick=&quot;document.getElementById('fileStudio').click()&quot;>载入工程</button>
+  <input type=&quot;file&quot; id=&quot;fileStudio&quot; accept=&quot;.json,application/json&quot; onchange=&quot;loadStudioProject(event)&quot;>
   <button type=&quot;button&quot; onclick=&quot;document.getElementById('fileJson').click()&quot;>载入 JSON</button>
   <input type=&quot;file&quot; id=&quot;fileJson&quot; accept=&quot;.json&quot; onchange=&quot;loadJsonFile(event)&quot;>
   <button type=&quot;button&quot; onclick=&quot;regenerateSynthetic()&quot;>合成新轮</button>
@@ -599,7 +602,7 @@
       <h2>播放</h2>
       <div class=&quot;row&quot;>
         <label>点/秒</label>
-        <input type=&quot;range&quot; id=&quot;pps&quot; min=&quot;0.2&quot; max=&quot;40&quot; step=&quot;0.1&quot; value=&quot;4&quot; oninput=&quot;syncUI()&quot;>
+        <input type=&quot;range&quot; id=&quot;pps&quot; min=&quot;0.2&quot; max=&quot;120&quot; step=&quot;0.1&quot; value=&quot;4&quot; oninput=&quot;syncUI()&quot;>
         <span id=&quot;ppsVal&quot;>4</span>
       </div>
       <div class=&quot;row&quot;>
@@ -725,7 +728,7 @@ const state = {
   trajectories: [],
   activeIdx: 0,
   points: [],
-  style: { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.95, material: 'ribbon' },
+  style: { headWidth: 0.2, midWidth: 0.2, tailWidth: 0.2, opacity: 0.95, material: 'line' },
   color: '#f7f5f2',
   behaviorBoxes: [],
   provenance: 'measured',
@@ -2317,6 +2320,141 @@ cvs.addEventListener('pointerup', onPointerUp);
 cvs.addEventListener('pointercancel', onPointerUp);
 draw();
 
+function numInput(id, fallback) {
+  const el = document.getElementById(id);
+  const n = el ? parseFloat(el.value) : NaN;
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function studioPreviewSlice() {
+  return {
+    pps: numInput('pps', 4),
+    loopOn: document.getElementById('loopOn').checked,
+    showSilk: document.getElementById('showSilk').checked,
+    showWorm: document.getElementById('showWorm').checked,
+    showResidue: document.getElementById('showResidue').checked,
+    showPts: document.getElementById('showPts').checked,
+    showBeh: document.getElementById('showBeh').checked,
+    mat: document.getElementById('matSel').value,
+    tilt: numInput('tilt', 0),
+    yaw: numInput('yaw', 0),
+    noise: numInput('noise', 35),
+    seed: document.getElementById('seed').value,
+    frame: state.frame,
+    panX: state.panX,
+    panY: state.panY,
+    litCells: state.litCells.map(c => ({ ix: c.ix, iy: c.iy })),
+    trajectories: state.trajectories,
+    activeIdx: state.activeIdx,
+    behaviorBoxes: state.behaviorBoxes,
+    unit: state.unit,
+    provenance: state.provenance,
+  };
+}
+
+function applyStudioPreview(preview) {
+  if (!preview) return;
+  const setCheck = (id, val) => { if (typeof val === 'boolean') document.getElementById(id).checked = val; };
+  const setVal = (id, val) => { if (val != null) document.getElementById(id).value = val; };
+  setVal('pps', preview.pps);
+  setVal('tilt', preview.tilt);
+  setVal('yaw', preview.yaw);
+  setVal('noise', preview.noise);
+  setVal('seed', preview.seed);
+  setVal('matSel', preview.mat);
+  setCheck('loopOn', preview.loopOn);
+  setCheck('showSilk', preview.showSilk);
+  setCheck('showWorm', preview.showWorm);
+  setCheck('showResidue', preview.showResidue);
+  setCheck('showPts', preview.showPts);
+  setCheck('showBeh', preview.showBeh);
+  if (preview.trajectories &amp;&amp; preview.trajectories.length) {
+    setTrajectoryList({
+      trajectories: preview.trajectories,
+      behaviorBoxes: preview.behaviorBoxes || [],
+      unit: preview.unit || 'px',
+      provenance: preview.provenance || 'measured',
+    }, preview.activeIdx || 0);
+  }
+  if (Array.isArray(preview.litCells)) {
+    state.litCells = preview.litCells.map(c => ({ ix: c.ix, iy: c.iy }));
+    rebuildRoute();
+    computeBounds();
+  }
+  if (Number.isFinite(preview.panX)) state.panX = preview.panX;
+  if (Number.isFinite(preview.panY)) state.panY = preview.panY;
+  if (Number.isFinite(preview.frame)) state.frame = preview.frame;
+  syncUI();
+  draw();
+}
+
+function saveStudioProject() {
+  const data = {
+    schema: 'silkworm-studio/project',
+    projectVersion: 3,
+    savedAt: new Date().toISOString(),
+    preview: studioPreviewSlice(),
+    habitat: window.__studioHabitat ? window.__studioHabitat.export() : null,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'silkworm-project-' + Date.now() + '.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function loadStudioProject(e) {
+  const f = e.target.files &amp;&amp; e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (data.preview) applyStudioPreview(data.preview);
+      else if (data.trajectories || data.unifiedTrajectories || data.curves) ingestPayload(data);
+      else if (data.worms) {
+        const trajectories = Object.keys(data.worms).map((id) => {
+          const w = data.worms[id];
+          const points = (w.points || []).map((p, i, arr) => ({
+            x: p.x, y: p.y, u: arr.length > 1 ? i / (arr.length - 1) : 0, width_mm: p.width_mm,
+          }));
+          return { wormId: +id, color: w.color || '#ffffff', style: w.style, points };
+        }).filter(t => t.points.length >= 2);
+        const behaviorBoxes = [];
+        Object.keys(data.worms).forEach((id) => {
+          (data.worms[id].behaviorBoxes || []).forEach((b) => behaviorBoxes.push({ box_px: b, boxId: b.id }));
+        });
+        if (trajectories.length) ingestPayload({ type: 'silkworm-preview/v1', trajectories, behaviorBoxes, provenance: 'measured' });
+      }
+      if (data.habitat &amp;&amp; window.__studioHabitat) window.__studioHabitat.import(data.habitat);
+      if (!data.preview &amp;&amp; !data.habitat &amp;&amp; !data.trajectories &amp;&amp; !data.worms &amp;&amp; !data.curves &amp;&amp; !data.unifiedTrajectories) {
+        alert('这个 JSON 里没有可载入的工程、轨迹或蚕室数据');
+      }
+    } catch (err) {
+      alert('工程 JSON 无效: ' + err.message);
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(f);
+}
+
+window.addEventListener('message', (ev) => {
+  if (!ev.data) return;
+  if (ev.data.type === 'silkworm-studio/export-request') {
+    window.parent.postMessage({
+      type: 'silkworm-studio/export',
+      preview: studioPreviewSlice(),
+      habitat: window.__studioHabitat ? window.__studioHabitat.export() : null,
+    }, '*');
+  }
+  if (ev.data.type === 'silkworm-studio/import') {
+    applyStudioPreview(ev.data.preview);
+    if (ev.data.habitat &amp;&amp; window.__studioHabitat) window.__studioHabitat.import(ev.data.habitat);
+  }
+});
+
 if (window.parent !== window) {
   window.parent.postMessage({ type: 'silkworm-preview-ready' }, '*');
 }
@@ -2916,6 +3054,78 @@ if (window.parent !== window) {
   document.getElementById('habOpenLeft').addEventListener('click', () => document.getElementById('habLeft').classList.toggle('open'));
   document.getElementById('habOpenRight').addEventListener('click', () => document.getElementById('habRight').classList.toggle('open'));
 
+  function exportHabitat() {
+    return {
+      modelVersion: MODEL,
+      disclaimer: '温湿度映射为演示模型，不是已验证的生理规律',
+      temperatureC: habitat.tempC,
+      humidity: habitat.humidity,
+      seed: habitat.seed,
+      simTime: habitat.simTime,
+      shape: habitat.shape,
+      tool: habitat.tool,
+      selected: habitat.selected,
+      selectedLeaf: habitat.selectedLeaf,
+      obstacles: habitat.obstacles,
+      orphanSilk: habitat.orphans,
+      reference: habitat.reference,
+      agents: habitat.agents.map(a => ({
+        id: a.id,
+        mode: a.mode,
+        bodyVisible: a.bodyVisible,
+        x: a.x,
+        y: a.y,
+        heading: a.heading,
+        phase: a.phase,
+        turnSign: a.turnSign,
+        silk: a.silk,
+      })),
+    };
+  }
+
+  function importHabitat(data) {
+    if (!data) return;
+    if (Number.isFinite(data.temperatureC)) {
+      habitat.tempC = data.temperatureC;
+      document.getElementById('habTemp').value = data.temperatureC;
+    }
+    if (Number.isFinite(data.humidity)) {
+      habitat.humidity = data.humidity;
+      document.getElementById('habHum').value = data.humidity;
+    }
+    if (data.seed != null) habitat.seed = data.seed;
+    if (Number.isFinite(data.simTime)) habitat.simTime = data.simTime;
+    if (data.shape) {
+      habitat.shape = data.shape;
+      document.querySelectorAll('[data-shape]').forEach(b => b.classList.toggle('active', b.dataset.shape === data.shape));
+    }
+    habitat.tool = data.tool || 'worm';
+    document.getElementById('habLeafTool').classList.toggle('active', habitat.tool === 'leaf');
+    habitat.obstacles = Array.isArray(data.obstacles) ? data.obstacles : [];
+    habitat.orphans = Array.isArray(data.orphanSilk) ? data.orphanSilk : [];
+    habitat.reference = data.reference || null;
+    habitat.selected = data.selected || null;
+    habitat.selectedLeaf = data.selectedLeaf || null;
+    if (Array.isArray(data.agents)) {
+      habitat.agents = data.agents.map(a => ({
+        id: a.id,
+        mode: a.mode || 'bench',
+        bodyVisible: a.bodyVisible !== false,
+        x: a.x || 0,
+        y: a.y || 0,
+        heading: a.heading || 0,
+        phase: a.phase || 0,
+        turnSign: a.turnSign || 1,
+        silk: Array.isArray(a.silk) ? a.silk : [],
+        pauseUntil: 0,
+      }));
+    }
+    renderList();
+    renderDrive();
+  }
+
+  window.__studioHabitat = { export: exportHabitat, import: importHabitat };
+
   spawnBench();
   renderList();
   paintStatic();
@@ -2938,8 +3148,9 @@ if (window.parent !== window) {
 
 <script>
 // ==================== 状态 ====================
-const COLORS = ["#e8a04c","#5eb6a8","#d96b5a","#7a9cd6","#b678c9","#8fbf6a","#d9c25a","#6ec4d9","#c98a6e"];
-const PROJECT_FILE_VERSION = 2;
+const COLORS = ["#ffffff","#5eb6a8","#d96b5a","#7a9cd6","#b678c9","#8fbf6a","#d9c25a","#6ec4d9","#c98a6e"];
+const DEFAULT_STYLE = { headWidth: 0.2, midWidth: 0.2, tailWidth: 0.2, opacity: 0.95, material: 'line' };
+const PROJECT_FILE_VERSION = 3;
 const SCHEMA_CURVES3D = 'curves3d/v2';
 const SCHEMA_MOTION = 'silkworm-motion-model/v2';
 const state = {
@@ -3045,7 +3256,7 @@ function ensureWorm(id) {
       color: COLORS[(id-1) % COLORS.length],
       points: [],
       strokes: [],
-      style: { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.9, material: 'ribbon' },
+      style: { ...DEFAULT_STYLE },
       behaviorBoxes: [],
       selectedBoxId: null,
       nextBoxId: 1,
@@ -3074,6 +3285,7 @@ function loadVideo(e) {
   state.videoReady = false;
   if (v._blobUrl) URL.revokeObjectURL(v._blobUrl);
   v._blobUrl = URL.createObjectURL(f);
+  state.videoFileName = f.name;
   v.src = v._blobUrl;
   v.load();
   e.target.value = '';
@@ -3378,9 +3590,9 @@ function setMode(m) {
     origin: '在画面上点一下格子的交点，这里就是 (0, 0)。',
     scale: '先点格子的一个角，再点相邻角。两点距离应等于下方的毫米数（默认 10 mm = 1 cm）。',
     region: '按住拖出一个新框。松开后它会得到新编号，原来的框和丝线都还在。',
-    movebox: '点中要挪的框，按住拖到新位置。这只移动框，不改丝线。',
+    movebox: '点中编号框后拖动可挪位置。拖白色方块可改大小。不改丝线。',
   };
-  const titles = { origin: '正在设原点', scale: '正在量一格', region: '正在加一个新框', movebox: '正在挪动框' };
+  const titles = { origin: '正在设原点', scale: '正在量一格', region: '正在加一个新框', movebox: '正在挪动或缩放框' };
   document.getElementById('calHint').innerHTML = '<b>' + titles[m] + '：</b>' + hints[m];
   const ban = document.getElementById('modeBanner');
   if (ban) {
@@ -3415,7 +3627,10 @@ function onPointerDown(e) {
     state.worms[state.activeId].selectedBoxId = hit.id;
     syncPrimaryBox(state.worms[state.activeId]);
     state.canvas.setPointerCapture(e.pointerId);
-    state.boxDrag = { id: e.pointerId, boxId: hit.id, ox: x - hit.x0, oy: y - hit.y0 };
+    const handle = hitBoxHandle(hit, x, y);
+    state.boxDrag = handle
+      ? { id: e.pointerId, boxId: hit.id, mode: 'resize', handle, x0: hit.x0, y0: hit.y0, x1: hit.x1, y1: hit.y1 }
+      : { id: e.pointerId, boxId: hit.id, mode: 'move', ox: x - hit.x0, oy: y - hit.y0 };
     updateBehaviorStat();
     draw();
     return;
@@ -3510,7 +3725,17 @@ function onPointerMove(e) {
     const { x, y } = pointerToCanvas(e);
     const w = state.worms[state.activeId];
     const box = wormBoxes(w).find(b => b.id === bd.boxId);
-    if (box) {
+    if (box && bd.mode === 'resize') {
+      let x0 = bd.x0, y0 = bd.y0, x1 = bd.x1, y1 = bd.y1;
+      if (bd.handle.indexOf('w') >= 0) x0 = x;
+      if (bd.handle.indexOf('e') >= 0) x1 = x;
+      if (bd.handle.indexOf('n') >= 0) y0 = y;
+      if (bd.handle.indexOf('s') >= 0) y1 = y;
+      if (Math.abs(x1 - x0) >= 8 && Math.abs(y1 - y0) >= 8) {
+        box.x0 = x0; box.y0 = y0; box.x1 = x1; box.y1 = y1;
+        syncPrimaryBox(w);
+      }
+    } else if (box) {
       const bw = box.x1 - box.x0, bh = box.y1 - box.y0;
       box.x0 = x - bd.ox;
       box.y0 = y - bd.oy;
@@ -3803,9 +4028,41 @@ function syncPrimaryBox(w) {
   w.behaviorBox = sel ? { id: sel.id, x0: sel.x0, y0: sel.y0, x1: sel.x1, y1: sel.y1 } : null;
 }
 
+function orderedBox(b) {
+  return {
+    id: b.id,
+    x0: Math.min(b.x0, b.x1),
+    y0: Math.min(b.y0, b.y1),
+    x1: Math.max(b.x0, b.x1),
+    y1: Math.max(b.y0, b.y1),
+  };
+}
+
+function boxHandles(b) {
+  const o = orderedBox(b);
+  const mx = (o.x0 + o.x1) / 2, my = (o.y0 + o.y1) / 2;
+  return {
+    nw: { x: o.x0, y: o.y0 }, ne: { x: o.x1, y: o.y0 },
+    sw: { x: o.x0, y: o.y1 }, se: { x: o.x1, y: o.y1 },
+    n: { x: mx, y: o.y0 }, s: { x: mx, y: o.y1 },
+    w: { x: o.x0, y: my }, e: { x: o.x1, y: my },
+  };
+}
+
+function hitBoxHandle(box, x, y) {
+  const hs = boxHandles(box);
+  for (const key of ['nw', 'ne', 'sw', 'se', 'n', 's', 'w', 'e']) {
+    if (Math.hypot(x - hs[key].x, y - hs[key].y) <= 12) return key;
+  }
+  return null;
+}
+
 function hitBehaviorBox(wormId, x, y) {
   const boxes = wormBoxes(state.worms[wormId]).slice().reverse();
-  return boxes.find(b => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) || null;
+  return boxes.find(b => {
+    const o = orderedBox(b);
+    return x >= o.x0 && x <= o.x1 && y >= o.y0 && y <= o.y1;
+  }) || null;
 }
 
 function addBehaviorBox(rect) {
@@ -3891,13 +4148,13 @@ function presetBehaviorBox15() {
     cy = w.points.reduce((s, p) => s + p.y, 0) / w.points.length;
   } else if (state.cal.ox != null) {
     cx = state.cal.ox + cellPx * 0.75;
-    cy = state.cal.oy - cellPx * 0.5;
+    cy = state.cal.oy - cellPx * 0.75;
   } else {
     alert('请先设原点或描一点轨迹作为中心参考。');
     return;
   }
   const bw = cellPx * 1.5;
-  const bh = cellPx * 1.0;
+  const bh = cellPx * 1.5;
   addBehaviorBox({ x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 });
   updateBehaviorStat();
   draw();
@@ -4644,7 +4901,8 @@ function draw() {
       const worm = state.worms[id];
       const boxes = wormBoxes(worm);
       boxes.forEach((wb) => {
-      const x = wb.x0, y = wb.y0, w = wb.x1 - wb.x0, h = wb.y1 - wb.y0;
+      const o = orderedBox(wb);
+      const x = o.x0, y = o.y0, w = o.x1 - o.x0, h = o.y1 - o.y0;
       const active = +id === state.activeId;
       const selected = active && wb.id === worm.selectedBoxId;
       ctx.strokeStyle = selected ? 'rgba(232,160,76,1)' : (active ? 'rgba(120,230,210,1)' : 'rgba(94,182,168,0.7)');
@@ -4656,6 +4914,13 @@ function draw() {
       ctx.fillStyle = selected ? '#e8a04c' : 'rgba(120,230,210,0.95)';
       ctx.font = 'bold 18px sans-serif';
       ctx.fillText(String(wb.id), x + 8, y + 22);
+      if (selected) {
+        ctx.fillStyle = '#ffffff';
+        const hs = boxHandles(wb);
+        Object.keys(hs).forEach((key) => {
+          ctx.fillRect(hs[key].x - 4, hs[key].y - 4, 8, 8);
+        });
+      }
       });
     }
   }
@@ -5349,7 +5614,7 @@ function importTrackingJson(e) {
           x: pt.x, y: pt.y, t: pt.t != null ? pt.t : pt.t_video,
         })),
         strokes: sw.strokes || [{ start: 0, end: (sw.points || []).length - 1 }],
-        style: sw.style || { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.9, material: 'ribbon' },
+        style: sw.style || { ...DEFAULT_STYLE },
         behaviorBox: sw.behaviorBox || null,
         motionPattern: 'figure8',
       };
@@ -5366,7 +5631,7 @@ function importTrackingJson(e) {
         color: sw.color || COLORS[(id - 1) % COLORS.length],
         points: pts,
         strokes: [{ start: 0, end: Math.max(0, pts.length - 1) }],
-        style: sw.style || { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.9, material: 'ribbon' },
+        style: sw.style || { ...DEFAULT_STYLE },
         behaviorBox: null,
         motionPattern: 'figure8',
       };
@@ -5425,9 +5690,11 @@ function exportCanvasImage() {
 }
 
 // ==================== 工程保存/打开 ====================
-function saveProject() {
-  const data = {
+function tracerProjectCore() {
+  return {
+    schema: 'silkworm-studio/project',
     projectVersion: PROJECT_FILE_VERSION,
+    savedAt: new Date().toISOString(),
     calibration: state.cal,
     worms: state.worms,
     activeId: state.activeId,
@@ -5437,10 +5704,40 @@ function saveProject() {
     segmentIndex: state.segmentIndex,
     maxWormTab: state.maxWormTab,
     videoFps: state.videoFps,
+    videoFileName: state.videoFileName || null,
   };
+}
+
+function downloadProject(data) {
   const err = validateProjectData(data);
   if (err) { alert('工程校验失败：' + err); return; }
-  download('project-'+Date.now()+'.json', JSON.stringify(data, null, 2), 'application/json');
+  download('silkworm-project-' + Date.now() + '.json', JSON.stringify(data, null, 2), 'application/json');
+}
+
+function saveProject() {
+  const data = tracerProjectCore();
+  const frame = document.getElementById('previewFrame');
+  if (!frame || !frame.contentWindow || frame.style.display === 'none') {
+    downloadProject(data);
+    return;
+  }
+  let settled = false;
+  const finish = (extra) => {
+    if (settled) return;
+    settled = true;
+    window.removeEventListener('message', onExport);
+    if (extra) {
+      data.preview = extra.preview || null;
+      data.habitat = extra.habitat || null;
+    }
+    downloadProject(data);
+  };
+  const onExport = (ev) => {
+    if (ev.data && ev.data.type === 'silkworm-studio/export') finish(ev.data);
+  };
+  window.addEventListener('message', onExport);
+  frame.contentWindow.postMessage({ type: 'silkworm-studio/export-request' }, '*');
+  setTimeout(() => finish(null), 500);
 }
 function loadProject(e) {
   const f = e.target.files[0]; if (!f) return;
@@ -5483,12 +5780,26 @@ function loadProject(e) {
     if (data.segmentIndex != null) state.segmentIndex = data.segmentIndex;
     if (data.segments && data.segments.length) state.segments = data.segments;
     if (data.videoFps) state.videoFps = data.videoFps;
+    if (data.videoFileName) state.videoFileName = data.videoFileName;
     if (data.bridge) {
       state.bridge = { ...state.bridge, ...data.bridge };
       syncBridgeUI();
     }
-    renderTabs(); syncStyleUI(); updateCalStat(); updateSegStat(); updateStat();
+    renderTabs(); syncStyleUI(); updateCalStat(); updateSegStat(); updateStat(); updateBehaviorStat();
     scheduleDraw({ traj: true });
+    if (data.videoFileName) {
+      const seg = document.getElementById('segStat');
+      if (seg) seg.textContent = '工程记录的视频：' + data.videoFileName + '（请重新载入该文件）';
+    }
+    const frame = document.getElementById('previewFrame');
+    if (frame && frame.contentWindow && (data.preview || data.habitat)) {
+      frame.contentWindow.postMessage({
+        type: 'silkworm-studio/import',
+        preview: data.preview || null,
+        habitat: data.habitat || null,
+      }, '*');
+    }
+    else if (document.body.classList.contains('split-preview')) pushPreviewToPane(true);
     e.target.value = '';
   };
   reader.onerror = () => { alert('无法读取工程文件'); e.target.value = ''; };

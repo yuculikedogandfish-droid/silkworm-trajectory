@@ -122,6 +122,9 @@
   <span class="badge" id="dataBadge">无数据</span>
   <span class="spacer"></span>
   <button type="button" class="primary" onclick="togglePlay()">▶ 播放 / 暂停</button>
+  <button type="button" onclick="saveStudioProject()">保存工程</button>
+  <button type="button" onclick="document.getElementById('fileStudio').click()">载入工程</button>
+  <input type="file" id="fileStudio" accept=".json,application/json" onchange="loadStudioProject(event)">
   <button type="button" onclick="document.getElementById('fileJson').click()">载入 JSON</button>
   <input type="file" id="fileJson" accept=".json" onchange="loadJsonFile(event)">
   <button type="button" onclick="regenerateSynthetic()">合成新轮</button>
@@ -138,7 +141,7 @@
       <h2>播放</h2>
       <div class="row">
         <label>点/秒</label>
-        <input type="range" id="pps" min="0.2" max="40" step="0.1" value="4" oninput="syncUI()">
+        <input type="range" id="pps" min="0.2" max="120" step="0.1" value="4" oninput="syncUI()">
         <span id="ppsVal">4</span>
       </div>
       <div class="row">
@@ -264,7 +267,7 @@ const state = {
   trajectories: [],
   activeIdx: 0,
   points: [],
-  style: { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.95, material: 'ribbon' },
+  style: { headWidth: 0.2, midWidth: 0.2, tailWidth: 0.2, opacity: 0.95, material: 'line' },
   color: '#f7f5f2',
   behaviorBoxes: [],
   provenance: 'measured',
@@ -1856,6 +1859,141 @@ cvs.addEventListener('pointerup', onPointerUp);
 cvs.addEventListener('pointercancel', onPointerUp);
 draw();
 
+function numInput(id, fallback) {
+  const el = document.getElementById(id);
+  const n = el ? parseFloat(el.value) : NaN;
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function studioPreviewSlice() {
+  return {
+    pps: numInput('pps', 4),
+    loopOn: document.getElementById('loopOn').checked,
+    showSilk: document.getElementById('showSilk').checked,
+    showWorm: document.getElementById('showWorm').checked,
+    showResidue: document.getElementById('showResidue').checked,
+    showPts: document.getElementById('showPts').checked,
+    showBeh: document.getElementById('showBeh').checked,
+    mat: document.getElementById('matSel').value,
+    tilt: numInput('tilt', 0),
+    yaw: numInput('yaw', 0),
+    noise: numInput('noise', 35),
+    seed: document.getElementById('seed').value,
+    frame: state.frame,
+    panX: state.panX,
+    panY: state.panY,
+    litCells: state.litCells.map(c => ({ ix: c.ix, iy: c.iy })),
+    trajectories: state.trajectories,
+    activeIdx: state.activeIdx,
+    behaviorBoxes: state.behaviorBoxes,
+    unit: state.unit,
+    provenance: state.provenance,
+  };
+}
+
+function applyStudioPreview(preview) {
+  if (!preview) return;
+  const setCheck = (id, val) => { if (typeof val === 'boolean') document.getElementById(id).checked = val; };
+  const setVal = (id, val) => { if (val != null) document.getElementById(id).value = val; };
+  setVal('pps', preview.pps);
+  setVal('tilt', preview.tilt);
+  setVal('yaw', preview.yaw);
+  setVal('noise', preview.noise);
+  setVal('seed', preview.seed);
+  setVal('matSel', preview.mat);
+  setCheck('loopOn', preview.loopOn);
+  setCheck('showSilk', preview.showSilk);
+  setCheck('showWorm', preview.showWorm);
+  setCheck('showResidue', preview.showResidue);
+  setCheck('showPts', preview.showPts);
+  setCheck('showBeh', preview.showBeh);
+  if (preview.trajectories && preview.trajectories.length) {
+    setTrajectoryList({
+      trajectories: preview.trajectories,
+      behaviorBoxes: preview.behaviorBoxes || [],
+      unit: preview.unit || 'px',
+      provenance: preview.provenance || 'measured',
+    }, preview.activeIdx || 0);
+  }
+  if (Array.isArray(preview.litCells)) {
+    state.litCells = preview.litCells.map(c => ({ ix: c.ix, iy: c.iy }));
+    rebuildRoute();
+    computeBounds();
+  }
+  if (Number.isFinite(preview.panX)) state.panX = preview.panX;
+  if (Number.isFinite(preview.panY)) state.panY = preview.panY;
+  if (Number.isFinite(preview.frame)) state.frame = preview.frame;
+  syncUI();
+  draw();
+}
+
+function saveStudioProject() {
+  const data = {
+    schema: 'silkworm-studio/project',
+    projectVersion: 3,
+    savedAt: new Date().toISOString(),
+    preview: studioPreviewSlice(),
+    habitat: window.__studioHabitat ? window.__studioHabitat.export() : null,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'silkworm-project-' + Date.now() + '.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function loadStudioProject(e) {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (data.preview) applyStudioPreview(data.preview);
+      else if (data.trajectories || data.unifiedTrajectories || data.curves) ingestPayload(data);
+      else if (data.worms) {
+        const trajectories = Object.keys(data.worms).map((id) => {
+          const w = data.worms[id];
+          const points = (w.points || []).map((p, i, arr) => ({
+            x: p.x, y: p.y, u: arr.length > 1 ? i / (arr.length - 1) : 0, width_mm: p.width_mm,
+          }));
+          return { wormId: +id, color: w.color || '#ffffff', style: w.style, points };
+        }).filter(t => t.points.length >= 2);
+        const behaviorBoxes = [];
+        Object.keys(data.worms).forEach((id) => {
+          (data.worms[id].behaviorBoxes || []).forEach((b) => behaviorBoxes.push({ box_px: b, boxId: b.id }));
+        });
+        if (trajectories.length) ingestPayload({ type: 'silkworm-preview/v1', trajectories, behaviorBoxes, provenance: 'measured' });
+      }
+      if (data.habitat && window.__studioHabitat) window.__studioHabitat.import(data.habitat);
+      if (!data.preview && !data.habitat && !data.trajectories && !data.worms && !data.curves && !data.unifiedTrajectories) {
+        alert('这个 JSON 里没有可载入的工程、轨迹或蚕室数据');
+      }
+    } catch (err) {
+      alert('工程 JSON 无效: ' + err.message);
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(f);
+}
+
+window.addEventListener('message', (ev) => {
+  if (!ev.data) return;
+  if (ev.data.type === 'silkworm-studio/export-request') {
+    window.parent.postMessage({
+      type: 'silkworm-studio/export',
+      preview: studioPreviewSlice(),
+      habitat: window.__studioHabitat ? window.__studioHabitat.export() : null,
+    }, '*');
+  }
+  if (ev.data.type === 'silkworm-studio/import') {
+    applyStudioPreview(ev.data.preview);
+    if (ev.data.habitat && window.__studioHabitat) window.__studioHabitat.import(ev.data.habitat);
+  }
+});
+
 if (window.parent !== window) {
   window.parent.postMessage({ type: 'silkworm-preview-ready' }, '*');
 }
@@ -2454,6 +2592,78 @@ if (window.parent !== window) {
   document.getElementById('habClearRef').addEventListener('click', () => { habitat.reference = null; });
   document.getElementById('habOpenLeft').addEventListener('click', () => document.getElementById('habLeft').classList.toggle('open'));
   document.getElementById('habOpenRight').addEventListener('click', () => document.getElementById('habRight').classList.toggle('open'));
+
+  function exportHabitat() {
+    return {
+      modelVersion: MODEL,
+      disclaimer: '温湿度映射为演示模型，不是已验证的生理规律',
+      temperatureC: habitat.tempC,
+      humidity: habitat.humidity,
+      seed: habitat.seed,
+      simTime: habitat.simTime,
+      shape: habitat.shape,
+      tool: habitat.tool,
+      selected: habitat.selected,
+      selectedLeaf: habitat.selectedLeaf,
+      obstacles: habitat.obstacles,
+      orphanSilk: habitat.orphans,
+      reference: habitat.reference,
+      agents: habitat.agents.map(a => ({
+        id: a.id,
+        mode: a.mode,
+        bodyVisible: a.bodyVisible,
+        x: a.x,
+        y: a.y,
+        heading: a.heading,
+        phase: a.phase,
+        turnSign: a.turnSign,
+        silk: a.silk,
+      })),
+    };
+  }
+
+  function importHabitat(data) {
+    if (!data) return;
+    if (Number.isFinite(data.temperatureC)) {
+      habitat.tempC = data.temperatureC;
+      document.getElementById('habTemp').value = data.temperatureC;
+    }
+    if (Number.isFinite(data.humidity)) {
+      habitat.humidity = data.humidity;
+      document.getElementById('habHum').value = data.humidity;
+    }
+    if (data.seed != null) habitat.seed = data.seed;
+    if (Number.isFinite(data.simTime)) habitat.simTime = data.simTime;
+    if (data.shape) {
+      habitat.shape = data.shape;
+      document.querySelectorAll('[data-shape]').forEach(b => b.classList.toggle('active', b.dataset.shape === data.shape));
+    }
+    habitat.tool = data.tool || 'worm';
+    document.getElementById('habLeafTool').classList.toggle('active', habitat.tool === 'leaf');
+    habitat.obstacles = Array.isArray(data.obstacles) ? data.obstacles : [];
+    habitat.orphans = Array.isArray(data.orphanSilk) ? data.orphanSilk : [];
+    habitat.reference = data.reference || null;
+    habitat.selected = data.selected || null;
+    habitat.selectedLeaf = data.selectedLeaf || null;
+    if (Array.isArray(data.agents)) {
+      habitat.agents = data.agents.map(a => ({
+        id: a.id,
+        mode: a.mode || 'bench',
+        bodyVisible: a.bodyVisible !== false,
+        x: a.x || 0,
+        y: a.y || 0,
+        heading: a.heading || 0,
+        phase: a.phase || 0,
+        turnSign: a.turnSign || 1,
+        silk: Array.isArray(a.silk) ? a.silk : [],
+        pauseUntil: 0,
+      }));
+    }
+    renderList();
+    renderDrive();
+  }
+
+  window.__studioHabitat = { export: exportHabitat, import: importHabitat };
 
   spawnBench();
   renderList();
