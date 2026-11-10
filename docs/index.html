@@ -1,0 +1,2314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="顶视蚕吐丝视频上手描轨迹，导出 SVG/JSON/DXF/运动模型，供 Rhino、Blender、TouchDesigner 使用。">
+<title>蚕轨迹描图器</title>
+<style>
+  :root {
+    --bg: #0e0f12;
+    --panel: #16181d;
+    --panel2: #1c1f26;
+    --border: #262932;
+    --text: #e6e8ec;
+    --muted: #8a8f99;
+    --accent: #e8a04c;
+    --accent2: #5eb6a8;
+    --danger: #d96b5a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  /* ===== 顶栏 ===== */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.5px; }
+  header .spacer { flex: 1; }
+  button, .btn {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: #1a1208; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { opacity: 0.9; color: #1a1208; }
+  button.danger:hover { border-color: var(--danger); color: var(--danger); }
+  input[type="file"] { display: none; }
+  /* ===== 主体 ===== */
+  main { flex: 1; display: flex; overflow: hidden; }
+  .stage {
+    flex: 1;
+    position: relative;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .stage video, .stage canvas {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    max-width: 100%;
+    max-height: 100%;
+  }
+  #video { display: none !important; pointer-events: none; }
+  .stage canvas { cursor: crosshair; touch-action: none; z-index: 1; }
+  .stage .empty {
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.8;
+    z-index: 0;
+  }
+  .stage .empty strong { color: var(--text); font-size: 15px; }
+  /* ===== 侧栏 ===== */
+  aside {
+    width: 300px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 12px;
+  }
+  .section { margin-bottom: 16px; }
+  .section h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .row label { flex: 0 0 70px; color: var(--muted); font-size: 12px; }
+  .row input[type="number"], .row input[type="text"] {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: inherit;
+  }
+  .row input[type="range"] { flex: 1; }
+  .row .val { flex: 0 0 36px; text-align: right; font-variant-numeric: tabular-nums; color: var(--accent); }
+  /* 蚕编号按钮 */
+  .worm-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .worm-tabs button {
+    width: 30px; height: 30px;
+    padding: 0;
+    border-radius: 4px;
+    font-weight: 700;
+  }
+  .worm-tabs button.active { outline: 2px solid var(--accent); }
+  /* 提示条 */
+  .hint {
+    background: var(--panel2);
+    border-left: 3px solid var(--accent);
+    padding: 6px 8px;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+  .hint b { color: var(--text); }
+  /* 运输条 */
+  .transport {
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding: 6px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .transport .time {
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    min-width: 110px;
+    font-size: 12px;
+  }
+  .transport input[type="range"] { flex: 1; }
+  .transport button { padding: 3px 8px; }
+  kbd {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-family: monospace;
+    color: var(--muted);
+  }
+  .toggle-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; color: var(--muted); }
+  .stat { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .stat b { color: var(--text); }
+  button[data-tip], label[data-tip] { position: relative; }
+  button[data-tip]:hover::after,
+  label[data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    z-index: 2000;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    min-width: 120px;
+    max-width: 260px;
+    background: #1c1f26;
+    border: 1px solid var(--accent);
+    color: var(--text);
+    font-size: 11px;
+    font-weight: normal;
+    line-height: 1.45;
+    padding: 6px 8px;
+    border-radius: 4px;
+    pointer-events: none;
+    box-shadow: 0 6px 16px rgba(0,0,0,.5);
+    text-align: center;
+    white-space: normal;
+  }
+  .shortcut-panel { font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .shortcut-panel kbd { margin: 0 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>蚕轨迹描图器</h1>
+  <span style="color:var(--muted);font-size:11px">顶视视频 → 数位板/鼠标描丝 → 导出 SVG/JSON</span>
+  <div class="spacer"></div>
+  <button type="button" id="btnLoadVideo" data-tip="快捷键：无 · 选择本地 MP4" onclick="document.getElementById('fileVideo').click()">载入视频</button>
+  <button type="button" data-tip="载入 家蚕_15s 第一段（15s 分段素材）" onclick="loadBundledVideo()">家蚕·段00</button>
+  <input type="file" id="fileVideo" accept="video/*">
+  <button type="button" id="btnSave" data-tip="快捷键：Ctrl+S" onclick="saveProject()">保存工程</button>
+  <button type="button" id="btnOpen" data-tip="快捷键：Ctrl+O" onclick="document.getElementById('fileProject').click()">打开工程</button>
+  <input type="file" id="fileProject" accept=".json">
+  <button type="button" class="primary" data-tip="矢量 · Illustrator/Rhino" onclick="exportSVG()">SVG</button>
+  <button type="button" data-tip="工程数据 JSON" onclick="exportJSON()">JSON</button>
+  <button type="button" data-tip="表格点位 CSV" onclick="exportCSV()">CSV</button>
+  <button type="button" class="primary" data-tip="三维曲线包 · 含 u=0→1" onclick="exportCurves3D()">3D曲线</button>
+  <button type="button" data-tip="Rhino / CAD 导入" onclick="exportDXF()">DXF</button>
+  <button type="button" data-tip="Blender 导入" onclick="exportOBJ()">OBJ</button>
+  <button type="button" data-tip="Blender / 管线 glTF" onclick="exportGLTF()">glTF</button>
+  <button type="button" data-tip="快捷键：Ctrl+E · 含运动统计与八字范围" onclick="exportMotionModel()">运动模型</button>
+</header>
+
+<main>
+  <div class="stage" id="stage">
+    <div class="empty" id="emptyHint">
+      <strong>未载入视频</strong><br>
+      点右上角「载入视频」选择本地录像（不会上传）<br><br>
+      流程：① 标定 → ② 数字键选蚕 → ③ 按住拖动画丝 / 轻点记单点 → ④ 导出
+    </div>
+    <video id="video" playsinline muted preload="auto"></video>
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <aside>
+    <div class="section">
+      <h2>快捷键</h2>
+      <div class="shortcut-panel">
+        <kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销一点 · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> 撤销一笔<br>
+        <kbd>Space</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> 逐帧 · <kbd>[</kbd><kbd>]</kbd> 上/下段<br>
+        <kbd>1</kbd>–<kbd>9</kbd> 选蚕 · <kbd>O</kbd> 原点 <kbd>L</kbd> 比例尺 <kbd>R</kbd> 框选八字<br>
+        <kbd>Ctrl</kbd>+<kbd>S</kbd> 保存 · <kbd>Ctrl</kbd>+<kbd>O</kbd> 打开 · <kbd>Ctrl</kbd>+<kbd>E</kbd> 运动模型<br>
+        <kbd>Esc</kbd> 取消标定/框选 · 悬停按钮可看提示
+      </div>
+    </div>
+    <div class="section">
+      <h2>标定（像素 → mm）</h2>
+      <div class="hint" id="calHint">实验格子边长 <b>1cm</b>。先设原点，再量比例尺（两点间距填 10mm）。</div>
+      <div class="row">
+        <button type="button" id="btnOrigin" data-tip="快捷键：O" onclick="setMode('origin')" style="flex:1">设原点</button>
+        <button type="button" id="btnScale" data-tip="快捷键：L（Length）" onclick="setMode('scale')" style="flex:1">量比例尺</button>
+      </div>
+      <div class="row">
+        <label>格边 (mm)</label>
+        <input type="number" id="scaleDist" value="10" step="0.5">
+        <button type="button" onclick="document.getElementById('scaleDist').value=10" style="flex:0">1cm</button>
+      </div>
+      <div class="stat" id="calStat">未标定</div>
+    </div>
+
+    <div class="section">
+      <h2>八字运动单元块</h2>
+      <div class="hint">头部摆动大致在 <b>~1.5×1 格</b> 范围内（非固定 2×2）；可用框标定「这一次」的运动包络，供运动模型与生成用。</div>
+      <div class="row">
+        <button type="button" data-tip="快捷键：R（Region）· 拖拽矩形" onclick="setMode('region')" style="flex:1">框选范围</button>
+        <button type="button" data-tip="按 1.5×1 格生成参考框" onclick="presetBehaviorBox15()" style="flex:1">1.5×1 格参考框</button>
+      </div>
+      <div class="stat" id="behaviorStat">未框选</div>
+      <label class="toggle-row"><input type="checkbox" id="tBehBox" checked onchange="draw()"> 显示运动框</label>
+    </div>
+
+    <div class="section">
+      <h2>蚕编号</h2>
+      <div class="worm-tabs" id="wormTabs"></div>
+      <div class="hint">数字键 <kbd>1</kbd>–<kbd>9</kbd> 选蚕；<b>拖动</b>描丝。<kbd>Ctrl+Z</kbd> 撤点 <kbd>Ctrl+Shift+Z</kbd> 撤笔。</div>
+      <div class="row">
+        <button type="button" onclick="addWormTab()" style="flex:1">＋ 新蚕编号</button>
+      </div>
+      <div class="row">
+        <button type="button" id="btnUndoPt" data-tip="快捷键：Ctrl+Z" onclick="undoLast()" style="flex:1">撤销上一点</button>
+        <button type="button" id="btnUndoStroke" data-tip="快捷键：Ctrl+Shift+Z 或 Ctrl+Y" onclick="undoStroke()" style="flex:1">撤销上一笔</button>
+      </div>
+      <div class="row">
+        <button type="button" class="danger" data-tip="无快捷键（防误触）" onclick="clearWorm()" style="flex:1">清空本蚕</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>视频片段</h2>
+      <div class="hint">长视频按固定时长切成多段，逐段描线。文件仍在本地，不重新编码。</div>
+      <div class="row">
+        <label>每段 (s)</label>
+        <input type="number" id="segLength" value="15" min="5" max="120" step="1" onchange="rebuildSegments()">
+      </div>
+      <div class="row">
+        <button type="button" data-tip="快捷键：[" onclick="prevSegment()" style="flex:1">上一段</button>
+        <button type="button" data-tip="快捷键：]" onclick="nextSegment()" style="flex:1">下一段</button>
+      </div>
+      <div class="stat" id="segStat">未载入视频</div>
+    </div>
+
+    <div class="section">
+      <h2>描线防抖 / 平滑</h2>
+      <div class="hint">抬笔后按<b>弧长均匀</b>重采样，与描线快慢无关。平滑在抬笔后处理。</div>
+      <div class="row">
+        <label>均匀点距</label>
+        <input type="range" id="strokeUniform" min="4" max="80" step="1" value="16" oninput="updateStrokeUI()">
+        <span class="val" id="vUniform">16px</span>
+      </div>
+      <div class="row">
+        <label>平滑强度</label>
+        <input type="range" id="strokeSmooth" min="0" max="5" step="1" value="2" oninput="updateStrokeUI()">
+        <span class="val" id="vSmooth">2</span>
+      </div>
+      <div class="row">
+        <label>微抖过滤</label>
+        <input type="range" id="strokeJitter" min="0" max="100" step="5" value="35" oninput="updateStrokeUI()">
+        <span class="val" id="vJitter">35</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>曲线样式（当前蚕）</h2>
+      <div class="row">
+        <label>颜色</label>
+        <input type="color" id="sColor" value="#e8a04c" oninput="updateStyle()">
+      </div>
+      <canvas id="stylePreview" width="276" height="44" style="width:100%;height:44px;background:#0a0b0d;border-radius:4px;border:1px solid var(--border);margin-bottom:8px"></canvas>
+      <div class="row">
+        <label>头端粗</label>
+        <input type="range" id="sHead" min="0.1" max="4" step="0.05" value="0.5" oninput="updateStyle()">
+        <span class="val" id="vHead">0.50</span>
+      </div>
+      <div class="row">
+        <label>中段粗</label>
+        <input type="range" id="sMid" min="0.2" max="8" step="0.1" value="2.5" oninput="updateStyle()">
+        <span class="val" id="vMid">2.50</span>
+      </div>
+      <div class="row">
+        <label>尾端粗</label>
+        <input type="range" id="sTail" min="0.1" max="4" step="0.05" value="0.35" oninput="updateStyle()">
+        <span class="val" id="vTail">0.35</span>
+      </div>
+      <div class="row">
+        <label>透明度</label>
+        <input type="range" id="sOp" min="0.1" max="1" step="0.05" value="0.9" oninput="updateStyle()">
+        <span class="val" id="vOp">0.90</span>
+      </div>
+      <div class="row">
+        <label>材质</label>
+        <select id="sMat" oninput="updateStyle()" onchange="updateStyle()">
+          <option value="line">line（线）</option>
+          <option value="ribbon" selected>ribbon（带）</option>
+          <option value="tube">tube（管）</option>
+        </select>
+      </div>
+      <div class="row">
+        <button onclick="applyToAll()" style="flex:1">应用到所有蚕</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>笔间连接 & 统一轨迹</h2>
+      <div class="hint">多笔丝可合成一条从 <b>u=0→1</b> 的完整过程；连接处用曲线过渡，非生硬直线。分段数据仍会单独保留。</div>
+      <label class="toggle-row" data-tip="快捷键：B · 切换笔间平滑连接">
+        <input type="checkbox" id="bridgeStrokes" checked onchange="onBridgeUI()"> 笔间平滑连接（全局）
+      </label>
+      <div class="row">
+        <label>过渡张力</label>
+        <input type="range" id="bridgeTension" min="0.15" max="0.85" step="0.05" value="0.4" oninput="onBridgeUI()">
+        <span class="val" id="vBridgeT">0.40</span>
+      </div>
+      <div class="row">
+        <button type="button" onclick="applyBridgeToAll()" style="flex:1">连接规则应用到所有蚕</button>
+      </div>
+      <div class="stat" id="motionStat">—</div>
+      <div class="row" style="margin-top:6px">
+        <button type="button" class="primary" onclick="exportMotionModel()" style="flex:1">导出运动模型 JSON</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>显示</h2>
+      <label class="toggle-row"><input type="checkbox" id="tGrid" checked onchange="draw()"> 显示坐标网格</label>
+      <label class="toggle-row"><input type="checkbox" id="tTraj" checked onchange="draw()"> 显示轨迹</label>
+      <label class="toggle-row"><input type="checkbox" id="tPts" checked onchange="draw()"> 显示点</label>
+    </div>
+
+    <div class="section">
+      <h2>三维导出选项</h2>
+      <div class="hint">单位默认 <b>mm</b>；每笔丝单独成一条曲线，便于在 Rhino / Blender 里 <b>重建曲线 · 放样 · 挤管</b>。</div>
+      <div class="row">
+        <label>坐标系</label>
+        <select id="expAxis">
+          <option value="rhino" selected>Rhino（X,Y 地平面, Z 上）</option>
+          <option value="blender">Blender（同左，导入后可用）</option>
+        </select>
+      </div>
+      <label class="toggle-row"><input type="checkbox" id="expUnified" checked> 导出统一曲线 u∈[0,1] + 分段表</label>
+      <label class="toggle-row"><input type="checkbox" id="expWidth" checked> JSON 含每点半径 (width_mm)</label>
+      <label class="toggle-row"><input type="checkbox" id="expPx" checked> JSON 保留像素坐标备查</label>
+      <div class="row" style="margin-top:8px">
+        <button type="button" class="primary" onclick="exportCurves3D()" style="flex:1">3D JSON</button>
+        <button type="button" onclick="exportDXF()" style="flex:1">DXF</button>
+      </div>
+      <div class="row">
+        <button type="button" onclick="exportOBJ()" style="flex:1">OBJ</button>
+        <button type="button" onclick="exportGLTF()" style="flex:1">glTF</button>
+      </div>
+      <div class="row">
+        <button type="button" onclick="exportRhinoPy()" style="flex:1">Rhino .py</button>
+        <button type="button" onclick="exportBlenderPy()" style="flex:1">Blender .py</button>
+      </div>
+      <p class="stat" style="font-size:10px;margin-top:6px">
+        DXF → Rhino <kbd>_Import</kbd> · OBJ/glTF → Blender 导入 ·
+        .py 脚本在软件内运行可生成可编辑曲线。
+      </p>
+    </div>
+
+    <div class="section">
+      <h2>统计</h2>
+      <div class="stat" id="statBox">—</div>
+    </div>
+  </aside>
+</main>
+
+<div class="transport">
+  <button type="button" id="playBtn" data-tip="快捷键：Space" onclick="togglePlay()">▶</button>
+  <button type="button" data-tip="快捷键：← 或 ," onclick="stepFrame(-1)">⏮</button>
+  <button type="button" data-tip="快捷键：→ 或 ." onclick="stepFrame(1)">⏭</button>
+  <span class="time" id="timeLabel">0.00s / 0.00s</span>
+  <input type="range" id="seekBar" min="0" max="1000" value="0" oninput="seekTo(this.value)">
+</div>
+
+<script>
+// ==================== 状态 ====================
+const COLORS = ["#e8a04c","#5eb6a8","#d96b5a","#7a9cd6","#b678c9","#8fbf6a","#d9c25a","#6ec4d9","#c98a6e"];
+const state = {
+  video: null,
+  canvas: null, ctx: null,
+  mode: null,           // null | 'origin' | 'scale'
+  cal: { ox: null, oy: null, scale: null, p1: null },
+  worms: {},
+  activeId: 1,
+  pointer: null,
+  segments: [],
+  segmentIndex: 0,
+  videoFps: 30,
+  videoReady: false,
+  maxWormTab: 1,
+  bridge: { enabled: true, tension: 0.4 },
+  regionDrag: null,
+};
+const FRAME = 1/30;
+/** 绘制时仅用于采集笔迹的最低像素步长（与最终点距无关） */
+const RAW_CAPTURE_STEP = 3;
+
+function canvasPreviewWidthScale() {
+  const cw = state.canvas && state.canvas.width ? state.canvas.width : 1280;
+  return Math.max(8, cw / 260);
+}
+
+function getStrokeOpts() {
+  return {
+    uniformSpacing: getUniformSpacing(),
+    smoothPass: parseInt(document.getElementById('strokeSmooth').value, 10) || 0,
+    jitter: parseFloat(document.getElementById('strokeJitter').value) || 0,
+  };
+}
+function getUniformSpacing() {
+  const el = document.getElementById('strokeUniform');
+  let s = parseFloat(el && el.value);
+  if (!s || s < 1) {
+    const cw = state.canvas && state.canvas.width ? state.canvas.width : 1280;
+    s = Math.max(8, Math.round(cw / 270));
+  }
+  return s;
+}
+function updateStrokeUI() {
+  const o = getStrokeOpts();
+  document.getElementById('vUniform').textContent = o.uniformSpacing.toFixed(0) + 'px';
+  document.getElementById('vSmooth').textContent = String(o.smoothPass);
+  document.getElementById('vJitter').textContent = String(o.jitter);
+}
+
+function suggestUniformSpacingFromVideo() {
+  const v = state.video;
+  if (!v || !v.videoWidth) return;
+  const s = Math.max(8, Math.min(80, Math.round(v.videoWidth / 270)));
+  const el = document.getElementById('strokeUniform');
+  if (el) el.value = s;
+  updateStrokeUI();
+}
+
+// ==================== 初始化 ====================
+window.addEventListener('load', () => {
+  state.canvas = document.getElementById('canvas');
+  state.ctx = state.canvas.getContext('2d');
+  ensureWorm(1);
+  document.getElementById('fileVideo').addEventListener('change', loadVideo);
+  document.getElementById('fileProject').addEventListener('change', loadProject);
+  document.addEventListener('keydown', onKey);
+  const c = state.canvas;
+  c.addEventListener('pointerdown', onPointerDown);
+  c.addEventListener('pointermove', onPointerMove);
+  c.addEventListener('pointerup', onPointerUp);
+  c.addEventListener('pointercancel', onPointerUp);
+  updateStrokeUI();
+  state.video = document.getElementById('video');
+  const v = state.video;
+  v.addEventListener('timeupdate', onVideoTimeUpdate);
+  v.addEventListener('loadedmetadata', onVideoReady);
+  v.addEventListener('loadeddata', () => { state.videoReady = true; draw(); });
+  v.addEventListener('seeked', () => draw());
+  v.addEventListener('play', () => { document.getElementById('playBtn').textContent = '⏸'; });
+  v.addEventListener('pause', () => { document.getElementById('playBtn').textContent = '▶'; draw(); });
+  v.addEventListener('error', () => {
+    alert('视频无法解码。请尝试 H.264 的 MP4，或用浏览器打开（Chrome/Edge）。');
+  });
+  window.addEventListener('resize', () => { resizeCanvas(); draw(); });
+  renderTabs();
+  syncStyleUI();
+  syncBridgeUI();
+  draw();
+});
+
+function ensureWorm(id) {
+  if (!state.worms[id]) {
+    state.worms[id] = {
+      color: COLORS[(id-1) % COLORS.length],
+      points: [],
+      strokes: [],
+      style: { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.9, material: 'ribbon' },
+      behaviorBox: null,
+      motionPattern: 'figure8',
+    };
+  }
+  if (!state.worms[id].strokes) state.worms[id].strokes = [];
+  if (state.worms[id].behaviorBox === undefined) state.worms[id].behaviorBox = null;
+}
+
+// ==================== 视频 ====================
+function loadVideo(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const v = state.video || document.getElementById('video');
+  state.video = v;
+  state.videoReady = false;
+  if (v._blobUrl) URL.revokeObjectURL(v._blobUrl);
+  v._blobUrl = URL.createObjectURL(f);
+  v.src = v._blobUrl;
+  v.load();
+  e.target.value = '';
+}
+
+function resolveBundledVideoSrc() {
+  const localSeg = '../data/projects/家蚕_15s/家蚕运动_段00.mp4';
+  const webDemo = 'demo/silkworm_demo.mp4';
+  const p = location.pathname.replace(/\\/g, '/');
+  if (location.protocol === 'file:' || /\/editor\//.test(p) || /蚕轨迹描图器\.html$/i.test(p)) {
+    return encodeURI(localSeg);
+  }
+  return new URL(webDemo, location.href).href;
+}
+
+function loadBundledVideo() {
+  const v = state.video || document.getElementById('video');
+  state.video = v;
+  state.videoReady = false;
+  if (v._blobUrl) { URL.revokeObjectURL(v._blobUrl); v._blobUrl = null; }
+  v.src = resolveBundledVideoSrc();
+  v.load();
+}
+
+function onVideoReady() {
+  const v = state.video;
+  if (!v || !v.duration) return;
+  document.getElementById('emptyHint').style.display = 'none';
+  resizeCanvas();
+  const frame = estimateVideoFps(v);
+  if (frame) state.videoFps = frame;
+  v.pause();
+  v.currentTime = 0;
+  rebuildSegments();
+  suggestUniformSpacingFromVideo();
+  const paint = () => {
+    state.videoReady = v.readyState >= 2;
+    draw();
+    updateTime();
+    updateSegStat();
+  };
+  if (v.readyState >= 2) paint();
+  else v.addEventListener('loadeddata', function once() {
+    v.removeEventListener('loadeddata', once);
+    state.videoReady = true;
+    paint();
+  }, { once: true });
+}
+
+function estimateVideoFps(v) {
+  if (typeof v.getVideoPlaybackQuality === 'function') {
+    const q = v.getVideoPlaybackQuality();
+    if (q.totalVideoFrames > 10 && v.duration > 0) {
+      const fps = q.totalVideoFrames / v.duration;
+      if (fps > 10 && fps < 120) return Math.round(fps);
+    }
+  }
+  return 30;
+}
+
+function rebuildSegments() {
+  const v = state.video;
+  if (!v || !v.duration || !isFinite(v.duration)) {
+    state.segments = [];
+    updateSegStat();
+    return;
+  }
+  const len = Math.max(5, parseFloat(document.getElementById('segLength').value) || 15);
+  const segs = [];
+  let t = 0, i = 0;
+  while (t < v.duration - 0.01) {
+    segs.push({ index: i, start: t, end: Math.min(t + len, v.duration) });
+    t += len;
+    i++;
+  }
+  if (!segs.length) segs.push({ index: 0, start: 0, end: v.duration });
+  state.segments = segs;
+  if (state.segmentIndex >= segs.length) state.segmentIndex = segs.length - 1;
+  goToSegment(state.segmentIndex, false);
+  updateSegStat();
+}
+
+function currentSegment() {
+  return state.segments[state.segmentIndex] || null;
+}
+
+function goToSegment(idx, clampTime) {
+  if (!state.segments.length) return;
+  state.segmentIndex = Math.max(0, Math.min(idx, state.segments.length - 1));
+  const seg = currentSegment();
+  const v = state.video;
+  if (!v || !seg) return;
+  if (clampTime !== false) {
+    v.pause();
+    v.currentTime = Math.max(seg.start, Math.min(v.currentTime, seg.end - 0.001));
+    if (v.currentTime < seg.start) v.currentTime = seg.start;
+  }
+  updateSegStat();
+  draw();
+  updateTime();
+}
+
+function prevSegment() {
+  if (state.segmentIndex > 0) {
+    state.segmentIndex--;
+    const seg = currentSegment();
+    state.video.pause();
+    state.video.currentTime = seg.start;
+    updateSegStat();
+    draw();
+    updateTime();
+  }
+}
+
+function nextSegment() {
+  if (state.segmentIndex < state.segments.length - 1) {
+    state.segmentIndex++;
+    const seg = currentSegment();
+    state.video.pause();
+    state.video.currentTime = seg.start;
+    updateSegStat();
+    draw();
+    updateTime();
+  }
+}
+
+function updateSegStat() {
+  const el = document.getElementById('segStat');
+  const v = state.video;
+  if (!v || !v.duration) { el.textContent = '未载入视频'; return; }
+  const n = state.segments.length;
+  const i = state.segmentIndex + 1;
+  const seg = currentSegment();
+  if (!seg) { el.textContent = '—'; return; }
+  el.innerHTML = `共 <b>${n}</b> 段 · 当前第 <b>${i}</b> 段<br>` +
+    `${seg.start.toFixed(1)}s – ${seg.end.toFixed(1)}s（全长 ${v.duration.toFixed(1)}s）`;
+}
+
+function onVideoTimeUpdate() {
+  const seg = currentSegment();
+  const v = state.video;
+  if (seg && v && !v.paused && v.currentTime >= seg.end - 0.05) {
+    v.pause();
+    v.currentTime = Math.max(seg.start, seg.end - 0.034);
+  }
+  draw();
+  updateTime();
+}
+
+function resizeCanvas() {
+  const v = state.video; if (!v || !v.videoWidth) return;
+  const stage = document.getElementById('stage');
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  const vw = v.videoWidth, vh = v.videoHeight;
+  const scale = Math.min(sw/vw, sh/vh);
+  state.canvas.style.width = (vw*scale)+'px';
+  state.canvas.style.height = (vh*scale)+'px';
+  state.canvas.width = vw; state.canvas.height = vh;
+}
+
+// ==================== 交互 ====================
+function isTextInputFocus(e) {
+  const t = e.target;
+  if (!t || !t.tagName) return false;
+  const tag = t.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
+}
+
+function onKey(e) {
+  if (isTextInputFocus(e)) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.code === 'KeyS') {
+    e.preventDefault();
+    saveProject();
+    return;
+  }
+  if (mod && e.code === 'KeyO') {
+    e.preventDefault();
+    document.getElementById('fileProject').click();
+    return;
+  }
+  if (mod && e.code === 'KeyE') {
+    e.preventDefault();
+    exportMotionModel();
+    return;
+  }
+  if (mod && e.code === 'KeyZ' && !e.shiftKey) {
+    e.preventDefault();
+    undoLast();
+    return;
+  }
+  if (mod && (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey))) {
+    e.preventDefault();
+    undoStroke();
+    return;
+  }
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  else if (e.code === 'ArrowLeft' || e.code === 'Comma') { e.preventDefault(); stepFrame(-1); }
+  else if (e.code === 'ArrowRight' || e.code === 'Period') { e.preventDefault(); stepFrame(1); }
+  else if (e.code === 'BracketLeft') { e.preventDefault(); prevSegment(); }
+  else if (e.code === 'BracketRight') { e.preventDefault(); nextSegment(); }
+  else if (!mod && e.code === 'KeyO') { e.preventDefault(); setMode('origin'); }
+  else if (!mod && e.code === 'KeyL') { e.preventDefault(); setMode('scale'); }
+  else if (!mod && e.code === 'KeyR') { e.preventDefault(); setMode('region'); }
+  else if (!mod && e.code === 'KeyB') {
+    const el = document.getElementById('bridgeStrokes');
+    if (el) { el.checked = !el.checked; onBridgeUI(); }
+  }
+  else if (/^Digit[1-9]$/.test(e.code)) {
+    const id = parseInt(e.code.slice(5), 10);
+    state.activeId = id;
+    ensureWorm(id);
+    if (id > state.maxWormTab) state.maxWormTab = id;
+    syncStyleUI();
+    renderTabs();
+    updateBehaviorStat();
+    draw();
+  } else if (e.code === 'Escape') {
+    state.mode = null;
+    state.regionDrag = null;
+    draw();
+  }
+}
+
+function togglePlay() {
+  const v = state.video; if (!v || !v.src) return;
+  if (v.paused) {
+    v.play().catch(() => {
+      state.videoReady = true;
+      draw();
+    });
+  } else v.pause();
+}
+function stepFrame(dir) {
+  const v = state.video; if (!v) return;
+  v.pause();
+  const fps = state.videoFps || 30;
+  const seg = currentSegment();
+  let t = v.currentTime + dir / fps;
+  if (seg) t = Math.max(seg.start, Math.min(seg.end - 0.001, t));
+  else t = Math.max(0, t);
+  v.currentTime = t;
+  draw();
+  updateTime();
+}
+function seekTo(val) {
+  const v = state.video; if (!v || !v.duration) return;
+  const seg = currentSegment();
+  if (seg) {
+    const span = seg.end - seg.start;
+    v.currentTime = seg.start + (val / 1000) * span;
+  } else {
+    v.currentTime = (val / 1000) * v.duration;
+  }
+  draw();
+  updateTime();
+}
+function updateTime() {
+  const v = state.video; if (!v || !v.duration) return;
+  const seg = currentSegment();
+  if (seg) {
+    const local = v.currentTime - seg.start;
+    const span = seg.end - seg.start;
+    document.getElementById('timeLabel').textContent =
+      local.toFixed(2) + 's / ' + span.toFixed(2) + 's · 段' + (state.segmentIndex + 1);
+    const ratio = span > 0 ? local / span : 0;
+    document.getElementById('seekBar').value = Math.round(ratio * 1000);
+  } else {
+    document.getElementById('timeLabel').textContent =
+      v.currentTime.toFixed(2) + 's / ' + v.duration.toFixed(2) + 's';
+    document.getElementById('seekBar').value = (v.currentTime / v.duration * 1000);
+  }
+  updateStat();
+}
+
+function setMode(m) {
+  state.mode = m;
+  const hints = {
+    origin: '点击视频上一个格子交点作为原点 (0,0)。',
+    scale: '先点第一个点，再点第二个格子交点（格边 10mm）。',
+    region: '在视频上<b>拖拽</b>矩形，圈住本次头部「八字」的大致范围。'
+  };
+  if (m === 'region') {
+    document.getElementById('calHint').innerHTML = '<b>框选中：</b>' + hints.region;
+  } else {
+    document.getElementById('calHint').innerHTML = '<b>标定中：</b>' + hints[m];
+  }
+}
+
+function pointerToCanvas(e) {
+  const rect = state.canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * (state.canvas.width / rect.width),
+    y: (e.clientY - rect.top) * (state.canvas.height / rect.height),
+  };
+}
+
+function onPointerDown(e) {
+  if (e.button !== 0 && e.pointerType === 'mouse') return;
+  const { x, y } = pointerToCanvas(e);
+
+  if (state.mode === 'origin' || state.mode === 'scale') {
+    e.preventDefault();
+    handleCalPoint(x, y);
+    return;
+  }
+
+  if (state.mode === 'region') {
+    e.preventDefault();
+    const v = state.video;
+    if (v) v.pause();
+    state.canvas.setPointerCapture(e.pointerId);
+    state.regionDrag = { id: e.pointerId, x0: x, y0: y, x1: x, y1: y };
+    draw();
+    return;
+  }
+
+  const v = state.video;
+  if (!v || !v.src) return;
+  e.preventDefault();
+  v.pause();
+  state.canvas.setPointerCapture(e.pointerId);
+  state.pointer = {
+    id: e.pointerId,
+    pts: [{ x, y }],
+    lastCommitted: { x, y },
+    prev: null,
+    lastTime: performance.now(),
+    moved: false,
+    t0: v.currentTime,
+    dist2: 0,
+    lastRaw: { x, y },
+  };
+}
+
+function handleCalPoint(x, y) {
+  if (state.mode === 'origin') {
+    state.cal.ox = x; state.cal.oy = y;
+    state.mode = null;
+    document.getElementById('calHint').innerHTML = '原点已设。接下来点「量比例尺」点两个格子交点。';
+    updateCalStat(); draw(); return;
+  }
+  if (state.mode === 'scale') {
+    if (!state.cal.p1) { state.cal.p1 = {x,y}; document.getElementById('calHint').textContent = '已记录第一点，点第二点。'; }
+    else {
+      const p2 = {x,y};
+      const distPx = Math.hypot(p2.x-state.cal.p1.x, p2.y-state.cal.p1.y);
+      const mm = parseFloat(document.getElementById('scaleDist').value) || 10;
+      state.cal.scale = distPx / mm;  // px per mm
+      state.cal.p1 = null; state.mode = null;
+      document.getElementById('calHint').innerHTML = '标定完成：<b>'+state.cal.scale.toFixed(2)+' px/mm</b>。现在可以开始描点。';
+      updateCalStat();
+    }
+    draw(); return;
+  }
+}
+
+function acceptStrokeSample(ptr, x, y, opts) {
+  const d = Math.hypot(x - ptr.lastCommitted.x, y - ptr.lastCommitted.y);
+  if (d < RAW_CAPTURE_STEP) return false;
+
+  if (opts.jitter > 0 && ptr.prev) {
+    const v1x = ptr.lastCommitted.x - ptr.prev.x;
+    const v1y = ptr.lastCommitted.y - ptr.prev.y;
+    const v2x = x - ptr.lastCommitted.x;
+    const v2y = y - ptr.lastCommitted.y;
+    const len1 = Math.hypot(v1x, v1y) || 1;
+    const len2 = Math.hypot(v2x, v2y) || 1;
+    const cos = (v1x * v2x + v1y * v2y) / (len1 * len2);
+    if (d < RAW_CAPTURE_STEP * 4 && cos < -0.3 + (1 - opts.jitter / 100) * 0.5) return false;
+  }
+
+  ptr.prev = { ...ptr.lastCommitted };
+  ptr.lastCommitted = { x, y };
+  ptr.pts.push({ x, y });
+  ptr.moved = true;
+  ptr.dist2 += d * d;
+  return true;
+}
+
+function onPointerMove(e) {
+  const rd = state.regionDrag;
+  if (rd && rd.id === e.pointerId) {
+    e.preventDefault();
+    const { x, y } = pointerToCanvas(e);
+    rd.x1 = x;
+    rd.y1 = y;
+    draw();
+    return;
+  }
+  const ptr = state.pointer;
+  if (!ptr || ptr.id !== e.pointerId || state.mode) return;
+  e.preventDefault();
+  const { x, y } = pointerToCanvas(e);
+  ptr.lastRaw = { x, y };
+  acceptStrokeSample(ptr, x, y, getStrokeOpts());
+  draw();
+}
+
+function chaikinSmooth(pts, passes) {
+  if (passes <= 0 || pts.length < 3) return pts.map(p => ({ ...p }));
+  let cur = pts.map(p => ({ x: p.x, y: p.y }));
+  for (let pass = 0; pass < passes; pass++) {
+    if (cur.length < 3) break;
+    const next = [cur[0]];
+    for (let i = 0; i < cur.length - 1; i++) {
+      const p0 = cur[i], p1 = cur[i + 1];
+      next.push(
+        { x: 0.75 * p0.x + 0.25 * p1.x, y: 0.75 * p0.y + 0.25 * p1.y },
+        { x: 0.25 * p0.x + 0.75 * p1.x, y: 0.25 * p0.y + 0.75 * p1.y }
+      );
+    }
+    next.push(cur[cur.length - 1]);
+    cur = next;
+  }
+  return cur;
+}
+
+function pointAtDistance(pts, lens, d) {
+  if (d <= 0) return { x: pts[0].x, y: pts[0].y };
+  const total = lens[lens.length - 1];
+  if (d >= total) return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y };
+  let j = 1;
+  while (j < lens.length && lens[j] < d) j++;
+  const d0 = lens[j - 1], d1 = lens[j];
+  const t = d1 > d0 ? (d - d0) / (d1 - d0) : 0;
+  return {
+    x: pts[j - 1].x + (pts[j].x - pts[j - 1].x) * t,
+    y: pts[j - 1].y + (pts[j].y - pts[j - 1].y) * t,
+  };
+}
+
+function resampleUniform(pts, spacing) {
+  if (pts.length < 2) return pts.map(p => ({ x: p.x, y: p.y }));
+  const { lens, total } = pathLengths(pts);
+  if (total < spacing * 0.5) return [{ x: pts[0].x, y: pts[0].y }, { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y }];
+  const out = [pointAtDistance(pts, lens, 0)];
+  let d = spacing;
+  while (d < total - spacing * 0.35) {
+    out.push(pointAtDistance(pts, lens, d));
+    d += spacing;
+  }
+  const end = { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y };
+  const last = out[out.length - 1];
+  if (Math.hypot(end.x - last.x, end.y - last.y) > spacing * 0.2) out.push(end);
+  return out;
+}
+
+function commitStroke(ptr) {
+  const id = state.activeId;
+  ensureWorm(id);
+  const w = state.worms[id];
+  const opts = getStrokeOpts();
+
+  if (!ptr.moved || Math.sqrt(ptr.dist2) < 4) {
+    const pt = { x: ptr.pts[0].x, y: ptr.pts[0].y, t: ptr.t0 };
+    w.points.push(pt);
+    w.strokes.push({ start: w.points.length - 1, end: w.points.length - 1 });
+    return;
+  }
+
+  let geom = chaikinSmooth(ptr.pts, opts.smoothPass);
+  geom = resampleUniform(geom, opts.uniformSpacing);
+  const startIdx = w.points.length;
+  for (let i = 0; i < geom.length; i++) {
+    const pt = { x: geom[i].x, y: geom[i].y };
+    if (i === 0) pt.t = ptr.t0;
+    w.points.push(pt);
+  }
+  w.strokes.push({ start: startIdx, end: w.points.length - 1 });
+}
+
+function onPointerUp(e) {
+  const rd = state.regionDrag;
+  if (rd && rd.id === e.pointerId) {
+    if (state.canvas.hasPointerCapture(e.pointerId)) {
+      state.canvas.releasePointerCapture(e.pointerId);
+    }
+    normalizeBehaviorBox(rd);
+    state.regionDrag = null;
+    state.mode = null;
+    document.getElementById('calHint').innerHTML = '框选完成。八字范围已绑定到当前蚕。';
+    draw();
+    updateBehaviorStat();
+    return;
+  }
+  const ptr = state.pointer;
+  if (!ptr || ptr.id !== e.pointerId) return;
+  if (state.canvas.hasPointerCapture(e.pointerId)) {
+    state.canvas.releasePointerCapture(e.pointerId);
+  }
+  if (!state.mode) commitStroke(ptr);
+  state.pointer = null;
+  draw();
+  updateMotionStat();
+}
+
+function normalizeBehaviorBox(rd) {
+  const x0 = Math.min(rd.x0, rd.x1);
+  const x1 = Math.max(rd.x0, rd.x1);
+  const y0 = Math.min(rd.y0, rd.y1);
+  const y1 = Math.max(rd.y0, rd.y1);
+  if (Math.abs(x1 - x0) < 4 || Math.abs(y1 - y0) < 4) return;
+  ensureWorm(state.activeId);
+  state.worms[state.activeId].behaviorBox = { x0, y0, x1, y1 };
+  state.worms[state.activeId].motionPattern = 'figure8';
+}
+
+function behaviorBoxMetrics(box) {
+  if (!box) return null;
+  const wPx = Math.abs(box.x1 - box.x0);
+  const hPx = Math.abs(box.y1 - box.y0);
+  const cell = parseFloat(document.getElementById('scaleDist').value) || 10;
+  if (!state.cal.scale) {
+    return { w_px: wPx, h_px: hPx, gridW: null, gridH: null };
+  }
+  const wMm = wPx / state.cal.scale;
+  const hMm = hPx / state.cal.scale;
+  return {
+    w_mm: +wMm.toFixed(2),
+    h_mm: +hMm.toFixed(2),
+    gridW: +(wMm / cell).toFixed(2),
+    gridH: +(hMm / cell).toFixed(2),
+    cell_mm: cell,
+  };
+}
+
+function updateBehaviorStat() {
+  const el = document.getElementById('behaviorStat');
+  if (!el) return;
+  const w = state.worms[state.activeId];
+  const m = behaviorBoxMetrics(w && w.behaviorBox);
+  if (!m) {
+    el.textContent = '未框选';
+    return;
+  }
+  if (m.gridW != null) {
+    el.innerHTML =
+      `当前蚕 <b>${state.activeId}</b>：约 <b>${m.gridW}×${m.gridH}</b> 格 · ` +
+      `${m.w_mm}×${m.h_mm} mm<br>模式 <b>八字</b>（可作生成时的包络）`;
+  } else {
+    el.textContent = `已框选 ${m.w_px.toFixed(0)}×${m.h_px.toFixed(0)} px（请先标定比例尺）`;
+  }
+}
+
+function presetBehaviorBox15() {
+  if (!state.cal.scale) {
+    alert('请先标定比例尺（格子 1cm → 间距填 10mm）。');
+    return;
+  }
+  const cell = parseFloat(document.getElementById('scaleDist').value) || 10;
+  const cellPx = state.cal.scale * cell;
+  const w = state.worms[state.activeId];
+  let cx, cy;
+  if (w.points.length) {
+    cx = w.points.reduce((s, p) => s + p.x, 0) / w.points.length;
+    cy = w.points.reduce((s, p) => s + p.y, 0) / w.points.length;
+  } else if (state.cal.ox != null) {
+    cx = state.cal.ox + cellPx * 0.75;
+    cy = state.cal.oy - cellPx * 0.5;
+  } else {
+    alert('请先设原点或描一点轨迹作为中心参考。');
+    return;
+  }
+  const bw = cellPx * 1.5;
+  const bh = cellPx * 1.0;
+  w.behaviorBox = { x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 };
+  w.motionPattern = 'figure8';
+  updateBehaviorStat();
+  draw();
+}
+
+function exportBehaviorUnits() {
+  const units = [];
+  for (const id of Object.keys(state.worms).map(Number).sort((a, b) => a - b)) {
+    const w = state.worms[id];
+    if (!w.behaviorBox) continue;
+    const m = behaviorBoxMetrics(w.behaviorBox);
+    units.push({
+      wormId: id,
+      pattern: w.motionPattern || 'figure8',
+      box_px: { ...w.behaviorBox },
+      envelope_mm: m && m.w_mm ? { width_mm: m.w_mm, height_mm: m.h_mm } : null,
+      envelope_grid: m && m.gridW ? { cols: m.gridW, rows: m.gridH, cell_mm: m.cell_mm } : null,
+      note: 'Head wag envelope; ~1.5x1 cells typical, varies per instance',
+    });
+  }
+  return units;
+}
+
+function undoLast() {
+  const w = state.worms[state.activeId]; if (!w || !w.points.length) return;
+  w.points.pop();
+  if (w.strokes && w.strokes.length) {
+    const last = w.strokes[w.strokes.length - 1];
+    if (last.end >= w.points.length) {
+      if (last.start >= w.points.length) w.strokes.pop();
+      else w.strokes[w.strokes.length - 1] = { ...last, end: w.points.length - 1 };
+    }
+  }
+  draw();
+}
+function undoStroke() {
+  const w = state.worms[state.activeId];
+  if (!w || !w.strokes || !w.strokes.length) return undoLast();
+  const seg = w.strokes.pop();
+  w.points.splice(seg.start, Math.max(0, seg.end - seg.start + 1));
+  for (const s of w.strokes) {
+    const len = seg.end - seg.start + 1;
+    if (s.start > seg.end) { s.start -= len; s.end -= len; }
+  }
+  draw();
+}
+function clearWorm() {
+  if (!confirm('清空蚕 '+state.activeId+' 的所有点？')) return;
+  const w = state.worms[state.activeId];
+  w.points = [];
+  w.strokes = [];
+  draw();
+}
+
+// ==================== 样式 ====================
+function updateStyle() {
+  const w = state.worms[state.activeId]; if (!w) return;
+  w.style.headWidth = parseFloat(document.getElementById('sHead').value);
+  w.style.midWidth  = parseFloat(document.getElementById('sMid').value);
+  w.style.tailWidth = parseFloat(document.getElementById('sTail').value);
+  w.style.opacity   = parseFloat(document.getElementById('sOp').value);
+  w.style.material  = document.getElementById('sMat').value;
+  const colEl = document.getElementById('sColor');
+  if (colEl) w.color = colEl.value;
+  document.getElementById('vHead').textContent = w.style.headWidth.toFixed(2);
+  document.getElementById('vMid').textContent  = w.style.midWidth.toFixed(2);
+  document.getElementById('vTail').textContent = w.style.tailWidth.toFixed(2);
+  document.getElementById('vOp').textContent   = w.style.opacity.toFixed(2);
+  const tab = document.querySelector('.worm-tabs button.active');
+  if (tab) tab.style.background = w.color;
+  drawStylePreview();
+  draw();
+}
+function syncStyleUI() {
+  const w = state.worms[state.activeId]; if (!w) return;
+  document.getElementById('sHead').value = w.style.headWidth;
+  document.getElementById('sMid').value  = w.style.midWidth;
+  document.getElementById('sTail').value = w.style.tailWidth;
+  document.getElementById('sOp').value   = w.style.opacity;
+  const colEl = document.getElementById('sColor');
+  if (colEl) colEl.value = w.color;
+  const mat = String(w.style.material || 'ribbon').toLowerCase();
+  const sel = document.getElementById('sMat');
+  if ([...sel.options].some(o => o.value === mat)) sel.value = mat;
+  else sel.value = 'ribbon';
+  document.getElementById('vHead').textContent = w.style.headWidth.toFixed(2);
+  document.getElementById('vMid').textContent = w.style.midWidth.toFixed(2);
+  document.getElementById('vTail').textContent = w.style.tailWidth.toFixed(2);
+  document.getElementById('vOp').textContent = w.style.opacity.toFixed(2);
+  drawStylePreview();
+}
+
+function drawStylePreview() {
+  const cvs = document.getElementById('stylePreview');
+  if (!cvs) return;
+  const w = state.worms[state.activeId];
+  if (!w) return;
+  const ctx = cvs.getContext('2d');
+  const W = cvs.width, H = cvs.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0a0b0d';
+  ctx.fillRect(0, 0, W, H);
+  const pts = [];
+  for (let i = 0; i <= 40; i++) {
+    const t = i / 40;
+  const x = 12 + t * (W - 24);
+  const y = H * 0.55 + Math.sin(t * Math.PI) * (H * 0.22);
+    pts.push({ x, y });
+  }
+  ctx.save();
+  drawStyledPathOnCtx(ctx, pts, w.style, w.color, null, 1.8);
+  ctx.restore();
+}
+
+function bridgeSettings() {
+  const el = document.getElementById('bridgeStrokes');
+  const tEl = document.getElementById('bridgeTension');
+  return {
+    enabled: el ? el.checked : state.bridge.enabled,
+    tension: tEl ? parseFloat(tEl.value) : state.bridge.tension,
+  };
+}
+
+function wormBridgeEnabled(w) {
+  if (!bridgeSettings().enabled) return false;
+  if (w && w.bridgeStrokes === false) return false;
+  return true;
+}
+
+function syncBridgeUI() {
+  const b = state.bridge;
+  const el = document.getElementById('bridgeStrokes');
+  const tEl = document.getElementById('bridgeTension');
+  if (el) el.checked = b.enabled;
+  if (tEl) tEl.value = b.tension;
+  document.getElementById('vBridgeT').textContent = (b.tension || 0.4).toFixed(2);
+  updateMotionStat();
+}
+
+function onBridgeUI() {
+  state.bridge.enabled = document.getElementById('bridgeStrokes').checked;
+  state.bridge.tension = parseFloat(document.getElementById('bridgeTension').value) || 0.4;
+  document.getElementById('vBridgeT').textContent = state.bridge.tension.toFixed(2);
+  draw();
+  updateMotionStat();
+}
+
+function applyBridgeToAll() {
+  const on = bridgeSettings().enabled;
+  for (const id in state.worms) state.worms[id].bridgeStrokes = on ? null : false;
+  draw();
+  updateMotionStat();
+}
+
+function strokeTangentEnd(pts) {
+  const n = pts.length;
+  if (n < 2) return { x: 1, y: 0 };
+  const dx = pts[n - 1].x - pts[n - 2].x;
+  const dy = pts[n - 1].y - pts[n - 2].y;
+  const l = Math.hypot(dx, dy) || 1;
+  return { x: dx / l, y: dy / l };
+}
+
+function strokeTangentStart(pts) {
+  if (pts.length < 2) return { x: 1, y: 0 };
+  const dx = pts[1].x - pts[0].x;
+  const dy = pts[1].y - pts[0].y;
+  const l = Math.hypot(dx, dy) || 1;
+  return { x: dx / l, y: dy / l };
+}
+
+function cubicBezier(p0, p1, p2, p3, t) {
+  const u = 1 - t;
+  return {
+    x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
+    y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
+  };
+}
+
+function sampleBezierBridge(p0, p3, tan0, tan3, tension, spacing) {
+  const chord = Math.hypot(p3.x - p0.x, p3.y - p0.y);
+  const k = Math.max(chord * tension, spacing * 2);
+  const p1 = { x: p0.x + tan0.x * k, y: p0.y + tan0.y * k };
+  const p2 = { x: p3.x - tan3.x * k, y: p3.y - tan3.y * k };
+  const steps = Math.max(4, Math.ceil(chord / Math.max(spacing, 1)));
+  const raw = [];
+  for (let i = 0; i <= steps; i++) raw.push(cubicBezier(p0, p1, p2, p3, i / steps));
+  return resampleUniform(raw, spacing);
+}
+
+function buildWormTrajectory(w) {
+  const segs = wormStrokeList(w)
+    .map((s, strokeIndex) => ({
+      strokeIndex,
+      points: w.points.slice(s.start, s.end + 1),
+    }))
+    .filter(s => s.points.length >= 1);
+  const bridgeOn = wormBridgeEnabled(w);
+  const { tension } = bridgeSettings();
+  const spacing = getUniformSpacing();
+  const parts = [];
+
+  segs.forEach((seg, si) => {
+    parts.push({ kind: 'stroke', strokeIndex: seg.strokeIndex, points: seg.points.map(p => ({ ...p })) });
+    if (bridgeOn && si < segs.length - 1) {
+      const next = segs[si + 1];
+      const p0 = seg.points[seg.points.length - 1];
+      const p3 = next.points[0];
+      if (Math.hypot(p3.x - p0.x, p3.y - p0.y) > 0.5) {
+        const tan0 = strokeTangentEnd(seg.points);
+        const tan3 = strokeTangentStart(next.points);
+        const bridgePts = sampleBezierBridge(p0, p3, tan0, tan3, tension, spacing);
+        if (bridgePts.length >= 2) {
+          parts.push({
+            kind: 'bridge',
+            strokeIndex: seg.strokeIndex,
+            bridgeTo: next.strokeIndex,
+            points: bridgePts.map(p => ({ x: p.x, y: p.y })),
+          });
+        }
+      }
+    }
+  });
+
+  const poly = [];
+  const segmentTable = [];
+  let cum = 0;
+  const lens = [];
+
+  parts.forEach(part => {
+    const i0 = poly.length;
+    part.points.forEach((p, j) => {
+      if (poly.length && j === 0) {
+        const last = poly[poly.length - 1];
+        if (Math.hypot(p.x - last.x, p.y - last.y) < 0.01) return;
+      }
+      poly.push({
+        x: p.x, y: p.y, t: p.t,
+        kind: part.kind,
+        strokeIndex: part.strokeIndex,
+        bridgeTo: part.bridgeTo,
+      });
+    });
+    const i1 = poly.length - 1;
+    if (part.kind === 'stroke' && i1 >= i0) {
+      segmentTable.push({
+        strokeIndex: part.strokeIndex,
+        pointIndexStart: i0,
+        pointIndexEnd: i1,
+        kind: 'stroke',
+      });
+    }
+    if (part.kind === 'bridge' && i1 >= i0) {
+      segmentTable.push({
+        strokeIndex: part.strokeIndex,
+        bridgeTo: part.bridgeTo,
+        pointIndexStart: i0,
+        pointIndexEnd: i1,
+        kind: 'bridge',
+      });
+    }
+  });
+
+  const { lens: arc, total } = pathLengths(poly);
+  poly.forEach((p, i) => {
+    p.u = total > 0 ? arc[i] / total : 0;
+    const m = toMM(p);
+    p.x_mm = +m.x_mm.toFixed(4);
+    p.y_mm = +m.y_mm.toFixed(4);
+    p.z_mm = p.z_mm != null ? p.z_mm : 0;
+    p.u = +p.u.toFixed(6);
+    const uLocal = (() => {
+      const seg = segmentTable.find(s => i >= s.pointIndexStart && i <= s.pointIndexEnd && s.kind === 'stroke');
+      if (!seg) return null;
+      const sl = seg.pointIndexEnd - seg.pointIndexStart;
+      return sl > 0 ? (i - seg.pointIndexStart) / sl : 0;
+    })();
+    if (uLocal != null) p.u_within_stroke = +uLocal.toFixed(6);
+    let uStyle = p.u;
+    if (p.kind === 'stroke' && p.u_within_stroke != null) uStyle = p.u_within_stroke;
+    else if (p.kind === 'bridge') uStyle = 0.5;
+    p.width_mm = +widthAlongStyle(w.style, uStyle).toFixed(4);
+  });
+
+  segmentTable.forEach(seg => {
+    if (poly[seg.pointIndexStart]) seg.u0 = poly[seg.pointIndexStart].u;
+    if (poly[seg.pointIndexEnd]) seg.u1 = poly[seg.pointIndexEnd].u;
+    seg.length_mm = +polylineLengthMm(
+      poly.slice(seg.pointIndexStart, seg.pointIndexEnd + 1).map(q => ({ x_mm: q.x_mm, y_mm: q.y_mm }))
+    ).toFixed(3);
+  });
+
+  return {
+    wormId: null,
+    bridgeEnabled: bridgeOn,
+    pointCount: poly.length,
+    length_mm: +total > 0 && state.cal.scale ? +(total / state.cal.scale).toFixed(3) : null,
+    length_px: +total.toFixed(2),
+    points: poly,
+    segments: segmentTable,
+    strokes: segs.map(s => s.strokeIndex),
+  };
+}
+
+function buildAllTrajectories() {
+  return Object.keys(state.worms).map(Number).sort((a, b) => a - b).map(id => {
+    const t = buildWormTrajectory(state.worms[id]);
+    t.wormId = id;
+    t.color = state.worms[id].color;
+    t.style = { ...state.worms[id].style };
+    return t;
+  }).filter(t => t.pointCount >= 2);
+}
+
+function statsArray(arr) {
+  if (!arr.length) return { mean: 0, std: 0, min: 0, max: 0, n: 0 };
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const v = arr.reduce((a, b) => a + (b - mean) ** 2, 0) / arr.length;
+  return {
+    mean: +mean.toFixed(6),
+    std: +Math.sqrt(v).toFixed(6),
+    min: +Math.min(...arr).toFixed(6),
+    max: +Math.max(...arr).toFixed(6),
+    n: arr.length,
+  };
+}
+
+function computeMotionFeatures(traj) {
+  const steps = [];
+  const turns = [];
+  const widths = [];
+  const pts = traj.points;
+  for (let i = 1; i < pts.length; i++) {
+    steps.push(Math.hypot(pts[i].x_mm - pts[i - 1].x_mm, pts[i].y_mm - pts[i - 1].y_mm));
+    widths.push(pts[i].width_mm);
+  }
+  for (let i = 2; i < pts.length; i++) {
+    const v0x = pts[i - 1].x_mm - pts[i - 2].x_mm;
+    const v0y = pts[i - 1].y_mm - pts[i - 2].y_mm;
+    const v1x = pts[i].x_mm - pts[i - 1].x_mm;
+    const v1y = pts[i].y_mm - pts[i - 1].y_mm;
+    const a0 = Math.atan2(v0y, v0x);
+    const a1 = Math.atan2(v1y, v1x);
+    let d = a1 - a0;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    turns.push(d);
+  }
+  const perSegment = traj.segments
+    .filter(s => s.kind === 'stroke')
+  .map(s => ({
+    strokeIndex: s.strokeIndex,
+    u0: s.u0,
+    u1: s.u1,
+    length_mm: s.length_mm,
+  }));
+  return {
+    arcLength_mm: traj.length_mm,
+    pointCount: traj.pointCount,
+    bridgeEnabled: traj.bridgeEnabled,
+    stepLength_mm: statsArray(steps),
+    turning_rad: statsArray(turns),
+    width_mm: statsArray(widths),
+    strokeBlocks: perSegment,
+  };
+}
+
+function buildSynthesisRecipe(featuresList) {
+  const allSteps = featuresList.flatMap(f => {
+    const st = f.stepLength_mm;
+    return st.n ? [st.mean] : [];
+  });
+  const allTurns = featuresList.flatMap(f => {
+    const t = f.turning_rad;
+    return t.n ? [t.std] : [];
+  });
+  return {
+    parameterization: 'Arc-length u in [0,1]; position in mm; optional t_video on stroke starts',
+    bridgeCurve: 'Cubic Bezier between strokes; tension from project bridge.tension',
+    stochasticLayer: {
+      description: 'Add per-instance noise when batch-generating virtual silk',
+      stepLength_mm: {
+        distribution: 'lognormal',
+        mu: 0,
+        sigma: Math.max(0.02, statsArray(allSteps).std / (statsArray(allSteps).mean || 1)),
+      },
+      turn_rad: {
+        distribution: 'normal',
+        mu: 0,
+        sigma: allTurns.length ? statsArray(allTurns).mean : 0.08,
+      },
+      width_mm: {
+        distribution: 'normal',
+        scale: 'multiply (1 + N(0, sigma)) on widthAlongStyle(u)',
+        sigma: 0.06,
+      },
+      seedNote: 'Use random seed per virtual worm; keep segment u-ranges from strokeBlocks',
+    },
+    touchDesigner: {
+      hint: 'Import motion-model.json → point CHOP with u → Add SOP Line/Resample → Noise SOP on P with sigma from stochasticLayer',
+      chopExpr: 'u drives Phase; length_mm * u gives approximate distance along spine',
+    },
+    batchPipeline: [
+      '1) Fit strokeBlocks u0/u1 from real data',
+      '2) Sample control points with stepLength noise',
+      '3) Optional Chaikin + bridgeBezier between blocks',
+      '4) width = widthAlongStyle(u) * width noise',
+    ],
+  };
+}
+
+function updateMotionStat() {
+  const el = document.getElementById('motionStat');
+  if (!el) return;
+  const trajs = buildAllTrajectories();
+  if (!trajs.length) {
+    el.textContent = '尚无完整轨迹';
+    return;
+  }
+  const t = trajs.find(x => x.wormId === state.activeId) || trajs[0];
+  const strokeN = t.segments.filter(s => s.kind === 'stroke').length;
+  const bridgeN = t.segments.filter(s => s.kind === 'bridge').length;
+  el.innerHTML =
+    `当前蚕 <b>${t.wormId}</b>：统一 <b>${t.pointCount}</b> 点 · ` +
+    `<b>${strokeN}</b> 笔 · 过渡 <b>${bridgeN}</b> · ` +
+    (t.length_mm != null ? `长约 <b>${t.length_mm}</b> mm · ` : '') +
+    `连接 <b>${t.bridgeEnabled ? '开' : '关'}</b> · u=0→1`;
+}
+
+function drawWormTrajectories(ctx, w) {
+  const bridgeOn = wormBridgeEnabled(w);
+  if (!bridgeOn) {
+    for (const seg of wormStrokeList(w)) {
+      if (seg.end <= seg.start) continue;
+      const slice = w.points.slice(seg.start, seg.end + 1);
+      if (slice.length >= 2) drawStyledPath(ctx, slice, w.style, w.color);
+    }
+    return;
+  }
+  const traj = buildWormTrajectory(w);
+  let i = 0;
+  while (i < traj.points.length) {
+    const p0 = traj.points[i];
+    const kind = p0.kind;
+    let j = i + 1;
+    while (j < traj.points.length && traj.points[j].kind === kind
+      && (kind !== 'stroke' || traj.points[j].strokeIndex === p0.strokeIndex)) j++;
+    const slice = traj.points.slice(i, j);
+    if (slice.length >= 2) {
+      const style = kind === 'bridge'
+        ? { ...w.style, headWidth: w.style.tailWidth, midWidth: (w.style.tailWidth + w.style.headWidth) / 2, tailWidth: w.style.headWidth }
+        : w.style;
+      const col = kind === 'bridge' ? mixColor(w.color, true, 0.15) : w.color;
+      drawStyledPath(ctx, slice.map(p => ({ x: p.x, y: p.y })), style, col, w.style.opacity * (kind === 'bridge' ? 0.75 : 1));
+    }
+    i = j;
+  }
+}
+function applyToAll() {
+  const cur = { ...state.worms[state.activeId].style };
+  for (const id in state.worms) state.worms[id].style = { ...cur };
+  draw();
+}
+
+function pathLengths(pts) {
+  const lens = [0];
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    lens.push(total);
+  }
+  return { lens, total };
+}
+
+function widthAlongStyle(style, u) {
+  const h = style.headWidth, m = style.midWidth, t = style.tailWidth;
+  if (u <= 0.5) return h + (m - h) * (u / 0.5);
+  return m + (t - m) * ((u - 0.5) / 0.5);
+}
+
+function pathPerpAt(pts, i) {
+  let dx = 0, dy = 0;
+  if (i < pts.length - 1) {
+    dx = pts[i + 1].x - pts[i].x;
+    dy = pts[i + 1].y - pts[i].y;
+  } else if (i > 0) {
+    dx = pts[i].x - pts[i - 1].x;
+    dy = pts[i].y - pts[i - 1].y;
+  } else dy = 1;
+  const l = Math.hypot(dx, dy) || 1;
+  return { x: -dy / l, y: dx / l };
+}
+
+function mixColor(hex, towardWhite, amt) {
+  const h = hex.replace('#', '');
+  if (h.length !== 6) return hex;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const mix = (c) => Math.round(c + (255 - c) * amt);
+  return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
+}
+
+function ribbonPolygon(pts, lens, total, style, halfScale) {
+  const left = [], right = [];
+  for (let i = 0; i < pts.length; i++) {
+    const u = total > 0 ? lens[i] / total : (pts.length > 1 ? i / (pts.length - 1) : 0);
+    const hw = widthAlongStyle(style, u) * 0.5 * halfScale;
+    const n = pathPerpAt(pts, i);
+    left.push({ x: pts[i].x + n.x * hw, y: pts[i].y + n.y * hw });
+    right.push({ x: pts[i].x - n.x * hw, y: pts[i].y - n.y * hw });
+  }
+  return { left, right };
+}
+
+function fillRibbon(ctx, left, right, fill) {
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.moveTo(left[0].x, left[0].y);
+  for (let i = 1; i < left.length; i++) ctx.lineTo(left[i].x, left[i].y);
+  for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function previewStyle(style, scaleMul) {
+  const s = (scaleMul != null ? scaleMul : 1) * canvasPreviewWidthScale();
+  return {
+    ...style,
+    headWidth: style.headWidth * s,
+    midWidth: style.midWidth * s,
+    tailWidth: style.tailWidth * s,
+  };
+}
+
+function drawStyledPathOnCtx(ctx, pts, style, color, layerOpacity, scaleMul) {
+  if (pts.length < 2) return;
+  style = previewStyle(style, scaleMul);
+  const mat = String(style.material || 'ribbon').toLowerCase();
+  const { lens, total } = pathLengths(pts);
+  const op = layerOpacity != null ? layerOpacity : style.opacity;
+
+  ctx.save();
+  ctx.globalAlpha = op;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  if (mat === 'line') {
+    for (let i = 0; i < pts.length - 1; i++) {
+      const u0 = total > 0 ? lens[i] / total : 0;
+      const u1 = total > 0 ? lens[i + 1] / total : 1;
+      const lw = (widthAlongStyle(style, u0) + widthAlongStyle(style, u1)) * 0.5;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(0.5, lw);
+      ctx.beginPath();
+      ctx.moveTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[i + 1].x, pts[i + 1].y);
+      ctx.stroke();
+    }
+  } else if (mat === 'tube') {
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = Math.max(2, style.midWidth * 0.15);
+    const outer = ribbonPolygon(pts, lens, total, style, 1);
+    fillRibbon(ctx, outer.left, outer.right, color);
+    ctx.shadowBlur = 0;
+    const innerStyle = { ...style, headWidth: style.headWidth * 0.42, midWidth: style.midWidth * 0.42, tailWidth: style.tailWidth * 0.42 };
+    const inner = ribbonPolygon(pts, lens, total, innerStyle, 1);
+    ctx.globalAlpha = op * 0.9;
+    fillRibbon(ctx, inner.left, inner.right, mixColor(color, true, 0.62));
+    for (let i = 0; i < pts.length - 1; i++) {
+      const u = total > 0 ? (lens[i] + lens[i + 1]) / 2 / total : 0.5;
+      ctx.strokeStyle = mixColor(color, true, 0.78);
+      ctx.lineWidth = Math.max(1, widthAlongStyle(style, u) * 0.18);
+      ctx.globalAlpha = op * 0.65;
+      ctx.beginPath();
+      ctx.moveTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[i + 1].x, pts[i + 1].y);
+      ctx.stroke();
+    }
+  } else {
+    const rib = ribbonPolygon(pts, lens, total, style, 1);
+    fillRibbon(ctx, rib.left, rib.right, color);
+  }
+  ctx.restore();
+}
+
+function drawStyledPath(ctx, pts, style, color, layerOpacity) {
+  drawStyledPathOnCtx(ctx, pts, style, color, layerOpacity, null);
+}
+
+function wormTabCount() {
+  const ids = Object.keys(state.worms).map(Number);
+  const maxUsed = ids.length ? Math.max(...ids) : 1;
+  return Math.min(9, Math.max(state.maxWormTab, maxUsed, state.activeId));
+}
+
+function addWormTab() {
+  if (state.maxWormTab >= 9) return;
+  state.maxWormTab++;
+  ensureWorm(state.maxWormTab);
+  renderTabs();
+}
+
+function renderTabs() {
+  const box = document.getElementById('wormTabs');
+  box.innerHTML = '';
+  const n = wormTabCount();
+  for (let i = 1; i <= n; i++) {
+    ensureWorm(i);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = i;
+    b.style.background = state.worms[i].color;
+    b.style.color = '#111';
+    if (i === state.activeId) b.classList.add('active');
+    b.onclick = () => {
+      state.activeId = i;
+      if (i > state.maxWormTab) state.maxWormTab = i;
+      syncStyleUI();
+      renderTabs();
+      updateBehaviorStat();
+      draw();
+    };
+    box.appendChild(b);
+  }
+}
+
+// ==================== 绘制 ====================
+function draw() {
+  const ctx = state.ctx; if (!ctx) return;
+  const v = state.video;
+  const cw = state.canvas.width;
+  const ch = state.canvas.height;
+  if (!cw || !ch) return;
+  ctx.clearRect(0, 0, cw, ch);
+
+  if (v && state.videoReady && v.videoWidth > 0 && v.readyState >= 2) {
+    try {
+      ctx.drawImage(v, 0, 0, cw, ch);
+    } catch (err) {
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.fillStyle = '#8a8f99';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('视频帧无法绘制（请换 H.264 MP4）', cw / 2, ch / 2);
+    }
+  } else if (v && v.src) {
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.fillStyle = '#8a8f99';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('正在加载视频…', cw / 2, ch / 2);
+  }
+
+  // 网格
+  if (document.getElementById('tGrid').checked && state.cal.scale) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    const pxPerMm = state.cal.scale;
+    for (let x=state.cal.ox; x<state.canvas.width; x+=pxPerMm*10) {
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,state.canvas.height); ctx.stroke();
+    }
+    for (let x=state.cal.ox-pxPerMm*10; x>0; x-=pxPerMm*10) {
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,state.canvas.height); ctx.stroke();
+    }
+    for (let y=state.cal.oy; y<state.canvas.height; y+=pxPerMm*10) {
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(state.canvas.width,y); ctx.stroke();
+    }
+    for (let y=state.cal.oy-pxPerMm*10; y>0; y-=pxPerMm*10) {
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(state.canvas.width,y); ctx.stroke();
+    }
+    // 原点十字
+    ctx.strokeStyle = 'rgba(232,160,76,0.7)';
+    ctx.beginPath();
+    ctx.moveTo(state.cal.ox-10, state.cal.oy); ctx.lineTo(state.cal.ox+10, state.cal.oy);
+    ctx.moveTo(state.cal.ox, state.cal.oy-10); ctx.lineTo(state.cal.ox, state.cal.oy+10);
+    ctx.stroke();
+  }
+
+  const showBeh = !document.getElementById('tBehBox') || document.getElementById('tBehBox').checked;
+  if (showBeh) {
+    for (const id in state.worms) {
+      const wb = state.worms[id].behaviorBox;
+      if (!wb) continue;
+      const x = wb.x0, y = wb.y0, w = wb.x1 - wb.x0, h = wb.y1 - wb.y0;
+      const active = +id === state.activeId;
+      ctx.strokeStyle = active ? 'rgba(94,182,168,0.95)' : 'rgba(94,182,168,0.45)';
+      ctx.lineWidth = active ? 2.5 : 1.5;
+      ctx.setLineDash([8, 6]);
+      ctx.strokeRect(x, y, w, h);
+      ctx.setLineDash([]);
+      if (active) {
+        const m = behaviorBoxMetrics(wb);
+        const label = m && m.gridW != null ? `八字 ~${m.gridW}×${m.gridH}格` : '八字范围';
+        ctx.fillStyle = 'rgba(94,182,168,0.9)';
+        ctx.font = '14px sans-serif';
+        ctx.fillText(label, x + 4, y - 6);
+      }
+    }
+  }
+  if (state.regionDrag) {
+    const rd = state.regionDrag;
+    const x = Math.min(rd.x0, rd.x1);
+    const y = Math.min(rd.y0, rd.y1);
+    const w = Math.abs(rd.x1 - rd.x0);
+    const h = Math.abs(rd.y1 - rd.y0);
+    ctx.strokeStyle = '#5eb6a8';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+  }
+
+  // 轨迹（头/中/尾粗细 + 材质实时预览）
+  if (document.getElementById('tTraj').checked) {
+    for (const id in state.worms) {
+      const w = state.worms[id];
+      if (w.points.length < 2) continue;
+      drawWormTrajectories(ctx, w);
+    }
+  }
+
+  if (state.pointer && state.pointer.pts.length >= 1) {
+    const w = state.worms[state.activeId];
+    const col = w ? w.color : COLORS[0];
+    const style = w ? w.style : { headWidth: 0.3, midWidth: 1, tailWidth: 0.15, opacity: 0.85, material: 'ribbon' };
+    const previewPts = state.pointer.pts.slice();
+    if (state.pointer.lastRaw) previewPts.push(state.pointer.lastRaw);
+    if (previewPts.length >= 2) {
+      ctx.save();
+      ctx.setLineDash([5, 4]);
+      drawStyledPath(ctx, previewPts, style, col, Math.min(1, style.opacity * 0.95));
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+
+  // 当前点
+  if (document.getElementById('tPts').checked) {
+    for (const id in state.worms) {
+      const w = state.worms[id];
+      ctx.fillStyle = w.color;
+      for (const p of w.points) {
+        ctx.beginPath(); ctx.arc(p.x, p.y, id==state.activeId?3:1.5, 0, Math.PI*2); ctx.fill();
+      }
+    }
+    // 当前时间最新点高亮
+    if (v) {
+      const w = state.worms[state.activeId];
+      const t = v.currentTime;
+      const near = w.points.find(p => Math.abs(p.t-t) < FRAME);
+      if (near) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(near.x, near.y, 7, 0, Math.PI*2); ctx.stroke();
+      }
+    }
+  }
+}
+
+function updateCalStat() {
+  const el = document.getElementById('calStat');
+  if (state.cal.scale) {
+    el.innerHTML = '原点 ('+state.cal.ox.toFixed(0)+','+state.cal.oy.toFixed(0)+') px<br>'+
+                   '比例尺 <b>'+state.cal.scale.toFixed(2)+' px/mm</b>';
+  } else el.textContent = '未标定';
+}
+function updateStat() {
+  let total = 0;
+  for (const id in state.worms) total += state.worms[id].points.length;
+  document.getElementById('statBox').innerHTML =
+    '蚕数量：<b>'+Object.keys(state.worms).length+'</b><br>'+
+    '总点数：<b>'+total+'</b><br>'+
+    '当前蚕 <b>'+state.activeId+'</b>：'+state.worms[state.activeId].points.length+' 点';
+  updateMotionStat();
+}
+
+// ==================== 导出 ====================
+function toMM(p) {
+  if (!state.cal.scale) return { x_mm: p.x, y_mm: p.y };
+  return {
+    x_mm: (p.x - state.cal.ox) / state.cal.scale,
+    y_mm: (state.cal.oy - p.y) / state.cal.scale
+  };
+}
+
+function wormStrokeList(w) {
+  if (w.strokes && w.strokes.length) return w.strokes;
+  if (w.points.length >= 2) return [{ start: 0, end: w.points.length - 1 }];
+  return [];
+}
+
+function polylineLengthMm(pts) {
+  let L = 0;
+  for (let i = 1; i < pts.length; i++) {
+    L += Math.hypot(pts[i].x_mm - pts[i - 1].x_mm, pts[i].y_mm - pts[i - 1].y_mm);
+  }
+  return L;
+}
+
+function axisPointMm(p, z) {
+  const axis = (document.getElementById('expAxis') && document.getElementById('expAxis').value) || 'rhino';
+  const zv = z != null ? z : (p.z_mm != null ? p.z_mm : 0);
+  if (axis === 'blender') return [p.x_mm, p.y_mm, zv];
+  return [p.x_mm, p.y_mm, zv];
+}
+
+function collectExportCurves() {
+  const withWidth = !document.getElementById('expWidth') || document.getElementById('expWidth').checked;
+  const withPx = !document.getElementById('expPx') || document.getElementById('expPx').checked;
+  const curves = [];
+  const ids = Object.keys(state.worms).map(Number).sort((a, b) => a - b);
+  for (const id of ids) {
+    const w = state.worms[id];
+    wormStrokeList(w).forEach((seg, si) => {
+      if (seg.end <= seg.start) return;
+      const slice = w.points.slice(seg.start, seg.end + 1);
+      if (slice.length < 2) return;
+      const points = slice.map((p, i) => {
+        const m = toMM(p);
+        const u = slice.length > 1 ? i / (slice.length - 1) : 0;
+        const pt = {
+          index: i,
+          x_mm: +m.x_mm.toFixed(4),
+          y_mm: +m.y_mm.toFixed(4),
+          z_mm: p.z_mm != null ? +p.z_mm : 0,
+        };
+        if (withWidth) pt.width_mm = +widthAlongStyle(w.style, u).toFixed(4);
+        if (p.t != null) pt.t_video = +p.t.toFixed(4);
+        if (withPx) {
+          pt.x_px = +p.x.toFixed(3);
+          pt.y_px = +p.y.toFixed(3);
+        }
+        return pt;
+      });
+      curves.push({
+        id: `${id}_${si}`,
+        wormId: id,
+        strokeIndex: si,
+        name: `worm_${id}_stroke_${si}`,
+        color: w.color,
+        material: w.style.material,
+        style: {
+          headWidth_mm: w.style.headWidth,
+          midWidth_mm: w.style.midWidth,
+          tailWidth_mm: w.style.tailWidth,
+          opacity: w.style.opacity,
+          material: w.style.material,
+        },
+        pointCount: points.length,
+        length_mm: +polylineLengthMm(points).toFixed(3),
+        points,
+      });
+    });
+  }
+  return curves;
+}
+
+function exportMetaBlock() {
+  const v = state.video;
+  return {
+    generator: 'silkworm-trajectory-editor',
+    schema: 'curves3d/v1',
+    axis: (document.getElementById('expAxis') && document.getElementById('expAxis').value) || 'rhino',
+    unit: 'mm',
+    note: 'Top-view silk curves; Z=0 unless z_mm set. width_mm for sweep/tube in DCC.',
+    video: v && v.videoWidth ? { width_px: v.videoWidth, height_px: v.videoHeight, fps: state.videoFps } : null,
+    calibration: state.cal.scale ? {
+      originPx: [state.cal.ox, state.cal.oy],
+      scalePxPerMm: state.cal.scale,
+    } : null,
+  };
+}
+
+function exportSVG() {
+  const v = state.video;
+  const W = v ? v.videoWidth : 1920, H = v ? v.videoHeight : 1080;
+  let paths = '';
+  const curves = collectExportCurves();
+  for (const c of curves) {
+    const w = state.worms[c.wormId];
+    const d = c.points.map((p, i) => {
+      const px = state.cal.scale
+        ? state.cal.ox + p.x_mm * state.cal.scale
+        : p.x_px || 0;
+      const py = state.cal.scale
+        ? state.cal.oy - p.y_mm * state.cal.scale
+        : p.y_px || 0;
+      return (i ? 'L' : 'M') + px.toFixed(2) + ' ' + py.toFixed(2);
+    }).join(' ');
+    const meta = JSON.stringify({
+      name: c.name, wormId: c.wormId, style: c.style, length_mm: c.length_mm
+    });
+    paths += `<path id="${c.name}" d="${d}" fill="none" stroke="${w.color}" stroke-width="${w.style.midWidth}" opacity="${w.style.opacity}" stroke-linecap="round" stroke-linejoin="round"><desc>${meta.replace(/</g,'&lt;')}</desc></path>\n`;
+  }
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<metadata>${JSON.stringify(exportMetaBlock()).replace(/</g,'&lt;')}</metadata>
+${paths}</svg>`;
+  download('trajectories.svg', svg, 'image/svg+xml');
+}
+
+function exportCurves3D() {
+  const data = {
+    ...exportMetaBlock(),
+    curveType: 'polyline',
+    bridge: bridgeSettings(),
+    curves: collectExportCurves(),
+  };
+  const uniOn = !document.getElementById('expUnified') || document.getElementById('expUnified').checked;
+  if (uniOn) {
+    data.unifiedTrajectories = buildAllTrajectories().map(t => ({
+      wormId: t.wormId,
+      color: t.color,
+      style: t.style,
+      bridgeEnabled: t.bridgeEnabled,
+      length_mm: t.length_mm,
+      points: t.points.map(p => ({
+        u: p.u,
+        x_mm: p.x_mm,
+        y_mm: p.y_mm,
+        z_mm: p.z_mm,
+        kind: p.kind,
+        strokeIndex: p.strokeIndex,
+        bridgeTo: p.bridgeTo,
+        u_within_stroke: p.u_within_stroke,
+        width_mm: p.width_mm,
+      })),
+      segments: t.segments,
+    }));
+  }
+  download('curves-3d.json', JSON.stringify(data, null, 2), 'application/json');
+}
+
+function exportMotionModel() {
+  const trajs = buildAllTrajectories();
+  if (!trajs.length) {
+    alert('请先描好至少一条轨迹（每笔至少 2 个点）。');
+    return;
+  }
+  const features = trajs.map(t => ({
+    wormId: t.wormId,
+    color: t.color,
+    ...computeMotionFeatures(t),
+  }));
+  const data = {
+    ...exportMetaBlock(),
+    schema: 'silkworm-motion-model/v1',
+    bridge: bridgeSettings(),
+    unifiedTrajectories: trajs.map(t => ({
+      wormId: t.wormId,
+      bridgeEnabled: t.bridgeEnabled,
+      length_mm: t.length_mm,
+      pointCount: t.pointCount,
+      segments: t.segments,
+      points: t.points,
+    })),
+    features,
+    synthesis: buildSynthesisRecipe(features),
+    behaviorUnits: exportBehaviorUnits(),
+    gridReference: {
+      cell_mm: parseFloat(document.getElementById('scaleDist').value) || 10,
+      typicalFigure8_grid: { cols: 1.5, rows: 1, note: 'empirical; use behaviorUnits per take' },
+    },
+  };
+  updateMotionStat();
+  download('motion-model.json', JSON.stringify(data, null, 2), 'application/json');
+}
+
+function exportJSON() {
+  const data = {
+    fps: state.videoFps || 30,
+    ...exportMetaBlock(),
+    curves3d: collectExportCurves(),
+    silkworms: Object.keys(state.worms).map(id => {
+      const w = state.worms[id];
+      return {
+        id: +id, color: w.color,
+        style: {...w.style},
+        points: w.points.map((p, i) => {
+          const m = toMM(p);
+          const out = {
+            index: i,
+            x_mm: +m.x_mm.toFixed(3),
+            y_mm: +m.y_mm.toFixed(3),
+            z_mm: null,
+            x_px: +p.x.toFixed(2),
+            y_px: +p.y.toFixed(2),
+          };
+          if (p.t != null) out.t_video = +p.t.toFixed(3);
+          return out;
+        }),
+        strokes: (w.strokes || []).map(s => ({ start: s.start, end: s.end }))
+      };
+    })
+  };
+  download('trajectories.json', JSON.stringify(data, null, 2), 'application/json');
+}
+
+function exportCSV() {
+  let rows = 'curve_name,worm_id,stroke_index,point_index,x_mm,y_mm,z_mm,width_mm,x_px,y_px,t_video\n';
+  for (const c of collectExportCurves()) {
+    c.points.forEach((p, i) => {
+      const tv = p.t_video != null ? p.t_video : '';
+      const wmm = p.width_mm != null ? p.width_mm : '';
+      const xpx = p.x_px != null ? p.x_px : '';
+      const ypx = p.y_px != null ? p.y_px : '';
+      rows += `${c.name},${c.wormId},${c.strokeIndex},${i},${p.x_mm},${p.y_mm},${p.z_mm},${wmm},${xpx},${ypx},${tv}\n`;
+    });
+  }
+  download('trajectories.csv', rows, 'text/csv');
+}
+
+function dxfEsc(s) {
+  return String(s).replace(/[^\x20-\x7e]/g, '_');
+}
+
+function exportDXF() {
+  const curves = collectExportCurves();
+  if (!curves.length) { alert('没有可导出的曲线'); return; }
+  let dxf = `0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n`;
+  for (const c of curves) {
+    const layer = dxfEsc(c.name);
+    dxf += `0\nPOLYLINE\n8\n${layer}\n62\n${((c.wormId - 1) % 7) + 1}\n66\n1\n70\n8\n`;
+    for (const p of c.points) {
+      const [x, y, z] = axisPointMm(p, p.z_mm);
+      dxf += `0\nVERTEX\n8\n${layer}\n10\n${x.toFixed(4)}\n20\n${y.toFixed(4)}\n30\n${z.toFixed(4)}\n`;
+    }
+    dxf += `0\nSEQEND\n8\n${layer}\n`;
+  }
+  dxf += `0\nENDSEC\n0\nEOF\n`;
+  download('silkworm-curves.dxf', dxf, 'application/dxf');
+}
+
+function exportOBJ() {
+  const curves = collectExportCurves();
+  if (!curves.length) { alert('没有可导出的曲线'); return; }
+  const axis = (document.getElementById('expAxis') && document.getElementById('expAxis').value) || 'rhino';
+  let obj = `# silkworm trajectories unit:mm axis:${axis}\n# object per stroke — Blender: File > Import > Wavefront (.obj)\n`;
+  let vi = 1;
+  for (const c of curves) {
+    obj += `o ${c.name}\n`;
+    obj += `# color ${c.color} material ${c.material} length_mm ${c.length_mm}\n`;
+    const start = vi;
+    for (const p of c.points) {
+      const [x, y, z] = axisPointMm(p, p.z_mm);
+      obj += `v ${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}\n`;
+      vi++;
+    }
+    if (c.points.length >= 2) {
+      obj += 'l';
+      for (let i = 0; i < c.points.length; i++) obj += ` ${start + i}`;
+      obj += '\n';
+    }
+  }
+  download('silkworm-curves.obj', obj, 'text/plain');
+}
+
+function exportGLTF() {
+  const curves = collectExportCurves();
+  if (!curves.length) { alert('没有可导出的曲线'); return; }
+  const buffers = [];
+  const bufferViews = [];
+  const accessors = [];
+  const meshes = [];
+  const nodes = [];
+  let byteOffset = 0;
+  curves.forEach((c, ci) => {
+    const floats = [];
+    for (const p of c.points) {
+      const [x, y, z] = axisPointMm(p, p.z_mm);
+      floats.push(x, y, z);
+    }
+    const bin = new Float32Array(floats);
+    const bytes = new Uint8Array(bin.buffer);
+    let binStr = '';
+    for (let i = 0; i < bytes.length; i++) binStr += String.fromCharCode(bytes[i]);
+    const b64 = btoa(binStr);
+    const byteLength = bytes.length;
+    buffers.push({ uri: `data:application/octet-stream;base64,${b64}`, byteLength });
+    bufferViews.push({ buffer: ci, byteOffset: 0, byteLength });
+    accessors.push({
+      bufferView: ci,
+      componentType: 5126,
+      count: c.points.length,
+      type: 'VEC3',
+      min: [Math.min(...c.points.map(p => p.x_mm)), Math.min(...c.points.map(p => p.y_mm)), 0],
+      max: [Math.max(...c.points.map(p => p.x_mm)), Math.max(...c.points.map(p => p.y_mm)), 0],
+    });
+    meshes.push({
+      name: c.name,
+      primitives: [{ attributes: { POSITION: ci }, mode: 3 }],
+    });
+    nodes.push({ name: c.name, mesh: ci });
+  });
+  const gltf = {
+    asset: { version: '2.0', generator: 'silkworm-trajectory-editor' },
+    scene: 0,
+    scenes: [{ nodes: nodes.map((_, i) => i) }],
+    nodes,
+    meshes,
+    accessors,
+    bufferViews,
+    buffers,
+  };
+  download('silkworm-curves.gltf', JSON.stringify(gltf, null, 2), 'model/gltf+json');
+}
+
+function exportRhinoPy() {
+  const curves = collectExportCurves();
+  if (!curves.length) { alert('没有可导出的曲线'); return; }
+  let py = `# -*- coding: utf-8 -*-\n# Run in Rhino Python (EditPythonScript). Creates one interpolated curve per stroke.\nimport rhinoscriptsyntax as rs\n\n`;
+  curves.forEach((c) => {
+    const pts = c.points.map(p => {
+      const [x, y, z] = axisPointMm(p, p.z_mm);
+      return `(${x}, ${y}, ${z})`;
+    });
+    py += `pts_${c.name} = [${pts.join(', ')}]\n`;
+    py += `deg = 3 if len(pts_${c.name}) > 3 else 1\n`;
+    py += `rs.AddCurve(pts_${c.name}, degree=deg)\n`;
+    py += `# ${c.name} color hint: ${c.color}\n\n`;
+  });
+  download('import_silkworm_rhino.py', py, 'text/plain');
+}
+
+function exportBlenderPy() {
+  const curves = collectExportCurves();
+  if (!curves.length) { alert('没有可导出的曲线'); return; }
+  let py = `import bpy\n\n# Run in Blender Scripting tab. Units: mm (set scene if needed).\n`;
+  curves.forEach((c) => {
+    py += `c = bpy.data.curves.new('${c.name}', type='CURVE')\n`;
+    py += `c.dimensions = '3D'\n`;
+    py += `s = bpy.data.objects.new('${c.name}', c)\n`;
+    py += `bpy.context.collection.objects.link(s)\n`;
+    py += `spl = c.splines.new('POLY')\n`;
+    py += `spl.points.add(${Math.max(0, c.points.length - 1)})\n`;
+    c.points.forEach((p, i) => {
+      const [x, y, z] = axisPointMm(p, p.z_mm);
+      py += `spl.points[${i}].co = (${x / 1000}, ${y / 1000}, ${z / 1000}, 1)\n`;
+    });
+    py += `# width profile: head ${c.style.headWidth_mm} mid ${c.style.midWidth_mm} tail ${c.style.tailWidth_mm}\n\n`;
+  });
+  py += `print('Imported ${curves.length} silk curves')\n`;
+  download('import_silkworm_blender.py', py, 'text/plain');
+}
+
+function download(name, content, type) {
+  const blob = new Blob([content], {type: type+';charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+}
+
+// ==================== 工程保存/打开 ====================
+function saveProject() {
+  const data = {
+    calibration: state.cal,
+    worms: state.worms,
+    activeId: state.activeId,
+    strokeOpts: getStrokeOpts(),
+    bridge: { ...state.bridge },
+    segments: state.segments,
+    segmentIndex: state.segmentIndex,
+    maxWormTab: state.maxWormTab,
+    videoFps: state.videoFps,
+  };
+  download('project-'+Date.now()+'.json', JSON.stringify(data, null, 2), 'application/json');
+}
+function loadProject(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const data = JSON.parse(reader.result);
+    state.cal = data.calibration;
+    state.worms = data.worms;
+    state.activeId = data.activeId || 1;
+    for (const id in state.worms) ensureWorm(+id);
+    if (data.strokeOpts) {
+      const o = data.strokeOpts;
+      const uEl = document.getElementById('strokeUniform');
+      if (uEl) {
+        if (o.uniformSpacing != null) uEl.value = o.uniformSpacing;
+        else if (o.minDist != null) uEl.value = o.minDist;
+      }
+      if (o.smoothPass != null) document.getElementById('strokeSmooth').value = o.smoothPass;
+      if (o.jitter != null) document.getElementById('strokeJitter').value = o.jitter;
+      updateStrokeUI();
+    }
+    if (data.maxWormTab != null) state.maxWormTab = data.maxWormTab;
+    else state.maxWormTab = Math.min(9, Math.max(1, ...Object.keys(state.worms).map(Number)));
+    if (data.segmentIndex != null) state.segmentIndex = data.segmentIndex;
+    if (data.segments && data.segments.length) state.segments = data.segments;
+    if (data.videoFps) state.videoFps = data.videoFps;
+    if (data.bridge) {
+      state.bridge = { ...state.bridge, ...data.bridge };
+      syncBridgeUI();
+    }
+    renderTabs(); syncStyleUI(); updateCalStat(); updateSegStat(); draw();
+  };
+  reader.readAsText(f);
+}
+</script>
+</body>
+</html>

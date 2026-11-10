@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="顶视蚕吐丝视频上手描轨迹，导出 SVG/JSON/DXF/运动模型，供 Rhino、Blender、TouchDesigner 使用。">
 <title>蚕轨迹描图器</title>
 <style>
   :root {
@@ -542,12 +543,22 @@ function loadVideo(e) {
   e.target.value = '';
 }
 
+function resolveBundledVideoSrc() {
+  const localSeg = '../data/projects/家蚕_15s/家蚕运动_段00.mp4';
+  const webDemo = 'demo/silkworm_demo.mp4';
+  const p = location.pathname.replace(/\\/g, '/');
+  if (location.protocol === 'file:' || /\/editor\//.test(p) || /蚕轨迹描图器\.html$/i.test(p)) {
+    return encodeURI(localSeg);
+  }
+  return new URL(webDemo, location.href).href;
+}
+
 function loadBundledVideo() {
   const v = state.video || document.getElementById('video');
   state.video = v;
   state.videoReady = false;
   if (v._blobUrl) { URL.revokeObjectURL(v._blobUrl); v._blobUrl = null; }
-  v.src = encodeURI('../data/projects/家蚕_15s/家蚕运动_段00.mp4');
+  v.src = resolveBundledVideoSrc();
   v.load();
 }
 
