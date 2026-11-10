@@ -1,0 +1,18 @@
+# 大体积素材（本地保留；GPT 包见仓库内说明）
+*.mp4
+*.mov
+*.zip
+dist-gpt-pack/
+data/archive_videos/
+data/projects/家蚕_15s/
+
+__pycache__/
+*.pyc
+.env
+.env.*
+*.pem
+*secret*
+*credentials*
+
+# 实验大图可保留部分 jpg；若需瘦身可取消下行
+# data/samples/*.jpg
