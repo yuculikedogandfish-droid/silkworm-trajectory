@@ -1164,14 +1164,14 @@ function worldToScreen(p, W, H) {
 // =====================================================
 
 const SILK_LOOK = Object.freeze({
-  widthScale: 0.035,
-  minHalfWidth: 0.28,
-  maxHalfWidth: 0.85,
-  silkHalo: 'rgba(236,241,242,0.055)',
-  silkCore: 'rgba(236,240,240,0.30)',
-  silkSheen: 'rgba(255,255,255,0.16)',
-  ribbonBase: 'rgba(236,240,240,0.24)',
-  ribbonShadow: 'rgba(120,128,130,0.12)',
+  widthScale: 0.032,
+  minHalfWidth: 0.26,
+  maxHalfWidth: 0.72,
+  silkHalo: 'rgba(236,241,238,0.045)',
+  silkCore: 'rgba(236,240,238,0.34)',
+  silkSheen: 'rgba(255,255,255,0.46)',
+  ribbonBase: 'rgba(226,232,228,0.23)',
+  ribbonShadow: 'rgba(72,82,76,0.22)',
   ribbonHighlight: 'rgba(255,255,255,0.38)'
 });
 
@@ -1353,9 +1353,15 @@ function drawRibbon(ctx, pts, style, color, alpha) {
 
   const matEl = document.getElementById('matSel');
   const mat = matEl ? matEl.value : 'silk';
-
   const v = getRibbonVertices(ctx, pts, style);
-  if (v.length < 2) return;
+  if (!v || v.length < 2) return;
+
+  // 固定左上方光源
+  let lightScore = 0;
+  for (let i = 0; i < v.length; i++) {
+    lightScore += v[i].nx * -0.55 + v[i].ny * -0.84;
+  }
+  const litSide = lightScore >= 0 ? 1 : -1;
 
   ctx.save();
   ctx.globalAlpha = clamp01(alpha);
@@ -1363,40 +1369,49 @@ function drawRibbon(ctx, pts, style, color, alpha) {
   ctx.lineJoin = 'round';
 
   if (mat === 'line') {
-    ctx.strokeStyle = 'rgba(236,240,240,0.62)';
-    ctx.lineWidth = 0.68;
+    ctx.strokeStyle = color || '#f4f5f1';
+    ctx.lineWidth = 0.48;
     strokeCenter(ctx, v);
     ctx.restore();
     return;
   }
 
   if (mat === 'silk') {
-    // 细微乳白光晕
+    // 极淡的外层
     ctx.strokeStyle = SILK_LOOK.silkHalo;
-    ctx.lineWidth = 1.25;
+    ctx.lineWidth = 1.05;
     strokeCenter(ctx, v);
 
-    // 主丝线
+    // 背光侧
+    ctx.strokeStyle = 'rgba(38,45,43,0.24)';
+    ctx.lineWidth = 0.88;
+    strokeCenter(ctx, v, -litSide * 0.16);
+
+    // 半透明丝芯
     ctx.strokeStyle = SILK_LOOK.silkCore;
-    ctx.lineWidth = 0.62;
+    ctx.lineWidth = 0.50;
     strokeCenter(ctx, v);
 
-    // 极细高光
+    // 受光侧的纵向细高光
     ctx.strokeStyle = SILK_LOOK.silkSheen;
-    ctx.lineWidth = 0.24;
-    strokeCenter(ctx, v, 0.12);
+    ctx.lineWidth = 0.20;
+    strokeCenter(ctx, v, litSide * 0.17);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.lineWidth = 0.12;
+    strokeCenter(ctx, v, litSide * 0.29);
 
     ctx.restore();
     return;
   }
 
-  // 可选丝带模式，但限制宽度
+  // Ribbon：仍然是乳白色，不使用金棕色
   traceRibbonShape(ctx, v);
   ctx.fillStyle = SILK_LOOK.ribbonBase;
   ctx.fill();
 
   ctx.strokeStyle = SILK_LOOK.ribbonShadow;
-  ctx.lineWidth = 0.55;
+  ctx.lineWidth = 0.52;
   ctx.stroke();
 
   ctx.save();
@@ -1404,9 +1419,9 @@ function drawRibbon(ctx, pts, style, color, alpha) {
   ctx.clip();
 
   ctx.strokeStyle = SILK_LOOK.ribbonHighlight;
-  ctx.lineWidth = 0.38;
-  ctx.globalAlpha *= 0.72;
-  strokeCenter(ctx, v, -0.12);
+  ctx.lineWidth = 0.28;
+  ctx.globalAlpha *= 0.68;
+  strokeCenter(ctx, v, litSide * 0.26);
 
   ctx.restore();
   ctx.restore();
@@ -1754,94 +1769,96 @@ function drawCaudalHorn(ctx, spine, widthAt, alpha) {
 // =====================================================
 
 function drawWormHeadCap(ctx, p, maxHalf, alpha) {
-  // tx / ty point from the head towards the tail
   const tail = safeUnit(p.tx, p.ty);
+  const forward = { x: -tail.x, y: -tail.y };
+  const normal = safeUnit(p.nx, p.ny);
 
-  const forward = {
-    x: -tail.x,
-    y: -tail.y
-  };
-
-  const normal = {
-    x: p.nx,
-    y: p.ny
-  };
-
-  const headLen = maxHalf * 1.02;
-  const headHalf = maxHalf * 0.45;
+  const headLen = maxHalf * 0.92;
+  const headHalf = maxHalf * 0.30;
 
   const center = {
-    x: p.x + tail.x * headLen * 0.48,
-    y: p.y + tail.y * headLen * 0.48
+    x: p.x + tail.x * headLen * 0.36,
+    y: p.y + tail.y * headLen * 0.36
   };
 
   const at = (along, across) => ({
-    x: center.x +
-      forward.x * along * headLen +
-      normal.x * across * headHalf,
-
-    y: center.y +
-      forward.y * along * headLen +
-      normal.y * across * headHalf
+    x: center.x + forward.x * along * headLen
+      + normal.x * across * headHalf,
+    y: center.y + forward.y * along * headLen
+      + normal.y * across * headHalf
   });
 
   ctx.save();
   ctx.globalAlpha = clamp01(alpha);
   ctx.beginPath();
 
-  let q = at(-0.54, 0.48);
+  let q = at(-0.54, 0.42);
   ctx.moveTo(q.x, q.y);
 
-  q = at(-0.12, 0.96);
-  let c = at(-0.42, 1.00);
+  q = at(-0.10, 0.92);
+  let c = at(-0.40, 0.98);
   ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
 
-  q = at(0.43, 0.42);
-  c = at(0.30, 0.92);
+  q = at(0.38, 0.44);
+  c = at(0.28, 0.88);
   ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
 
   q = at(0.58, 0);
-  c = at(0.66, 0.08);
+  c = at(0.62, 0.08);
   ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
 
-  q = at(0.43, -0.42);
-  c = at(0.66, -0.08);
+  q = at(0.38, -0.44);
+  c = at(0.62, -0.08);
   ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
 
-  q = at(-0.12, -0.96);
-  c = at(0.30, -0.92);
+  q = at(-0.10, -0.92);
+  c = at(0.28, -0.88);
   ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
 
-  q = at(-0.54, -0.48);
-  c = at(-0.42, -1.00);
+  q = at(-0.54, -0.42);
+  c = at(-0.40, -0.98);
   ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
 
   ctx.closePath();
 
-  ctx.fillStyle = '#4b392e';
+  const grad = ctx.createLinearGradient(
+    center.x - headHalf, center.y - headHalf,
+    center.x + headHalf, center.y + headHalf
+  );
+  grad.addColorStop(0, '#715b49');
+  grad.addColorStop(0.42, '#514034');
+  grad.addColorStop(1, '#302720');
+
+  ctx.fillStyle = grad;
   ctx.fill();
 
-  ctx.strokeStyle = 'rgba(35,27,22,0.72)';
-  ctx.lineWidth = 0.72;
+  ctx.strokeStyle = 'rgba(35,27,22,0.62)';
+  ctx.lineWidth = 0.62;
   ctx.stroke();
 
-  // Restrained shell highlight; no oversized cartoon eyes.
-  ctx.globalAlpha = clamp01(alpha * 0.30);
+  // 微弱头壳反光，不画夸张的大眼睛
   ctx.beginPath();
-
-  const h1 = at(-0.16, 0.62);
-  const h2 = at(0.25, 0.48);
-  const hc = at(0.12, 0.70);
+  const h1 = at(-0.18, 0.54);
+  const h2 = at(0.20, 0.42);
+  const hc = at(0.08, 0.66);
 
   ctx.moveTo(h1.x, h1.y);
-  ctx.quadraticCurveTo(
-    hc.x, hc.y,
-    h2.x, h2.y
-  );
+  ctx.quadraticCurveTo(hc.x, hc.y, h2.x, h2.y);
 
-  ctx.strokeStyle = 'rgba(235,220,202,0.62)';
-  ctx.lineWidth = 0.75;
+  ctx.strokeStyle = 'rgba(241,225,205,0.25)';
+  ctx.lineWidth = 0.62;
   ctx.stroke();
+
+  // 极小的吐丝口
+  const tip = at(0.56, 0);
+  ctx.beginPath();
+  ctx.ellipse(
+    tip.x, tip.y, 0.72, 0.42,
+    Math.atan2(forward.y, forward.x),
+    0, Math.PI * 2
+  );
+  ctx.fillStyle = 'rgba(30,24,20,0.70)';
+  ctx.fill();
 
   ctx.restore();
 }
@@ -1856,14 +1873,13 @@ function drawWormBody(ctx, head, style, alpha, angle) {
   const W = ctx.canvas.width;
   const H = ctx.canvas.height;
 
-  // Display proportions, not physical measurements.
   const bodyLen = Math.max(
     96,
     Math.min(190, Math.min(W, H) * 0.19)
   );
-
   const maxHalf = bodyLen / 12.2;
 
+  // 沿真实历史轨迹取身体骨架
   const spine = spineBehind(
     head, W, H, bodyLen, angle
   );
@@ -1871,108 +1887,141 @@ function drawWormBody(ctx, head, style, alpha, angle) {
   if (spine.length < 2) return;
 
   const widthAt = t => wormHalfWidth(t) * maxHalf;
-
   const widths = spine.map((_, i) =>
     widthAt(i / (spine.length - 1))
   );
+
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+
+  for (let i = 0; i < spine.length; i++) {
+    minX = Math.min(minX, spine[i].x - widths[i]);
+    minY = Math.min(minY, spine[i].y - widths[i]);
+    maxX = Math.max(maxX, spine[i].x + widths[i]);
+    maxY = Math.max(maxY, spine[i].y + widths[i]);
+  }
+
+  let lightScore = 0;
+  for (const p of spine) {
+    lightScore += p.nx * -0.55 + p.ny * -0.84;
+  }
+  const litSide = lightScore >= 0 ? 1 : -1;
 
   ctx.save();
   ctx.globalAlpha = clamp01(alpha);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  // Main body
+  // 乳白、浅米色身体
   traceBodySilhouette(ctx, spine, widths);
 
-  ctx.fillStyle = '#ecebe5';
+  const bodyGrad = ctx.createLinearGradient(
+    minX, minY, maxX, maxY
+  );
+  bodyGrad.addColorStop(0, '#fffdf6');
+  bodyGrad.addColorStop(0.24, '#f2f0e8');
+  bodyGrad.addColorStop(0.58, '#e7e4da');
+  bodyGrad.addColorStop(0.84, '#d9d6cc');
+  bodyGrad.addColorStop(1, '#c6c2b8');
+
+  ctx.fillStyle = bodyGrad;
   ctx.fill();
 
-  ctx.strokeStyle = 'rgba(151,148,139,0.58)';
-  ctx.lineWidth = 0.72;
+  ctx.strokeStyle = 'rgba(126,122,113,0.30)';
+  ctx.lineWidth = 0.68;
   ctx.stroke();
 
-  // Internal body details
   ctx.save();
-
   traceBodySilhouette(ctx, spine, widths);
   ctx.clip();
 
-  // Dorsal highlight
+  // 背部柔和高光
   ctx.globalAlpha = clamp01(alpha * 0.34);
   ctx.strokeStyle = 'rgba(255,255,250,0.72)';
-  ctx.lineWidth = maxHalf * 0.78;
-  strokeCenter(ctx, spine);
+  ctx.lineWidth = maxHalf * 0.44;
+  strokeCenter(ctx, spine, litSide * maxHalf * 0.18);
 
-  // Lateral shading
-  ctx.globalAlpha = clamp01(alpha * 0.22);
-  ctx.strokeStyle = 'rgba(139,136,127,0.48)';
-  ctx.lineWidth = 1.05;
+  // 背光侧阴影
+  ctx.globalAlpha = clamp01(alpha * 0.18);
+  ctx.strokeStyle = 'rgba(112,108,99,0.34)';
+  ctx.lineWidth = Math.max(1, maxHalf * 0.22);
+  strokeCenter(ctx, spine, -litSide * maxHalf * 0.62);
 
-  strokeCenter(ctx, spine, maxHalf * 0.68);
-  strokeCenter(ctx, spine, -maxHalf * 0.68);
-
-  // Segment folds
+  // 不等距的浅体节沟
   const ringTs = [
-    0.12, 0.19, 0.26,
-    0.33, 0.40, 0.47, 0.54, 0.61,
-    0.68, 0.75, 0.82, 0.88
+    0.14, 0.21, 0.29, 0.37, 0.45,
+    0.53, 0.61, 0.69, 0.77, 0.84
   ];
 
-  ctx.globalAlpha = clamp01(alpha * 0.52);
-  ctx.strokeStyle = 'rgba(130,127,119,0.38)';
-  ctx.lineWidth = 0.72;
-
-  for (const t of ringTs) {
+  for (let i = 0; i < ringTs.length; i++) {
+    const t = ringTs[i];
     const p = sampleSpineAt(spine, t);
-    const w = widthAt(t) * 0.86;
+    const w = widthAt(t) * 0.88;
+
+    ctx.globalAlpha = clamp01(
+      alpha * (i < 2 ? 0.30 : 0.23)
+    );
+    ctx.strokeStyle = 'rgba(119,115,106,0.40)';
+    ctx.lineWidth = 0.62;
 
     ctx.beginPath();
-
     ctx.moveTo(
       p.x + p.nx * w,
       p.y + p.ny * w
     );
-
     ctx.quadraticCurveTo(
-      p.x + p.tx * 1.25,
-      p.y + p.ty * 1.25,
+      p.x + p.tx * 1.35,
+      p.y + p.ty * 1.35,
       p.x - p.nx * w,
       p.y - p.ny * w
     );
+    ctx.stroke();
 
+    // 环沟旁边的细微受光边
+    ctx.globalAlpha = clamp01(alpha * 0.16);
+    ctx.strokeStyle = 'rgba(255,255,250,0.60)';
+    ctx.lineWidth = 0.48;
+
+    ctx.beginPath();
+    ctx.moveTo(
+      p.x + p.tx + p.nx * w * 0.92,
+      p.y + p.ty + p.ny * w * 0.92
+    );
+    ctx.quadraticCurveTo(
+      p.x + p.tx * 2.1,
+      p.y + p.ty * 2.1,
+      p.x + p.tx - p.nx * w * 0.92,
+      p.y + p.ty - p.ny * w * 0.92
+    );
     ctx.stroke();
   }
 
-  // Subtle lateral spiracles
-  ctx.globalAlpha = clamp01(alpha * 0.42);
-  ctx.fillStyle = 'rgba(116,108,98,0.42)';
+  // 很淡的侧面气门
+  ctx.globalAlpha = clamp01(alpha * 0.25);
+  ctx.fillStyle = 'rgba(103,99,91,0.38)';
 
-  for (let j = 0; j < 8; j++) {
-    const t = 0.34 + j * 0.067;
+  for (let j = 0; j < 7; j++) {
+    const t = 0.35 + j * 0.071;
     const p = sampleSpineAt(spine, t);
-    const w = widthAt(t) * 0.84;
+    const w = widthAt(t) * 0.76;
     const rot = Math.atan2(p.ny, p.nx);
 
     for (const side of [-1, 1]) {
       ctx.beginPath();
-
       ctx.ellipse(
         p.x + p.nx * w * side,
         p.y + p.ny * w * side,
-        1.05, 0.62,
-        rot, 0, Math.PI * 2
+        0.82, 0.48, rot,
+        0, Math.PI * 2
       );
-
       ctx.fill();
     }
   }
 
   ctx.restore();
 
-  // Posterior caudal horn
+  // 后段尾角和前端头壳
   drawCaudalHorn(ctx, spine, widthAt, alpha);
-
-  // Anterior dark head capsule
   drawWormHeadCap(ctx, spine[0], maxHalf, alpha);
 
   ctx.restore();
