@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>蚕吐丝运动预览</title>
+<style>
+  :root {
+    --bg: #0e0f12; --panel: #16181d; --border: #262932;
+    --text: #e6e8ec; --muted: #8a8f99; --accent: #e8a04c; --silk: #d4c4a8;
+    --worm: #3d2914;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-size: 13px; height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 14px; font-weight: 600; }
+  header .spacer { flex: 1; min-width: 8px; }
+  button {
+    background: #1c1f26; color: var(--text); border: 1px solid var(--border);
+    padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: #1a1208; font-weight: 600; }
+  input[type="file"] { display: none; }
+  main { flex: 1; display: flex; min-height: 0; }
+  .canvas-wrap {
+    flex: 1; position: relative; background: #0a0b0d;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  canvas { max-width: 100%; max-height: 100%; cursor: grab; touch-action: none; }
+  aside {
+    width: 280px; background: var(--panel); border-left: 1px solid var(--border);
+    padding: 12px; overflow-y: auto;
+  }
+  .section { margin-bottom: 14px; }
+  .section h2 {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;
+  }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .row label { flex: 0 0 88px; color: var(--muted); font-size: 11px; }
+  .row input[type="range"] { flex: 1; }
+  .stat { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .stat b { color: var(--text); }
+  .hint {
+    background: #1c1f26; border-left: 3px solid var(--accent);
+    padding: 6px 8px; font-size: 11px; color: var(--muted); margin-bottom: 8px; line-height: 1.5;
+  }
+  .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: #252830; color: var(--accent); }
+  body.embed header h1 { display: none; }
+  body.embed aside { width: 240px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>蚕吐丝运动预览</h1>
+  <span class="badge" id="dataBadge">无数据</span>
+  <span class="spacer"></span>
+  <button type="button" class="primary" onclick="togglePlay()">▶ 播放 / 暂停</button>
+  <button type="button" onclick="document.getElementById('fileJson').click()">载入 JSON</button>
+  <input type="file" id="fileJson" accept=".json" onchange="loadJsonFile(event)">
+  <button type="button" onclick="regenerateSynthetic()">合成新轮</button>
+</header>
+<main>
+  <div class="canvas-wrap">
+    <canvas id="cvs" width="900" height="900"></canvas>
+  </div>
+  <aside>
+    <div class="hint">
+      按<b>点序</b>模拟吐丝（非真实视频时间）。实测轨迹与合成轨迹分开展示；循环播放观察重复行为。
+    </div>
+    <div class="section">
+      <h2>播放</h2>
+      <div class="row">
+        <label>点/秒</label>
+        <input type="range" id="pps" min="0.2" max="40" step="0.1" value="4" oninput="syncUI()">
+        <span id="ppsVal">4</span>
+      </div>
+      <div class="row">
+        <label>统一 u</label>
+        <input type="range" id="uSlider" min="0" max="1000" value="0" oninput="scrubU(this.value)">
+      </div>
+      <label class="row"><input type="checkbox" id="loopOn" checked> 循环本轨迹</label>
+      <label class="row"><input type="checkbox" id="showSilk" checked> 显示丝线</label>
+      <label class="row"><input type="checkbox" id="showWorm" checked onchange="draw()"> 显示正在爬的蚕</label>
+      <label class="row"><input type="checkbox" id="showResidue" checked onchange="draw()"> 留下经过的蚕体</label>
+      <label class="row"><input type="checkbox" id="showPts"> 显示采样点</label>
+      <label class="row"><input type="checkbox" id="showBeh" checked> 显示活动范围框</label>
+      <div class="row">
+        <label>材质</label>
+        <select id="matSel">
+          <option value="silk" selected>蚕丝光泽</option>
+          <option value="ribbon">丝带</option>
+          <option value="line">细线</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>俯仰</label>
+        <input type="range" id="tilt" min="0" max="70" value="18" oninput="draw()">
+      </div>
+      <div class="row">
+        <label>旋转</label>
+        <input type="range" id="yaw" min="-180" max="180" value="0" oninput="draw()">
+      </div>
+      <button type="button" onclick="exportPng()" style="width:100%;margin-top:6px">导出当前画面 PNG</button>
+      <div class="stat" id="playStat">—</div>
+    </div>
+    <div class="section">
+      <h2>向旁边扩散</h2>
+      <div class="hint">只能点亮上下左右相邻的格子。下一格不是另画一条线接过去，而是把你在第一格里画出的笔迹再走一遍，并慢慢漂进旁边那一格。差别只是整段略转、略缩放，不会点点乱抖。再点一次取消。</div>
+      <button type="button" onclick="clearLit()" style="width:100%">清空点亮格</button>
+    </div>
+    <div class="section">
+      <h2>合成扰动</h2>
+      <div class="row">
+        <label>噪声</label>
+        <input type="range" id="noise" min="0" max="100" value="35" oninput="syncUI(); rebuildRoute(); draw()">
+        <span id="noiseVal">0.35</span>
+      </div>
+      <div class="row">
+        <label>种子</label>
+        <input type="number" id="seed" value="1" style="flex:1;width:60px">
+      </div>
+      <p class="stat">「合成新轮」在实测/上一轮基础上加受控随机，形态可辨，<b>非</b>真实测量。</p>
+    </div>
+    <div class="section">
+      <h2>轨迹</h2>
+      <div class="stat" id="trajStat">—</div>
+    </div>
+  </aside>
+</main>
+<script>
+const STORAGE_KEY = 'SILKWORM_PREVIEW_V1';
+const state = {
+  unit: 'px',
+  scale: null,
+  origin: null,
+  cellMm: 10,
+  trajectories: [],
+  activeIdx: 0,
+  points: [],
+  style: { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.95, material: 'ribbon' },
+  color: '#e8a04c',
+  behaviorBoxes: [],
+  provenance: 'measured',
+  playing: false,
+  frame: 0,
+  ghostPoints: null,
+  bounds: null,
+  tilt: 18,
+  yaw: 0,
+  litCells: [],
+  route: [],
+  panX: 0,
+  panY: 0,
+  drag: null,
+  cellMarks: [],
+  statusNote: '',
+  playAcc: 0,
+};
+
+if (new URLSearchParams(location.search).get('embed') === '1') {
+  document.body.classList.add('embed');
+}
+
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t ^= t + Math.imul(t ^ t >>> 7, 61 | t);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function widthAlongStyle(style, u) {
+  const h = style.headWidth, m = style.midWidth, t = style.tailWidth;
+  if (u <= 0.5) return h + (m - h) * (u / 0.5);
+  return m + (t - m) * ((u - 0.5) / 0.5);
+}
+
+function normalizeIncoming(doc) {
+  const out = { trajectories: [], behaviorBoxes: [], unit: 'px', calibration: null, provenance: 'measured', synth: null };
+  if (doc.type === 'silkworm-preview/v1') {
+    Object.assign(out, doc);
+    out.trajectories = doc.trajectories || [];
+    return out;
+  }
+  if (doc.schema && String(doc.schema).includes('motion-model')) {
+    out.provenance = 'measured';
+    out.synth = doc.synthesis || null;
+    out.unit = doc.unit || (doc.calibration ? 'mm' : 'px');
+    out.calibration = doc.calibration;
+    out.behaviorBoxes = doc.behaviorUnits || [];
+    out.trajectories = (doc.unifiedTrajectories || []).map(t => ({
+      wormId: t.wormId,
+      color: t.color || '#e8a04c',
+      style: t.style || state.style,
+      points: (t.points || []).map(p => ({
+        x: p.x_mm != null ? p.x_mm : (p.x_px != null ? p.x_px : p.x),
+        y: p.y_mm != null ? p.y_mm : (p.y_px != null ? p.y_px : p.y),
+        u: p.u != null ? p.u : 0,
+        width_mm: p.width_mm,
+        kind: p.kind || 'stroke',
+      })),
+    }));
+    return out;
+  }
+  if (doc.unifiedTrajectories) {
+    return normalizeIncoming({ ...doc, schema: 'curves3d/v2' });
+  }
+  if (doc.curves && doc.curves.length && doc.curves[0].points) {
+    out.trajectories = doc.curves.map((c, i) => ({
+      wormId: c.virtualId || c.wormId || i + 1,
+      color: c.color || '#e8a04c',
+      style: c.style || state.style,
+      points: c.points.map(p => ({ x: p.x_mm, y: p.y_mm, u: p.u, width_mm: p.width_mm })),
+    }));
+    out.provenance = doc.provenance || 'synthetic';
+    return out;
+  }
+  if (doc.worms) {
+    out.trajectories = Object.keys(doc.worms).map(id => {
+      const w = doc.worms[id];
+      return {
+        wormId: +id,
+        color: w.color,
+        style: w.style || state.style,
+        points: (w.points || []).map((p, i, arr) => ({
+          x: p.x, y: p.y, u: arr.length > 1 ? i / (arr.length - 1) : 0,
+        })),
+      };
+    });
+    out.calibration = doc.calibration;
+    return out;
+  }
+  return out;
+}
+
+function setTrajectoryList(norm, pickIdx) {
+  state.trajectories = norm.trajectories.filter(t => t.points && t.points.length >= 2);
+  if (!state.trajectories.length) return false;
+  state.activeIdx = pickIdx != null ? pickIdx : 0;
+  const t = state.trajectories[state.activeIdx];
+  state.points = t.points.map(p => ({ ...p }));
+  state.style = { ...state.style, ...(t.style || {}) };
+  state.color = t.color || '#e8a04c';
+  state.behaviorBoxes = norm.behaviorBoxes || [];
+  state.provenance = norm.provenance || 'measured';
+  state.synth = norm.synth;
+  state.unit = norm.unit || 'px';
+  if (norm.calibration && norm.calibration.scalePxPerMm) {
+    state.scale = norm.calibration.scalePxPerMm;
+    state.origin = norm.calibration.originPx;
+    state.cellMm = norm.calibration.cell_mm || 10;
+  } else state.scale = null;
+  ensureUMonotone();
+  computeBounds();
+  state.frame = 0;
+  state.ghostPoints = null;
+  state.litCells = [];
+  state.panX = 0;
+  state.panY = 0;
+  rebuildRoute();
+  document.getElementById('dataBadge').textContent =
+    state.provenance === 'synthetic' ? '合成轨迹' : '实测/描线轨迹';
+  updateTrajStat();
+  return true;
+}
+
+function ensureUMonotone() {
+  const n = state.points.length;
+  if (n < 2) return;
+  if (state.points[0].u == null || state.points[n - 1].u == null) {
+    state.points.forEach((p, i) => { p.u = i / (n - 1); });
+  }
+}
+
+function computeBounds() {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of state.points) {
+    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+  }
+  for (const b of state.behaviorBoxes) {
+    const box = b.box_px || b;
+    if (box.x0 != null) {
+      minX = Math.min(minX, box.x0); minY = Math.min(minY, box.y0);
+      maxX = Math.max(maxX, box.x1); maxY = Math.max(maxY, box.y1);
+    }
+  }
+  const home = homeBox();
+  const reach = 2;
+  minX = Math.min(minX, home.x0 - home.w * reach);
+  minY = Math.min(minY, home.y0 - home.h * reach);
+  maxX = Math.max(maxX, home.x1 + home.w * reach);
+  maxY = Math.max(maxY, home.y1 + home.h * reach);
+  for (const c of state.litCells) {
+    const r = cellRect(c.ix, c.iy);
+    minX = Math.min(minX, r.x0); minY = Math.min(minY, r.y0);
+    maxX = Math.max(maxX, r.x1); maxY = Math.max(maxY, r.y1);
+  }
+  const pad = Math.max(20, (maxX - minX) * 0.08);
+  state.bounds = { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+}
+
+function homeBox() {
+  const b = state.behaviorBoxes[0];
+  const box = b && (b.box_px || b);
+  if (box && box.x0 != null) {
+    const x0 = Math.min(box.x0, box.x1), x1 = Math.max(box.x0, box.x1);
+    const y0 = Math.min(box.y0, box.y1), y1 = Math.max(box.y0, box.y1);
+    return { x0, y0, x1, y1, w: Math.max(8, x1 - x0), h: Math.max(8, y1 - y0) };
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of state.points) {
+    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+  }
+  if (!Number.isFinite(minX)) return { x0: 0, y0: 0, x1: 80, y1: 80, w: 80, h: 80 };
+  const pad = 8;
+  return { x0: minX - pad, y0: minY - pad, x1: maxX + pad, y1: maxY + pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
+}
+
+function cellRect(ix, iy) {
+  const h = homeBox();
+  return {
+    ix, iy,
+    x0: h.x0 + ix * h.w,
+    y0: h.y0 + iy * h.h,
+    x1: h.x0 + (ix + 1) * h.w,
+    y1: h.y0 + (iy + 1) * h.h,
+    w: h.w,
+    h: h.h,
+  };
+}
+
+function mapIntoCell(p, rect) {
+  const h = homeBox();
+  return {
+    ...p,
+    x: rect.x0 + (p.x - h.x0),
+    y: rect.y0 + (p.y - h.y0),
+  };
+}
+
+function joinStrokeGaps(pts) {
+  if (pts.length < 2) return pts.map(p => ({ ...p }));
+  const gaps = [];
+  for (let i = 1; i < pts.length; i++) gaps.push(Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  const sorted = gaps.slice().sort((a, b) => a - b);
+  const med = sorted[Math.floor(sorted.length / 2)] || 1;
+  const out = [{ ...pts[0] }];
+  for (let i = 1; i < pts.length; i++) {
+    const a = out[out.length - 1];
+    const b = pts[i];
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    if (d > Math.max(12, med * 3.2)) {
+      const prev = out[Math.max(0, out.length - 2)];
+      let hx = a.x - prev.x, hy = a.y - prev.y;
+      let hl = Math.hypot(hx, hy) || 1;
+      hx /= hl; hy /= hl;
+      const tx = (b.x - a.x) / d, ty = (b.y - a.y) / d;
+      const c1 = { x: a.x + hx * d * 0.4, y: a.y + hy * d * 0.4 };
+      const c2 = { x: b.x - tx * d * 0.4, y: b.y - ty * d * 0.4 };
+      const n = Math.max(4, Math.round(d / Math.max(med, 1)));
+      for (let k = 1; k < n; k++) {
+        const t = k / n, u = 1 - t;
+        out.push({
+          ...b,
+          x: u*u*u*a.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*b.x,
+          y: u*u*u*a.y + 3*u*u*t*c1.y + 3*u*t*t*c2.y + t*t*t*b.y,
+          kind: 'bridge',
+        });
+      }
+    }
+    out.push({ ...b });
+  }
+  return out;
+}
+
+function stepLaw(pts) {
+  const steps = [];
+  for (let i = 1; i < pts.length; i++) {
+    steps.push({
+      dx: pts[i].x - pts[i - 1].x,
+      dy: pts[i].y - pts[i - 1].y,
+      u: pts[i].u,
+      width_mm: pts[i].width_mm,
+    });
+  }
+  return steps;
+}
+
+function driftReplay(steps, start, dirx, diry, cellW, cellH, seed) {
+  const noiseEl = document.getElementById('noise');
+  const noise = noiseEl ? Math.min(1, parseFloat(noiseEl.value) / 100) : 0.2;
+  const rand = mulberry32(seed);
+  const rot = (rand() - 0.5) * 0.16 * noise;
+  const scale = 1 + (rand() - 0.5) * 0.08 * noise;
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  const out = [];
+  let x = start.x, y = start.y;
+  const n = Math.max(1, steps.length);
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const dx = s.dx * scale, dy = s.dy * scale;
+    x += dx * cs - dy * sn + dirx * cellW / n;
+    y += dx * sn + dy * cs + diry * cellH / n;
+    out.push({ x, y, u: s.u, width_mm: s.width_mm, kind: 'stroke' });
+  }
+  return out;
+}
+
+function adjacentCells(pool, cell) {
+  return pool.filter(c => Math.abs(c.ix - cell.ix) + Math.abs(c.iy - cell.iy) === 1);
+}
+
+function rebuildRoute() {
+  if (!state.points.length) { state.route = []; state.cellMarks = []; return; }
+  const base = joinStrokeGaps(state.points);
+  const steps = stepLaw(base);
+  const home = homeBox();
+  const pending = state.litCells.map(c => ({ ix: c.ix, iy: c.iy }));
+  const route = base.map(p => ({ ...p }));
+  const marks = [];
+  const tailOf = () => route[route.length - 1];
+  const markNow = () => {
+    const last = tailOf();
+    const prev = route[Math.max(0, route.length - 2)];
+    marks.push({
+      endIndex: route.length - 1,
+      x: last.x,
+      y: last.y,
+      ang: Math.atan2(last.y - prev.y, last.x - prev.x),
+    });
+  };
+  markNow();
+  let current = { ix: 0, iy: 0 };
+  const used = new Set(['0,0']);
+  let gen = 1;
+  while (pending.length) {
+    const nexts = adjacentCells(pending.filter(c => !used.has(c.ix + ',' + c.iy)), current);
+    if (!nexts.length) break;
+    const tail = tailOf();
+    nexts.sort((a, b) => {
+      const ra = cellRect(a.ix, a.iy), rb = cellRect(b.ix, b.iy);
+      const da = Math.hypot((ra.x0 + ra.x1) / 2 - tail.x, (ra.y0 + ra.y1) / 2 - tail.y);
+      const db = Math.hypot((rb.x0 + rb.x1) / 2 - tail.x, (rb.y0 + rb.y1) / 2 - tail.y);
+      return da - db;
+    });
+    const next = nexts[0];
+    const replay = driftReplay(
+      steps,
+      tail,
+      next.ix - current.ix,
+      next.iy - current.iy,
+      home.w,
+      home.h,
+      1000 + gen * 97 + next.ix * 13 + next.iy * 29
+    );
+    route.push(...replay);
+    markNow();
+    used.add(next.ix + ',' + next.iy);
+    current = next;
+    gen++;
+  }
+  state.route = route;
+  state.cellMarks = marks;
+  if (state.frame >= route.length) state.frame = Math.max(0, route.length - 1);
+}
+
+function projectPoint(p, W, H) {
+  const sc = worldToScreen({ x: p.x, y: p.y }, W, H);
+  const cx = W / 2, cy = H / 2;
+  let x = sc.x - cx, y = sc.y - cy;
+  const yaw = (parseFloat(document.getElementById('yaw').value) || 0) * Math.PI / 180;
+  const xr = x * Math.cos(yaw) - y * Math.sin(yaw);
+  const yr = x * Math.sin(yaw) + y * Math.cos(yaw);
+  const tilt = (parseFloat(document.getElementById('tilt').value) || 0) * Math.PI / 180;
+  const z = 0;
+  const y2 = yr * Math.cos(tilt) - z * Math.sin(tilt);
+  const persp = 1 / (1 + y2 / (H * 2.2));
+  return { x: cx + xr * persp, y: cy + y2 * persp * 0.72 + H * 0.06, scale: sc.scale * persp };
+}
+function worldToScreen(p, W, H) {
+  const b = state.bounds;
+  const spanX = b.maxX - b.minX || 1;
+  const spanY = b.maxY - b.minY || 1;
+  const s = Math.min(W / spanX, H / spanY);
+  const ox = (W - spanX * s) / 2 + state.panX;
+  const oy = (H - spanY * s) / 2 + state.panY;
+  return {
+    x: ox + (p.x - b.minX) * s,
+    y: oy + (p.y - b.minY) * s,
+    scale: s,
+  };
+}
+
+function drawRibbon(ctx, pts, style, color, alpha) {
+  if (pts.length < 2) return;
+  const half = [];
+  const len = pts.length;
+  const mat = document.getElementById('matSel') ? document.getElementById('matSel').value : 'silk';
+  for (let i = 0; i < len; i++) {
+    const u = pts[i].u != null ? pts[i].u : i / (len - 1);
+    const sc = projectPoint(pts[i], ctx.canvas.width, ctx.canvas.height);
+    const w = Math.max(2.2, (pts[i].width_mm != null ? pts[i].width_mm : widthAlongStyle(style, u)) * sc.scale * (mat === 'line' ? 0.05 : 0.32));
+    let dx = 0, dy = 0;
+    if (i < len - 1) {
+      const n = projectPoint(pts[i + 1], ctx.canvas.width, ctx.canvas.height);
+      dx = n.x - sc.x; dy = n.y - sc.y;
+    } else {
+      const p0 = projectPoint(pts[i - 1], ctx.canvas.width, ctx.canvas.height);
+      dx = sc.x - p0.x; dy = sc.y - p0.y;
+    }
+    const L = Math.hypot(dx, dy) || 1;
+    const nx = -dy / L, ny = dx / L;
+    half.push({ lx: sc.x + nx * w, ly: sc.y + ny * w, rx: sc.x - nx * w, ry: sc.y - ny * w, hx: sc.x, hy: sc.y });
+  }
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (mat === 'line') {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(half[0].hx, half[0].hy);
+    for (let i = 1; i < half.length; i++) ctx.lineTo(half[i].hx, half[i].hy);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+  ctx.beginPath();
+  ctx.moveTo(half[0].lx, half[0].ly);
+  for (let i = 1; i < half.length; i++) ctx.lineTo(half[i].lx, half[i].ly);
+  for (let i = half.length - 1; i >= 0; i--) ctx.lineTo(half[i].rx, half[i].ry);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(40,28,16,0.35)';
+  ctx.shadowColor = 'rgba(0,0,0,0.45)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 3;
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  const g = ctx.createLinearGradient(half[0].lx, half[0].ly, half[0].rx, half[0].ry);
+  g.addColorStop(0, '#6a5030');
+  g.addColorStop(0.35, color);
+  g.addColorStop(0.55, '#fff4dc');
+  g.addColorStop(0.78, '#f0d7a4');
+  g.addColorStop(1, '#8a6840');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(half[0].hx, half[0].hy);
+  for (let i = 1; i < half.length; i++) ctx.lineTo(half[i].hx, half[i].hy);
+  ctx.strokeStyle = 'rgba(255,250,240,0.72)';
+  ctx.lineWidth = Math.max(0.8, (half[0] ? 1.4 : 1));
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawWormBody(ctx, head, style, alpha, angle) {
+  if (!head) return;
+  const sc = projectPoint(head, ctx.canvas.width, ctx.canvas.height);
+  const r = 9 + style.midWidth * 2.2;
+  const ang = angle || 0;
+  ctx.save();
+  ctx.translate(sc.x, sc.y);
+  ctx.rotate(ang);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(2, 4, r * 1.35, r * 0.7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  const g = ctx.createLinearGradient(-r, -r, r, r);
+  g.addColorStop(0, '#6b4a2a');
+  g.addColorStop(0.45, '#d8c4a2');
+  g.addColorStop(1, '#2a1a0e');
+  ctx.fillStyle = g;
+  ctx.strokeStyle = 'rgba(255,236,200,0.55)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 1.55, r * 0.72, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#1a1208';
+  ctx.beginPath();
+  ctx.arc(r * 0.7, -r * 0.12, 2.2, 0, Math.PI * 2);
+  ctx.arc(r * 0.7, r * 0.18, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawWormHead(ctx, head, style) {
+  if (!document.getElementById('showWorm').checked || !head) return;
+  const prev = state.route && state.frame > 0 ? state.route[Math.max(0, state.frame - 1)] : null;
+  const ang = prev ? Math.atan2(head.y - prev.y, head.x - prev.x) : 0;
+  drawWormBody(ctx, head, style, 1, ang);
+}
+
+function draw() {
+  const cvs = document.getElementById('cvs');
+  const ctx = cvs.getContext('2d');
+  const W = cvs.width, H = cvs.height;
+  ctx.fillStyle = '#12141a';
+  ctx.fillRect(0, 0, W, H);
+
+  if (!state.points.length) {
+    ctx.fillStyle = '#8a8f99';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('请从描图器点「并排吐丝预览」或载入 motion-model / 3D JSON', W / 2, H / 2);
+    return;
+  }
+
+  const home = homeBox();
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  for (let ix = -3; ix <= 4; ix++) {
+    for (let iy = -3; iy <= 3; iy++) {
+      const r = cellRect(ix, iy);
+      const p0 = worldToScreen({ x: r.x0, y: r.y0 }, W, H);
+      const p1 = worldToScreen({ x: r.x1, y: r.y1 }, W, H);
+      ctx.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+    }
+  }
+
+  for (const cell of state.litCells) {
+    const r = cellRect(cell.ix, cell.iy);
+    const p0 = worldToScreen({ x: r.x0, y: r.y0 }, W, H);
+    const p1 = worldToScreen({ x: r.x1, y: r.y1 }, W, H);
+    ctx.fillStyle = 'rgba(232,160,76,0.16)';
+    ctx.strokeStyle = 'rgba(232,160,76,0.95)';
+    ctx.lineWidth = 2;
+    ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+    ctx.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+  }
+
+  if (document.getElementById('showBeh').checked) {
+    const boxes = state.behaviorBoxes.length ? state.behaviorBoxes : [{ box_px: home }];
+    boxes.forEach((bu, i) => {
+      const box = bu.box_px || bu;
+      if (box.x0 == null) return;
+      const p0 = worldToScreen({ x: Math.min(box.x0, box.x1), y: Math.min(box.y0, box.y1) }, W, H);
+      const p1 = worldToScreen({ x: Math.max(box.x0, box.x1), y: Math.max(box.y0, box.y1) }, W, H);
+      ctx.strokeStyle = i === 0 ? 'rgba(120,230,210,0.95)' : 'rgba(232,160,76,0.9)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+      ctx.fillStyle = 'rgba(94,182,168,0.10)';
+      ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+      ctx.fillStyle = '#e8a04c';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(String(box.id || bu.boxId || i + 1), p0.x + 8, p0.y + 20);
+    });
+  }
+
+  const route = state.route.length ? state.route : state.points;
+  const end = Math.min(state.frame + 1, route.length);
+  const slice = route.slice(0, end);
+  if (document.getElementById('showSilk').checked && slice.length >= 2) {
+    drawRibbon(ctx, slice, state.style, state.color, state.style.opacity);
+  }
+  if (document.getElementById('showPts') && document.getElementById('showPts').checked) {
+    ctx.fillStyle = state.color;
+    for (const p of slice) {
+      const sc = projectPoint(p, W, H);
+      ctx.beginPath(); ctx.arc(sc.x, sc.y, 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  const head = slice[slice.length - 1];
+  if (document.getElementById('showResidue') && document.getElementById('showResidue').checked) {
+    (state.cellMarks || []).forEach((mark) => {
+      if (mark.endIndex < end - 1) {
+        drawWormBody(ctx, mark, state.style, 0.38, mark.ang);
+      }
+    });
+  }
+  drawWormHead(ctx, head, state.style);
+
+  const u = head && head.u != null ? head.u : (end - 1) / Math.max(1, route.length - 1);
+  document.getElementById('uSlider').value = Math.round((u || 0) * 1000);
+  document.getElementById('playStat').innerHTML =
+    `帧 <b>${end}</b> / ${route.length} · 点亮 <b>${state.litCells.length}</b> 格` +
+    (state.statusNote ? `<br>${state.statusNote}` : '');
+}
+
+function tick(ts) {
+  if (!state.playing) return;
+  if (!state.lastT) state.lastT = ts;
+  const dt = (ts - state.lastT) / 1000;
+  state.lastT = ts;
+  const pps = parseFloat(document.getElementById('pps').value);
+  const rate = Number.isFinite(pps) ? pps : 4;
+  state.playAcc += dt * rate;
+  const adv = Math.floor(state.playAcc);
+  state.playAcc -= adv;
+  const route = state.route.length ? state.route : state.points;
+  state.frame += adv;
+  if (state.frame >= route.length - 1) {
+    if (document.getElementById('loopOn').checked) {
+      state.frame = 0;
+      state.playAcc = 0;
+    } else {
+      state.frame = Math.max(0, route.length - 1);
+      state.playing = false;
+    }
+  }
+  draw();
+  if (state.playing) requestAnimationFrame(tick);
+}
+
+function clearLit() {
+  state.litCells = [];
+  rebuildRoute();
+  computeBounds();
+  draw();
+}
+
+function screenToWorld(sx, sy) {
+  const cvs = document.getElementById('cvs');
+  const b = state.bounds;
+  const spanX = b.maxX - b.minX || 1;
+  const spanY = b.maxY - b.minY || 1;
+  const s = Math.min(cvs.width / spanX, cvs.height / spanY);
+  const ox = (cvs.width - spanX * s) / 2 + state.panX;
+  const oy = (cvs.height - spanY * s) / 2 + state.panY;
+  return { x: (sx - ox) / s + b.minX, y: (sy - oy) / s + b.minY };
+}
+
+function reachableLit(cells) {
+  const keep = [];
+  const pool = cells.map(c => ({ ix: c.ix, iy: c.iy }));
+  const seen = new Set(['0,0']);
+  const q = [{ ix: 0, iy: 0 }];
+  while (q.length) {
+    const cur = q.shift();
+    for (const c of pool) {
+      const key = c.ix + ',' + c.iy;
+      if (seen.has(key)) continue;
+      if (Math.abs(c.ix - cur.ix) + Math.abs(c.iy - cur.iy) === 1) {
+        seen.add(key);
+        keep.push(c);
+        q.push(c);
+      }
+    }
+  }
+  return keep;
+}
+
+function toggleCellAt(sx, sy) {
+  const wpt = screenToWorld(sx, sy);
+  const h = homeBox();
+  const ix = Math.floor((wpt.x - h.x0) / h.w);
+  const iy = Math.floor((wpt.y - h.y0) / h.h);
+  if (ix === 0 && iy === 0) return;
+  const i = state.litCells.findIndex(c => c.ix === ix && c.iy === iy);
+  if (i >= 0) {
+    state.litCells.splice(i, 1);
+    state.litCells = reachableLit(state.litCells);
+    state.statusNote = '';
+  } else {
+    const occupied = [{ ix: 0, iy: 0 }, ...state.litCells];
+    const near = occupied.some(c => Math.abs(c.ix - ix) + Math.abs(c.iy - iy) === 1);
+    if (!near) {
+      state.statusNote = '只能点亮上下左右相邻的格子';
+      draw();
+      return;
+    }
+    state.litCells.push({ ix, iy });
+    state.statusNote = '';
+  }
+  rebuildRoute();
+  computeBounds();
+  draw();
+}
+
+function onPointerDown(e) {
+  const cvs = document.getElementById('cvs');
+  const rect = cvs.getBoundingClientRect();
+  state.drag = {
+    id: e.pointerId,
+    x: e.clientX,
+    y: e.clientY,
+    panX: state.panX,
+    panY: state.panY,
+    moved: false,
+    sx: (e.clientX - rect.left) * (cvs.width / rect.width),
+    sy: (e.clientY - rect.top) * (cvs.height / rect.height),
+  };
+  cvs.setPointerCapture(e.pointerId);
+}
+
+function onPointerMove(e) {
+  const d = state.drag;
+  if (!d || d.id !== e.pointerId) return;
+  const dx = e.clientX - d.x;
+  const dy = e.clientY - d.y;
+  if (Math.hypot(dx, dy) > 5) d.moved = true;
+  if (d.moved) {
+    const cvs = document.getElementById('cvs');
+    const rect = cvs.getBoundingClientRect();
+    state.panX = d.panX + dx * (cvs.width / rect.width);
+    state.panY = d.panY + dy * (cvs.height / rect.height);
+    draw();
+  }
+}
+
+function onPointerUp(e) {
+  const d = state.drag;
+  if (!d || d.id !== e.pointerId) return;
+  if (!d.moved) toggleCellAt(d.sx, d.sy);
+  state.drag = null;
+}
+
+function exportPng() {
+  const cvs = document.getElementById('cvs');
+  cvs.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'silk-preview-' + Date.now() + '.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }, 'image/png');
+}
+
+function togglePlay() {
+  state.playing = !state.playing;
+  state.lastT = 0;
+  if (state.playing) requestAnimationFrame(tick);
+}
+
+function scrubU(v) {
+  const u = parseInt(v, 10) / 1000;
+  const route = state.route.length ? state.route : state.points;
+  let best = 0, bestD = 1e9;
+  for (let i = 0; i < route.length; i++) {
+    const d = Math.abs((route[i].u || 0) - u);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  state.frame = best;
+  state.playing = false;
+  draw();
+}
+
+function syncUI() {
+  document.getElementById('ppsVal').textContent = parseFloat(document.getElementById('pps').value).toFixed(1);
+  const n = parseFloat(document.getElementById('noise').value) / 100;
+  document.getElementById('noiseVal').textContent = n.toFixed(2);
+}
+
+function perturbPoints(base, noise, seed) {
+  const rand = mulberry32(seed);
+  const stoch = (state.synth && state.synth.stochasticLayer) || {};
+  const sigma = (stoch.stepLength_mm && stoch.stepLength_mm.sigma) || 0.15;
+  return base.map((p, i) => {
+    if (i === 0 || i === base.length - 1) return { ...p };
+    const j = noise * sigma * (rand() - 0.5) * 1.2;
+    const k = noise * sigma * (rand() - 0.5) * 1.2;
+    return { ...p, x: p.x + j, y: p.y + k, width_mm: p.width_mm };
+  });
+}
+
+function regenerateSynthetic() {
+  if (state.points.length < 2) return;
+  const noise = parseFloat(document.getElementById('noise').value) / 100;
+  const seed = parseInt(document.getElementById('seed').value, 10) || 1;
+  state.ghostPoints = state.points.map(p => ({ ...p }));
+  state.points = perturbPoints(state.points, noise, seed);
+  ensureUMonotone();
+  rebuildRoute();
+  computeBounds();
+  state.provenance = 'synthetic';
+  state.frame = 0;
+  state.playing = true;
+  state.lastT = 0;
+  document.getElementById('seed').value = seed + 1;
+  document.getElementById('dataBadge').textContent = '合成轨迹';
+  updateTrajStat();
+  requestAnimationFrame(tick);
+  draw();
+}
+
+function updateTrajStat() {
+  const t = state.trajectories[state.activeIdx];
+  document.getElementById('trajStat').innerHTML = t
+    ? `蚕 <b>${t.wormId}</b> · <b>${state.points.length}</b> 点 · 单位 <b>${state.unit}</b>`
+    : '—';
+}
+
+function ingestPayload(doc) {
+  const norm = normalizeIncoming(doc);
+  if (!setTrajectoryList(norm)) {
+    alert('未识别到可用轨迹点列');
+    return;
+  }
+  draw();
+}
+
+function loadJsonFile(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try { ingestPayload(JSON.parse(rd.result)); }
+    catch (err) { alert('JSON 无效: ' + err.message); }
+    e.target.value = '';
+  };
+  rd.readAsText(f);
+}
+
+function tryStorage() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (raw) ingestPayload(JSON.parse(raw));
+  } catch (_) { /* */ }
+}
+
+window.addEventListener('message', (ev) => {
+  if (ev.data && ev.data.type === 'silkworm-preview/v1') ingestPayload(ev.data);
+  if (ev.data && ev.data.type === 'silkworm-preview-push') ingestPayload(ev.data.payload);
+});
+
+window.addEventListener('resize', () => draw());
+tryStorage();
+const cvs = document.getElementById('cvs');
+cvs.addEventListener('pointerdown', onPointerDown);
+cvs.addEventListener('pointermove', onPointerMove);
+cvs.addEventListener('pointerup', onPointerUp);
+cvs.addEventListener('pointercancel', onPointerUp);
+draw();
+
+if (window.parent !== window) {
+  window.parent.postMessage({ type: 'silkworm-preview-ready' }, '*');
+}
+</script>
+</body>
+</html>

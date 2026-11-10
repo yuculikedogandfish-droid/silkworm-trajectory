@@ -4,7 +4,8 @@
 
 ## 在线使用（可分享）
 
-**[蚕轨迹描图器 — GitHub Pages](https://yuculikedogandfish-droid.github.io/silkworm-trajectory/)**
+**[蚕轨迹描图器 — GitHub Pages](https://yuculikedogandfish-droid.github.io/silkworm-trajectory/)**  
+**[吐丝运动预览](https://yuculikedogandfish-droid.github.io/silkworm-trajectory/viewer/motion-preview.html)**（可并排打开描图器内「并排吐丝预览」）
 
 - 视频在浏览器本地解码，**不会上传到服务器**；也可点「载入视频」用自己的 MP4。
 - 点「家蚕·段00」可加载站内约 15MB 演示样片；4K 分段素材仍用本地 `data/projects/家蚕_15s/`。

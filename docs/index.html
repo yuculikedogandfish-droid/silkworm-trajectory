@@ -19,7 +19,10 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background: var(--bg);
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(232,160,76,0.08), transparent 50%),
+      radial-gradient(900px 500px at 100% 0%, rgba(94,182,168,0.06), transparent 45%),
+      var(--bg);
     color: var(--text);
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
     font-size: 13px;
@@ -36,6 +39,10 @@
     padding: 8px 14px;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
+    overflow: visible;
+    position: relative;
+    z-index: 100;
+    flex-wrap: wrap;
   }
   header h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.5px; }
   header .spacer { flex: 1; }
@@ -55,6 +62,12 @@
   button.danger:hover { border-color: var(--danger); color: var(--danger); }
   input[type="file"] { display: none; }
   /* ===== 主体 ===== */
+  .workspace { flex: 1; display: flex; min-height: 0; width: 100%; }
+  body.split-preview .workspace main { flex: 1 1 52%; min-width: 320px; }
+  body.split-preview #previewFrame {
+    flex: 1 1 48%; min-width: 300px; border: none; background: #0a0b0d;
+    border-left: 2px solid var(--accent);
+  }
   main { flex: 1; display: flex; overflow: hidden; }
   .stage {
     flex: 1;
@@ -74,6 +87,7 @@
   }
   #video { display: none !important; pointer-events: none; }
   .stage canvas { cursor: crosshair; touch-action: none; z-index: 1; }
+  #canvasTraj { pointer-events: none; z-index: 2; }
   .stage .empty {
     color: var(--muted);
     text-align: center;
@@ -81,6 +95,14 @@
     z-index: 0;
   }
   .stage .empty strong { color: var(--text); font-size: 15px; }
+  #modeBanner {
+    position: absolute; z-index: 5; left: 12px; top: 12px;
+    background: rgba(22,24,29,0.92); border: 1px solid var(--accent);
+    color: var(--text); padding: 8px 12px; border-radius: 8px;
+    font-size: 12px; line-height: 1.5; max-width: 320px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    display: none;
+  }
   /* ===== 侧栏 ===== */
   aside {
     width: 300px;
@@ -210,8 +232,10 @@
   <button type="button" data-tip="Blender 导入" onclick="exportOBJ()">OBJ</button>
   <button type="button" data-tip="Blender / 管线 glTF" onclick="exportGLTF()">glTF</button>
   <button type="button" data-tip="快捷键：Ctrl+E · 含运动统计与八字范围" onclick="exportMotionModel()">运动模型</button>
+  <button type="button" class="primary" data-tip="右侧并排播放吐丝过程，可循环与合成新轮" onclick="toggleSplitPreview()">并排吐丝预览</button>
 </header>
 
+<div class="workspace">
 <main>
   <div class="stage" id="stage">
     <div class="empty" id="emptyHint">
@@ -221,25 +245,17 @@
     </div>
     <video id="video" playsinline muted preload="auto"></video>
     <canvas id="canvas"></canvas>
+    <canvas id="canvasTraj"></canvas>
+    <div id="modeBanner"></div>
   </div>
 
   <aside>
     <div class="section">
-      <h2>快捷键</h2>
-      <div class="shortcut-panel">
-        <kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销一点 · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> 撤销一笔<br>
-        <kbd>Space</kbd> 播放 · <kbd>←</kbd><kbd>→</kbd> 逐帧 · <kbd>[</kbd><kbd>]</kbd> 上/下段<br>
-        <kbd>1</kbd>–<kbd>9</kbd> 选蚕 · <kbd>O</kbd> 原点 <kbd>L</kbd> 比例尺 <kbd>R</kbd> 框选八字<br>
-        <kbd>Ctrl</kbd>+<kbd>S</kbd> 保存 · <kbd>Ctrl</kbd>+<kbd>O</kbd> 打开 · <kbd>Ctrl</kbd>+<kbd>E</kbd> 运动模型<br>
-        <kbd>Esc</kbd> 取消标定/框选 · 悬停按钮可看提示
-      </div>
-    </div>
-    <div class="section">
       <h2>标定（像素 → mm）</h2>
-      <div class="hint" id="calHint">实验格子边长 <b>1cm</b>。先设原点，再量比例尺（两点间距填 10mm）。</div>
+      <div class="hint" id="calHint">格子是 <b>1 cm</b>。① 点「设原点」再在画面上点一下格子交点。② 点「量一格」再依次点同一格的两个对角（间距已填 10 mm）。</div>
       <div class="row">
-        <button type="button" id="btnOrigin" data-tip="快捷键：O" onclick="setMode('origin')" style="flex:1">设原点</button>
-        <button type="button" id="btnScale" data-tip="快捷键：L（Length）" onclick="setMode('scale')" style="flex:1">量比例尺</button>
+        <button type="button" id="btnOrigin" data-tip="在画面上点一下，作为坐标原点" onclick="setMode('origin')" style="flex:1">① 设原点</button>
+        <button type="button" id="btnScale" data-tip="在画面上点两个点，间距等于下方毫米数" onclick="setMode('scale')" style="flex:1">② 量一格</button>
       </div>
       <div class="row">
         <label>格边 (mm)</label>
@@ -250,11 +266,15 @@
     </div>
 
     <div class="section">
-      <h2>八字运动单元块</h2>
-      <div class="hint">头部摆动大致在 <b>~1.5×1 格</b> 范围内（非固定 2×2）；可用框标定「这一次」的运动包络，供运动模型与生成用。</div>
+      <h2>这一次的活动范围</h2>
+      <div class="hint">可以在同一画面里拖出多个活动框，每个框有编号。新框不会清掉已有的框，也不会清掉已经描好的丝。要删框或删丝，用下面单独的按钮。</div>
       <div class="row">
-        <button type="button" data-tip="快捷键：R（Region）· 拖拽矩形" onclick="setMode('region')" style="flex:1">框选范围</button>
-        <button type="button" data-tip="按 1.5×1 格生成参考框" onclick="presetBehaviorBox15()" style="flex:1">1.5×1 格参考框</button>
+        <button type="button" data-tip="按住拖出一个新框，编号自动加一" onclick="setMode('region')" style="flex:1">拖一个新框</button>
+        <button type="button" data-tip="先点中一个框，再拖动它换位置" onclick="setMode('movebox')" style="flex:1">挪动选中框</button>
+      </div>
+      <div class="row">
+        <button type="button" data-tip="按当前标定再放一个 1.5×1 格的新框" onclick="presetBehaviorBox15()" style="flex:1">再放 1.5×1 框</button>
+        <button type="button" class="danger" data-tip="只删除当前选中的框，不删除丝线" onclick="deleteSelectedBehaviorBox()" style="flex:1">删除选中框</button>
       </div>
       <div class="stat" id="behaviorStat">未框选</div>
       <label class="toggle-row"><input type="checkbox" id="tBehBox" checked onchange="draw()"> 显示运动框</label>
@@ -263,13 +283,14 @@
     <div class="section">
       <h2>蚕编号</h2>
       <div class="worm-tabs" id="wormTabs"></div>
-      <div class="hint">数字键 <kbd>1</kbd>–<kbd>9</kbd> 选蚕；<b>拖动</b>描丝。<kbd>Ctrl+Z</kbd> 撤点 <kbd>Ctrl+Shift+Z</kbd> 撤笔。</div>
+      <div class="hint">按住拖动描丝。悬停按钮可看快捷键。</div>
       <div class="row">
         <button type="button" onclick="addWormTab()" style="flex:1">＋ 新蚕编号</button>
       </div>
       <div class="row">
-        <button type="button" id="btnUndoPt" data-tip="快捷键：Ctrl+Z" onclick="undoLast()" style="flex:1">撤销上一点</button>
-        <button type="button" id="btnUndoStroke" data-tip="快捷键：Ctrl+Shift+Z 或 Ctrl+Y" onclick="undoStroke()" style="flex:1">撤销上一笔</button>
+        <button type="button" id="btnUndoStroke" data-tip="Ctrl+Z · 撤销整笔" onclick="undoStroke()" style="flex:1">撤销上一笔</button>
+        <button type="button" id="btnUndoPt" data-tip="Ctrl+Shift+Z · 只删最后一个点" onclick="undoLast()" style="flex:1">撤销上一点</button>
+        <button type="button" data-tip="Ctrl+Y · 重做" onclick="redoEdit()" style="flex:1">重做</button>
       </div>
       <div class="row">
         <button type="button" class="danger" data-tip="无快捷键（防误触）" onclick="clearWorm()" style="flex:1">清空本蚕</button>
@@ -341,8 +362,9 @@
         <label>材质</label>
         <select id="sMat" oninput="updateStyle()" onchange="updateStyle()">
           <option value="line">line（线）</option>
-          <option value="ribbon" selected>ribbon（带）</option>
-          <option value="tube">tube（管）</option>
+          <option value="ribbon" selected>ribbon（丝带）</option>
+          <option value="tube">tube（管状高光）</option>
+          <option value="silk">silk（蚕丝光泽）</option>
         </select>
       </div>
       <div class="row">
@@ -374,7 +396,8 @@
       <h2>显示</h2>
       <label class="toggle-row"><input type="checkbox" id="tGrid" checked onchange="draw()"> 显示坐标网格</label>
       <label class="toggle-row"><input type="checkbox" id="tTraj" checked onchange="draw()"> 显示轨迹</label>
-      <label class="toggle-row"><input type="checkbox" id="tPts" checked onchange="draw()"> 显示点</label>
+      <label class="toggle-row"><input type="checkbox" id="tPts" onchange="draw()"> 显示采样点</label>
+      <button type="button" onclick="exportCanvasImage()" style="width:100%;margin-top:6px">导出当前画面 PNG</button>
     </div>
 
     <div class="section">
@@ -390,6 +413,7 @@
       <label class="toggle-row"><input type="checkbox" id="expUnified" checked> 导出统一曲线 u∈[0,1] + 分段表</label>
       <label class="toggle-row"><input type="checkbox" id="expWidth" checked> JSON 含每点半径 (width_mm)</label>
       <label class="toggle-row"><input type="checkbox" id="expPx" checked> JSON 保留像素坐标备查</label>
+      <label class="toggle-row"><input type="checkbox" id="expSvgRibbon" checked> SVG 导出可变宽度丝带</label>
       <div class="row" style="margin-top:8px">
         <button type="button" class="primary" onclick="exportCurves3D()" style="flex:1">3D JSON</button>
         <button type="button" onclick="exportDXF()" style="flex:1">DXF</button>
@@ -412,8 +436,2497 @@
       <h2>统计</h2>
       <div class="stat" id="statBox">—</div>
     </div>
+    <div class="section">
+      <h2>点序播放（本页）</h2>
+      <div class="hint">与视频时间无关；按弧长点序预览当前蚕轨迹。</div>
+      <div class="row">
+        <label>点/秒</label>
+        <input type="range" id="uPlayPps" min="5" max="200" value="40" oninput="document.getElementById('vUPlayPps').textContent=this.value">
+        <span class="val" id="vUPlayPps">40</span>
+      </div>
+      <div class="row">
+        <button type="button" class="primary" onclick="toggleUPointPlay()" style="flex:1" id="uPlayBtn">点序播放</button>
+        <button type="button" onclick="resetUPointPlay()" style="flex:1">复位</button>
+      </div>
+      <input type="range" id="uPlaySlider" min="0" max="1000" value="0" oninput="scrubUPointPlay(this.value)">
+      <div class="stat" id="uPlayStat">—</div>
+    </div>
+    <div class="section">
+      <h2>自动追踪导入</h2>
+      <div class="hint">tracking 脚本 JSON：<code>t,x,y</code> 为像素。默认导入为新蚕，不覆盖现有数据。</div>
+      <button type="button" onclick="document.getElementById('fileTrack').click()" style="width:100%">导入追踪 JSON</button>
+      <input type="file" id="fileTrack" accept=".json">
+    </div>
   </aside>
 </main>
+<iframe id="previewFrame" title="吐丝预览" style="display:none" srcdoc="<!DOCTYPE html>
+<html lang=&quot;zh-CN&quot;>
+<head>
+<meta charset=&quot;UTF-8&quot;>
+<meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;>
+<title>蚕吐丝运动预览</title>
+<style>
+  :root {
+    --bg: #0e0f12; --panel: #16181d; --border: #262932;
+    --text: #e6e8ec; --muted: #8a8f99; --accent: #e8a04c; --silk: #d4c4a8;
+    --worm: #3d2914;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #070A0C; color: var(--text);
+    font-family: -apple-system, &quot;Segoe UI&quot;, &quot;Microsoft YaHei&quot;, sans-serif;
+    font-size: 13px; min-height: 100vh;
+  }
+  .preview-screen {
+    height: 100vh; display: flex; flex-direction: column;
+  }
+  body.embed { height: 100vh; overflow: hidden; }
+  body.embed #habitat, body.embed #scrollCue { display: none; }
+  header {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 14px; font-weight: 600; }
+  header .spacer { flex: 1; min-width: 8px; }
+  button {
+    background: #1c1f26; color: var(--text); border: 1px solid var(--border);
+    padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: #1a1208; font-weight: 600; }
+  input[type=&quot;file&quot;] { display: none; }
+  main { flex: 1; display: flex; min-height: 0; }
+  .canvas-wrap {
+    flex: 1; position: relative; background: #0a0b0d;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .canvas-wrap canvas { max-width: 100%; max-height: 100%; cursor: grab; touch-action: none; }
+  aside {
+    width: 280px; background: var(--panel); border-left: 1px solid var(--border);
+    padding: 12px; overflow-y: auto;
+  }
+  .section { margin-bottom: 14px; }
+  .section h2 {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;
+  }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .row label { flex: 0 0 88px; color: var(--muted); font-size: 11px; }
+  .row input[type=&quot;range&quot;] { flex: 1; }
+  .stat { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .stat b { color: var(--text); }
+  .hint {
+    background: #1c1f26; border-left: 3px solid var(--accent);
+    padding: 6px 8px; font-size: 11px; color: var(--muted); margin-bottom: 8px; line-height: 1.5;
+  }
+  .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: #252830; color: var(--accent); }
+  body.embed header h1 { display: none; }
+  body.embed aside { width: 240px; }
+  #habitat {
+    min-height: 100vh; color: #E6ECE9; background: #070A0C;
+    display: flex; flex-direction: column;
+  }
+  .hab-top, .hab-time {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; background: #0C1113; border-color: rgba(230,236,233,0.08); border-style: solid;
+  }
+  .hab-top { border-width: 1px 0; }
+  .hab-time { border-width: 1px 0 0; }
+  .hab-top h2 { font-size: 15px; font-weight: 560; letter-spacing: 0.04em; }
+  .hab-note { color: #84918D; font-size: 11px; line-height: 1.45; max-width: 640px; }
+  .hab-stage { flex: 1; min-height: 640px; display: grid; grid-template-columns: 240px 1fr 260px; }
+  .hab-side {
+    background: #0C1113; padding: 14px; overflow: auto;
+    border-color: rgba(230,236,233,0.08); border-style: solid;
+  }
+  .hab-side.left { border-width: 0 1px 0 0; }
+  .hab-side.right { border-width: 0 0 0 1px; }
+  .hab-side h3 {
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: #84918D; margin: 12px 0 8px;
+  }
+  .hab-side .row label { flex-basis: 52px; color: #84918D; }
+  #habitat button { background: transparent; color: #E6ECE9; border-color: rgba(230,236,233,0.16); }
+  #habitat button:hover { border-color: #E6ECE9; color: #E6ECE9; }
+  #habitat button.active { border-color: #9BB0A4; color: #E6ECE9; }
+  .hab-world { position: relative; min-height: 640px; background: #070A0C; }
+  .hab-world canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    max-width: none; max-height: none; touch-action: none;
+  }
+  .hab-world canvas.mist { width: 100%; height: 100%; pointer-events: none; }
+  #habWorld { z-index: 3; cursor: crosshair; }
+  .agent-card, .leaf-card {
+    border: 1px solid rgba(230,236,233,0.12); padding: 8px; margin-bottom: 6px; cursor: pointer;
+  }
+  .agent-card.on { border-color: rgba(230,236,233,0.45); }
+  .scroll-cue {
+    text-align: center; color: #84918D; font-size: 11px; letter-spacing: 0.16em;
+    padding: 14px; background: #070A0C;
+  }
+  @media (max-width: 860px) {
+    .hab-stage { grid-template-columns: 1fr; }
+    .hab-side {
+      display: none; position: absolute; z-index: 5; top: 0; bottom: 48px; width: min(280px, 86vw);
+    }
+    .hab-side.open { display: block; }
+    .hab-side.left { left: 0; }
+    .hab-side.right { right: 0; }
+    .hab-world { min-height: 70vh; }
+  }
+</style>
+</head>
+<body>
+<div class=&quot;preview-screen&quot;>
+<header>
+  <h1>蚕吐丝运动预览</h1>
+  <span class=&quot;badge&quot; id=&quot;dataBadge&quot;>无数据</span>
+  <span class=&quot;spacer&quot;></span>
+  <button type=&quot;button&quot; class=&quot;primary&quot; onclick=&quot;togglePlay()&quot;>▶ 播放 / 暂停</button>
+  <button type=&quot;button&quot; onclick=&quot;document.getElementById('fileJson').click()&quot;>载入 JSON</button>
+  <input type=&quot;file&quot; id=&quot;fileJson&quot; accept=&quot;.json&quot; onchange=&quot;loadJsonFile(event)&quot;>
+  <button type=&quot;button&quot; onclick=&quot;regenerateSynthetic()&quot;>合成新轮</button>
+</header>
+<main>
+  <div class=&quot;canvas-wrap&quot;>
+    <canvas id=&quot;cvs&quot; width=&quot;900&quot; height=&quot;900&quot;></canvas>
+  </div>
+  <aside>
+    <div class=&quot;hint&quot;>
+      按<b>点序</b>模拟吐丝（非真实视频时间）。实测轨迹与合成轨迹分开展示；循环播放观察重复行为。
+    </div>
+    <div class=&quot;section&quot;>
+      <h2>播放</h2>
+      <div class=&quot;row&quot;>
+        <label>点/秒</label>
+        <input type=&quot;range&quot; id=&quot;pps&quot; min=&quot;0.2&quot; max=&quot;40&quot; step=&quot;0.1&quot; value=&quot;4&quot; oninput=&quot;syncUI()&quot;>
+        <span id=&quot;ppsVal&quot;>4</span>
+      </div>
+      <div class=&quot;row&quot;>
+        <label>统一 u</label>
+        <input type=&quot;range&quot; id=&quot;uSlider&quot; min=&quot;0&quot; max=&quot;1000&quot; value=&quot;0&quot; oninput=&quot;scrubU(this.value)&quot;>
+      </div>
+      <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;loopOn&quot; checked> 循环本轨迹</label>
+      <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;showSilk&quot; checked> 显示丝线</label>
+      <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;showWorm&quot; checked onchange=&quot;draw()&quot;> 显示正在爬的蚕</label>
+      <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;showResidue&quot; checked onchange=&quot;draw()&quot;> 留下经过的蚕体</label>
+      <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;showPts&quot;> 显示采样点</label>
+      <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;showBeh&quot; checked> 显示活动范围框</label>
+      <div class=&quot;row&quot;>
+        <label>材质</label>
+        <select id=&quot;matSel&quot;>
+          <option value=&quot;silk&quot; selected>蚕丝光泽</option>
+          <option value=&quot;ribbon&quot;>丝带</option>
+          <option value=&quot;line&quot;>细线</option>
+        </select>
+      </div>
+      <div class=&quot;row&quot;>
+        <label>俯仰 0=俯视</label>
+        <input type=&quot;range&quot; id=&quot;tilt&quot; min=&quot;0&quot; max=&quot;70&quot; value=&quot;0&quot; oninput=&quot;draw()&quot;>
+      </div>
+      <div class=&quot;row&quot;>
+        <label>旋转</label>
+        <input type=&quot;range&quot; id=&quot;yaw&quot; min=&quot;-180&quot; max=&quot;180&quot; value=&quot;0&quot; oninput=&quot;draw()&quot;>
+      </div>
+      <button type=&quot;button&quot; onclick=&quot;exportPng()&quot; style=&quot;width:100%;margin-top:6px&quot;>导出当前画面 PNG</button>
+      <div class=&quot;stat&quot; id=&quot;playStat&quot;>—</div>
+    </div>
+    <div class=&quot;section&quot;>
+      <h2>向旁边扩散</h2>
+      <div class=&quot;hint&quot;>只能点亮上下左右相邻的格子。下一格不是另画一条线接过去，而是把你在第一格里画出的笔迹再走一遍，并慢慢漂进旁边那一格。差别只是整段略转、略缩放，不会点点乱抖。再点一次取消。</div>
+      <button type=&quot;button&quot; onclick=&quot;clearLit()&quot; style=&quot;width:100%&quot;>清空点亮格</button>
+    </div>
+    <div class=&quot;section&quot;>
+      <h2>合成扰动</h2>
+      <div class=&quot;row&quot;>
+        <label>噪声</label>
+        <input type=&quot;range&quot; id=&quot;noise&quot; min=&quot;0&quot; max=&quot;100&quot; value=&quot;35&quot; oninput=&quot;syncUI(); rebuildRoute(); draw()&quot;>
+        <span id=&quot;noiseVal&quot;>0.35</span>
+      </div>
+      <div class=&quot;row&quot;>
+        <label>种子</label>
+        <input type=&quot;number&quot; id=&quot;seed&quot; value=&quot;1&quot; style=&quot;flex:1;width:60px&quot;>
+      </div>
+      <p class=&quot;stat&quot;>「合成新轮」在实测/上一轮基础上加受控随机，形态可辨，<b>非</b>真实测量。</p>
+    </div>
+    <div class=&quot;section&quot;>
+      <h2>轨迹</h2>
+      <div class=&quot;stat&quot; id=&quot;trajStat&quot;>—</div>
+    </div>
+  </aside>
+</main>
+</div>
+<p class=&quot;scroll-cue&quot; id=&quot;scrollCue&quot;>向下进入数字蚕室</p>
+<section id=&quot;habitat&quot; aria-label=&quot;Digital Habitat&quot;>
+  <div class=&quot;hab-top&quot;>
+    <h2>Digital Habitat</h2>
+    <p class=&quot;hab-note&quot;>温湿度到速度、摆动和停顿的换算是演示模型（habitat-demo-0.1），不是本项目测得的生理规律。原始描图轨迹只读，不会被这里的模拟覆盖。</p>
+    <span class=&quot;spacer&quot;></span>
+    <button type=&quot;button&quot; id=&quot;habOpenLeft&quot;>环境</button>
+    <button type=&quot;button&quot; id=&quot;habOpenRight&quot;>个体</button>
+  </div>
+  <div class=&quot;hab-stage&quot;>
+    <aside class=&quot;hab-side left&quot; id=&quot;habLeft&quot;>
+      <h3>气候 · 演示</h3>
+      <div class=&quot;row&quot;><label>温度</label><input type=&quot;range&quot; id=&quot;habTemp&quot; min=&quot;16&quot; max=&quot;34&quot; step=&quot;0.5&quot; value=&quot;25&quot;><span id=&quot;habTempVal&quot;>25</span></div>
+      <div class=&quot;row&quot;><label>湿度</label><input type=&quot;range&quot; id=&quot;habHum&quot; min=&quot;35&quot; max=&quot;90&quot; step=&quot;1&quot; value=&quot;65&quot;><span id=&quot;habHumVal&quot;>65</span></div>
+      <p class=&quot;hab-note&quot; id=&quot;habDrive&quot;></p>
+      <h3>场地</h3>
+      <div class=&quot;row&quot;>
+        <button type=&quot;button&quot; data-shape=&quot;square&quot; class=&quot;active&quot;>正方</button>
+        <button type=&quot;button&quot; data-shape=&quot;rect&quot;>长方</button>
+        <button type=&quot;button&quot; data-shape=&quot;circle&quot;>圆形</button>
+      </div>
+      <h3>桑叶障碍</h3>
+      <p class=&quot;hab-note&quot;>背景叶只是远景。下面放进去的叶子会挡住蚕。</p>
+      <button type=&quot;button&quot; id=&quot;habLeafTool&quot;>放置桑叶</button>
+      <div class=&quot;row&quot;>
+        <button type=&quot;button&quot; id=&quot;habLeafRotL&quot;>左转</button>
+        <button type=&quot;button&quot; id=&quot;habLeafRotR&quot;>右转</button>
+        <button type=&quot;button&quot; id=&quot;habLeafDel&quot;>删除</button>
+      </div>
+      <h3>记录</h3>
+      <button type=&quot;button&quot; id=&quot;habSave&quot;>保存场景 JSON</button>
+      <button type=&quot;button&quot; id=&quot;habRef&quot;>铺入只读预览轨迹</button>
+      <button type=&quot;button&quot; id=&quot;habClearRef&quot;>去掉底图</button>
+    </aside>
+    <div class=&quot;hab-world&quot; id=&quot;habWorldWrap&quot;>
+      <canvas id=&quot;habBg&quot;></canvas>
+      <canvas id=&quot;habLeaves&quot;></canvas>
+      <canvas id=&quot;habMist&quot; class=&quot;mist&quot;></canvas>
+      <canvas id=&quot;habWorld&quot;></canvas>
+    </div>
+    <aside class=&quot;hab-side right&quot; id=&quot;habRight&quot;>
+      <h3>个体</h3>
+      <p class=&quot;hab-note&quot;>从这里拖到场地。状态是放置、拖动、爬行、暂停，不是一个开关。</p>
+      <div id=&quot;habAgents&quot;></div>
+      <h3>操作</h3>
+      <button type=&quot;button&quot; id=&quot;habHide&quot;>隐藏蚕体</button>
+      <button type=&quot;button&quot; id=&quot;habShow&quot;>显示蚕体</button>
+      <button type=&quot;button&quot; id=&quot;habDropSilk&quot;>移除蚕，保留丝</button>
+      <button type=&quot;button&quot; id=&quot;habDropAll&quot;>移除蚕，清除丝</button>
+      <button type=&quot;button&quot; id=&quot;habUndo&quot;>撤销上一步破坏</button>
+    </aside>
+  </div>
+  <div class=&quot;hab-time&quot;>
+    <button type=&quot;button&quot; id=&quot;habStart&quot;>开始</button>
+    <button type=&quot;button&quot; id=&quot;habPause&quot;>暂停</button>
+    <button type=&quot;button&quot; id=&quot;habResume&quot;>继续</button>
+    <span class=&quot;hab-note&quot; id=&quot;habClock&quot;>模拟 0.0 s</span>
+  </div>
+</section>
+<script>
+const STORAGE_KEY = 'SILKWORM_PREVIEW_V1';
+const state = {
+  unit: 'px',
+  scale: null,
+  origin: null,
+  cellMm: 10,
+  trajectories: [],
+  activeIdx: 0,
+  points: [],
+  style: { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.95, material: 'ribbon' },
+  color: '#f7f5f2',
+  behaviorBoxes: [],
+  provenance: 'measured',
+  playing: false,
+  frame: 0,
+  ghostPoints: null,
+  bounds: null,
+  tilt: 0,
+  yaw: 0,
+  litCells: [],
+  route: [],
+  panX: 0,
+  panY: 0,
+  drag: null,
+  cellMarks: [],
+  statusNote: '',
+  playAcc: 0,
+};
+
+if (new URLSearchParams(location.search).get('embed') === '1') {
+  document.body.classList.add('embed');
+}
+
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t ^= t + Math.imul(t ^ t >>> 7, 61 | t);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function widthAlongStyle(style, u) {
+  const h = style.headWidth, m = style.midWidth, t = style.tailWidth;
+  if (u <= 0.5) return h + (m - h) * (u / 0.5);
+  return m + (t - m) * ((u - 0.5) / 0.5);
+}
+
+function normalizeIncoming(doc) {
+  const out = { trajectories: [], behaviorBoxes: [], unit: 'px', calibration: null, provenance: 'measured', synth: null };
+  if (doc.type === 'silkworm-preview/v1') {
+    Object.assign(out, doc);
+    out.trajectories = doc.trajectories || [];
+    return out;
+  }
+  if (doc.schema &amp;&amp; String(doc.schema).includes('motion-model')) {
+    out.provenance = 'measured';
+    out.synth = doc.synthesis || null;
+    out.unit = doc.unit || (doc.calibration ? 'mm' : 'px');
+    out.calibration = doc.calibration;
+    out.behaviorBoxes = doc.behaviorUnits || [];
+    out.trajectories = (doc.unifiedTrajectories || []).map(t => ({
+      wormId: t.wormId,
+      color: '#f7f5f2',
+      style: t.style || state.style,
+      points: (t.points || []).map(p => ({
+        x: p.x_mm != null ? p.x_mm : (p.x_px != null ? p.x_px : p.x),
+        y: p.y_mm != null ? p.y_mm : (p.y_px != null ? p.y_px : p.y),
+        u: p.u != null ? p.u : 0,
+        width_mm: p.width_mm,
+        kind: p.kind || 'stroke',
+      })),
+    }));
+    return out;
+  }
+  if (doc.unifiedTrajectories) {
+    return normalizeIncoming({ ...doc, schema: 'curves3d/v2' });
+  }
+  if (doc.curves &amp;&amp; doc.curves.length &amp;&amp; doc.curves[0].points) {
+    out.trajectories = doc.curves.map((c, i) => ({
+      wormId: c.virtualId || c.wormId || i + 1,
+      color: '#f7f5f2',
+      style: c.style || state.style,
+      points: c.points.map(p => ({ x: p.x_mm, y: p.y_mm, u: p.u, width_mm: p.width_mm })),
+    }));
+    out.provenance = doc.provenance || 'synthetic';
+    return out;
+  }
+  if (doc.worms) {
+    out.trajectories = Object.keys(doc.worms).map(id => {
+      const w = doc.worms[id];
+      return {
+        wormId: +id,
+        color: w.color,
+        style: w.style || state.style,
+        points: (w.points || []).map((p, i, arr) => ({
+          x: p.x, y: p.y, u: arr.length > 1 ? i / (arr.length - 1) : 0,
+        })),
+      };
+    });
+    out.calibration = doc.calibration;
+    return out;
+  }
+  return out;
+}
+
+function setTrajectoryList(norm, pickIdx) {
+  state.trajectories = norm.trajectories.filter(t => t.points &amp;&amp; t.points.length >= 2);
+  if (!state.trajectories.length) return false;
+  state.activeIdx = pickIdx != null ? pickIdx : 0;
+  const t = state.trajectories[state.activeIdx];
+  state.points = t.points.map(p => ({ ...p }));
+  state.style = { ...state.style, ...(t.style || {}) };
+  state.color = '#f7f5f2';
+  state.behaviorBoxes = norm.behaviorBoxes || [];
+  state.provenance = norm.provenance || 'measured';
+  state.synth = norm.synth;
+  state.unit = norm.unit || 'px';
+  if (norm.calibration &amp;&amp; norm.calibration.scalePxPerMm) {
+    state.scale = norm.calibration.scalePxPerMm;
+    state.origin = norm.calibration.originPx;
+    state.cellMm = norm.calibration.cell_mm || 10;
+  } else state.scale = null;
+  ensureUMonotone();
+  computeBounds();
+  state.frame = 0;
+  state.ghostPoints = null;
+  state.litCells = [];
+  state.panX = 0;
+  state.panY = 0;
+  rebuildRoute();
+  document.getElementById('dataBadge').textContent =
+    state.provenance === 'synthetic' ? '合成轨迹' : '实测/描线轨迹';
+  updateTrajStat();
+  return true;
+}
+
+function ensureUMonotone() {
+  const n = state.points.length;
+  if (n < 2) return;
+  if (state.points[0].u == null || state.points[n - 1].u == null) {
+    state.points.forEach((p, i) => { p.u = i / (n - 1); });
+  }
+}
+
+function computeBounds() {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of state.points) {
+    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+  }
+  for (const b of state.behaviorBoxes) {
+    const box = b.box_px || b;
+    if (box.x0 != null) {
+      minX = Math.min(minX, box.x0); minY = Math.min(minY, box.y0);
+      maxX = Math.max(maxX, box.x1); maxY = Math.max(maxY, box.y1);
+    }
+  }
+  const home = homeBox();
+  const reach = 2;
+  minX = Math.min(minX, home.x0 - home.w * reach);
+  minY = Math.min(minY, home.y0 - home.h * reach);
+  maxX = Math.max(maxX, home.x1 + home.w * reach);
+  maxY = Math.max(maxY, home.y1 + home.h * reach);
+  for (const c of state.litCells) {
+    const r = cellRect(c.ix, c.iy);
+    minX = Math.min(minX, r.x0); minY = Math.min(minY, r.y0);
+    maxX = Math.max(maxX, r.x1); maxY = Math.max(maxY, r.y1);
+  }
+  const pad = Math.max(20, (maxX - minX) * 0.08);
+  state.bounds = { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+}
+
+function homeBox() {
+  const b = state.behaviorBoxes[0];
+  const box = b &amp;&amp; (b.box_px || b);
+  if (box &amp;&amp; box.x0 != null) {
+    const x0 = Math.min(box.x0, box.x1), x1 = Math.max(box.x0, box.x1);
+    const y0 = Math.min(box.y0, box.y1), y1 = Math.max(box.y0, box.y1);
+    return { x0, y0, x1, y1, w: Math.max(8, x1 - x0), h: Math.max(8, y1 - y0) };
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of state.points) {
+    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+  }
+  if (!Number.isFinite(minX)) return { x0: 0, y0: 0, x1: 80, y1: 80, w: 80, h: 80 };
+  const pad = 8;
+  return { x0: minX - pad, y0: minY - pad, x1: maxX + pad, y1: maxY + pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
+}
+
+function cellRect(ix, iy) {
+  const h = homeBox();
+  return {
+    ix, iy,
+    x0: h.x0 + ix * h.w,
+    y0: h.y0 + iy * h.h,
+    x1: h.x0 + (ix + 1) * h.w,
+    y1: h.y0 + (iy + 1) * h.h,
+    w: h.w,
+    h: h.h,
+  };
+}
+
+function mapIntoCell(p, rect) {
+  const h = homeBox();
+  return {
+    ...p,
+    x: rect.x0 + (p.x - h.x0),
+    y: rect.y0 + (p.y - h.y0),
+  };
+}
+
+function joinStrokeGaps(pts) {
+  if (pts.length < 2) return pts.map(p => ({ ...p }));
+  const gaps = [];
+  for (let i = 1; i < pts.length; i++) gaps.push(Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  const sorted = gaps.slice().sort((a, b) => a - b);
+  const med = sorted[Math.floor(sorted.length / 2)] || 1;
+  const out = [{ ...pts[0] }];
+  for (let i = 1; i < pts.length; i++) {
+    const a = out[out.length - 1];
+    const b = pts[i];
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    if (d > Math.max(12, med * 3.2)) {
+      const prev = out[Math.max(0, out.length - 2)];
+      let hx = a.x - prev.x, hy = a.y - prev.y;
+      let hl = Math.hypot(hx, hy) || 1;
+      hx /= hl; hy /= hl;
+      const tx = (b.x - a.x) / d, ty = (b.y - a.y) / d;
+      const c1 = { x: a.x + hx * d * 0.4, y: a.y + hy * d * 0.4 };
+      const c2 = { x: b.x - tx * d * 0.4, y: b.y - ty * d * 0.4 };
+      const n = Math.max(4, Math.round(d / Math.max(med, 1)));
+      for (let k = 1; k < n; k++) {
+        const t = k / n, u = 1 - t;
+        out.push({
+          ...b,
+          x: u*u*u*a.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*b.x,
+          y: u*u*u*a.y + 3*u*u*t*c1.y + 3*u*t*t*c2.y + t*t*t*b.y,
+          kind: 'bridge',
+        });
+      }
+    }
+    out.push({ ...b });
+  }
+  return out;
+}
+
+function stepLaw(pts) {
+  const steps = [];
+  for (let i = 1; i < pts.length; i++) {
+    steps.push({
+      dx: pts[i].x - pts[i - 1].x,
+      dy: pts[i].y - pts[i - 1].y,
+      u: pts[i].u,
+      width_mm: pts[i].width_mm,
+    });
+  }
+  return steps;
+}
+
+function driftReplay(steps, start, dirx, diry, cellW, cellH, seed) {
+  const noiseEl = document.getElementById('noise');
+  const noise = noiseEl ? Math.min(1, parseFloat(noiseEl.value) / 100) : 0.2;
+  const rand = mulberry32(seed);
+  const rot = (rand() - 0.5) * 0.16 * noise;
+  const scale = 1 + (rand() - 0.5) * 0.08 * noise;
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  const out = [];
+  let x = start.x, y = start.y;
+  const n = Math.max(1, steps.length);
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const dx = s.dx * scale, dy = s.dy * scale;
+    x += dx * cs - dy * sn + dirx * cellW / n;
+    y += dx * sn + dy * cs + diry * cellH / n;
+    out.push({ x, y, u: s.u, width_mm: s.width_mm, kind: 'stroke' });
+  }
+  return out;
+}
+
+function adjacentCells(pool, cell) {
+  return pool.filter(c => Math.abs(c.ix - cell.ix) + Math.abs(c.iy - cell.iy) === 1);
+}
+
+function rebuildRoute() {
+  if (!state.points.length) { state.route = []; state.cellMarks = []; return; }
+  const base = joinStrokeGaps(state.points);
+  const steps = stepLaw(base);
+  const home = homeBox();
+  const pending = state.litCells.map(c => ({ ix: c.ix, iy: c.iy }));
+  const route = base.map(p => ({ ...p }));
+  const marks = [];
+  const tailOf = () => route[route.length - 1];
+  const markNow = () => {
+    const last = tailOf();
+    const prev = route[Math.max(0, route.length - 2)];
+    marks.push({
+      endIndex: route.length - 1,
+      x: last.x,
+      y: last.y,
+      ang: Math.atan2(last.y - prev.y, last.x - prev.x),
+    });
+  };
+  markNow();
+  let current = { ix: 0, iy: 0 };
+  const used = new Set(['0,0']);
+  let gen = 1;
+  while (pending.length) {
+    const nexts = adjacentCells(pending.filter(c => !used.has(c.ix + ',' + c.iy)), current);
+    if (!nexts.length) break;
+    const tail = tailOf();
+    nexts.sort((a, b) => {
+      const ra = cellRect(a.ix, a.iy), rb = cellRect(b.ix, b.iy);
+      const da = Math.hypot((ra.x0 + ra.x1) / 2 - tail.x, (ra.y0 + ra.y1) / 2 - tail.y);
+      const db = Math.hypot((rb.x0 + rb.x1) / 2 - tail.x, (rb.y0 + rb.y1) / 2 - tail.y);
+      return da - db;
+    });
+    const next = nexts[0];
+    const replay = driftReplay(
+      steps,
+      tail,
+      next.ix - current.ix,
+      next.iy - current.iy,
+      home.w,
+      home.h,
+      1000 + gen * 97 + next.ix * 13 + next.iy * 29
+    );
+    route.push(...replay);
+    markNow();
+    used.add(next.ix + ',' + next.iy);
+    current = next;
+    gen++;
+  }
+  state.route = route;
+  state.cellMarks = marks;
+  if (state.frame >= route.length) state.frame = Math.max(0, route.length - 1);
+}
+
+function cameraAngles() {
+  const yawEl = document.getElementById('yaw');
+  const tiltEl = document.getElementById('tilt');
+  return {
+    yaw: ((yawEl ? parseFloat(yawEl.value) : 0) || 0) * Math.PI / 180,
+    tilt: ((tiltEl ? parseFloat(tiltEl.value) : 0) || 0) * Math.PI / 180,
+  };
+}
+
+function projectPoint(p, W, H) {
+  const sc = worldToScreen({ x: p.x, y: p.y }, W, H);
+  const { yaw, tilt } = cameraAngles();
+  const cx = W / 2, cy = H / 2;
+  const x = sc.x - cx, y = sc.y - cy;
+  const xr = x * Math.cos(yaw) - y * Math.sin(yaw);
+  const yr = x * Math.sin(yaw) + y * Math.cos(yaw);
+  const y2 = yr * Math.cos(tilt);
+  const persp = tilt > 0.001 ? 1 / (1 + y2 / (H * 6)) : 1;
+  return { x: cx + xr * persp, y: cy + y2 * persp, scale: sc.scale * persp };
+}
+function worldToScreen(p, W, H) {
+  const b = state.bounds;
+  const spanX = b.maxX - b.minX || 1;
+  const spanY = b.maxY - b.minY || 1;
+  const s = Math.min(W / spanX, H / spanY);
+  const ox = (W - spanX * s) / 2 + state.panX;
+  const oy = (H - spanY * s) / 2 + state.panY;
+  return {
+    x: ox + (p.x - b.minX) * s,
+    y: oy + (p.y - b.minY) * s,
+    scale: s,
+  };
+}
+
+// =====================================================
+// SILKWORM VISUAL PATCH
+// Replace SILK_LOOK through drawWormHead()
+// Keep projectPoint(), draw(), and all motion logic.
+// =====================================================
+
+const SILK_LOOK = Object.freeze({
+  widthScale: 0.035,
+  minHalfWidth: 0.28,
+  maxHalfWidth: 0.85,
+  silkHalo: 'rgba(236,241,242,0.055)',
+  silkCore: 'rgba(236,240,240,0.30)',
+  silkSheen: 'rgba(255,255,255,0.16)',
+  ribbonBase: 'rgba(236,240,240,0.24)',
+  ribbonShadow: 'rgba(120,128,130,0.12)',
+  ribbonHighlight: 'rgba(255,255,255,0.38)'
+});
+
+function clamp01(v) {
+  return Math.max(0, Math.min(1, v));
+}
+
+function safeUnit(x, y) {
+  const len = Math.hypot(x, y);
+  if (!Number.isFinite(len) || len < 1e-6) {
+    return { x: 0, y: -1 };
+  }
+  return { x: x / len, y: y / len };
+}
+
+function cameraSignature(W, H) {
+  const b = state.bounds || {};
+  const yaw = document.getElementById('yaw');
+  const tilt = document.getElementById('tilt');
+  const st = state.style || {};
+
+  return [
+    W, H, state.panX, state.panY,
+    yaw ? yaw.value : 0,
+    tilt ? tilt.value : 0,
+    b.minX, b.minY, b.maxX, b.maxY,
+    st.headWidth, st.midWidth, st.tailWidth
+  ].join('|');
+}
+
+function buildRibbonVertices(ctx, pts, style) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const n = pts.length;
+  const v = new Array(n);
+
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    const u = Number.isFinite(p.u)
+      ? p.u : i / Math.max(1, n - 1);
+
+    const q = projectPoint(p, W, H);
+    const sourceWidth = Number.isFinite(p.width_mm)
+      ? p.width_mm : widthAlongStyle(style, u);
+
+    v[i] = {
+      x: q.x,
+      y: q.y,
+      halfWidth: Math.max(
+        SILK_LOOK.minHalfWidth,
+        Math.min(
+          SILK_LOOK.maxHalfWidth,
+          Math.abs(sourceWidth * q.scale * SILK_LOOK.widthScale)
+        )
+      )
+    };
+  }
+
+  for (let i = 0; i < n; i++) {
+    const prev = v[Math.max(0, i - 1)];
+    const next = v[Math.min(n - 1, i + 1)];
+    const tangent = safeUnit(
+      next.x - prev.x,
+      next.y - prev.y
+    );
+
+    v[i].nx = -tangent.y;
+    v[i].ny = tangent.x;
+  }
+
+  for (let i = 1; i < n; i++) {
+    const a = v[i - 1];
+    const b = v[i];
+
+    if (a.nx * b.nx + a.ny * b.ny < 0) {
+      b.nx *= -1;
+      b.ny *= -1;
+    }
+  }
+
+  return v;
+}
+
+function getRibbonVertices(ctx, pts, style) {
+  const route = state.route;
+  const sig = cameraSignature(
+    ctx.canvas.width,
+    ctx.canvas.height
+  );
+
+  const isPrefix = route &amp;&amp; pts.length &amp;&amp;
+    pts.length <= route.length &amp;&amp;
+    pts[0] === route[0] &amp;&amp;
+    pts[pts.length - 1] === route[pts.length - 1];
+
+  const cache = state._vertCache;
+
+  if (isPrefix &amp;&amp; cache &amp;&amp;
+      cache.sig === sig &amp;&amp;
+      cache.src === route) {
+    return cache.verts.slice(0, pts.length);
+  }
+
+  const full = isPrefix ? route : pts;
+  const verts = buildRibbonVertices(ctx, full, style);
+
+  if (isPrefix) {
+    state._vertCache = { sig, src: route, verts };
+  }
+
+  return isPrefix ? verts.slice(0, pts.length) : verts;
+}
+
+function traceRibbonShape(ctx, v) {
+  if (!v.length) return;
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    v[0].x + v[0].nx * v[0].halfWidth,
+    v[0].y + v[0].ny * v[0].halfWidth
+  );
+
+  for (let i = 1; i < v.length; i++) {
+    const p = v[i];
+    ctx.lineTo(
+      p.x + p.nx * p.halfWidth,
+      p.y + p.ny * p.halfWidth
+    );
+  }
+
+  for (let i = v.length - 1; i >= 0; i--) {
+    const p = v[i];
+    ctx.lineTo(
+      p.x - p.nx * p.halfWidth,
+      p.y - p.ny * p.halfWidth
+    );
+  }
+
+  ctx.closePath();
+}
+
+// 平滑显示线条，不改变原始轨迹数据
+function strokeCenter(ctx, v, normalOffset = 0) {
+  if (!v || v.length < 2) return;
+
+  const point = p => ({
+    x: p.x + (p.nx || 0) * normalOffset,
+    y: p.y + (p.ny || 0) * normalOffset
+  });
+
+  ctx.beginPath();
+
+  const first = point(v[0]);
+  ctx.moveTo(first.x, first.y);
+
+  for (let i = 1; i < v.length; i++) {
+    const a = point(v[i - 1]);
+    const b = point(v[i]);
+
+    ctx.quadraticCurveTo(
+      a.x, a.y,
+      (a.x + b.x) * 0.5,
+      (a.y + b.y) * 0.5
+    );
+  }
+
+  const last = point(v[v.length - 1]);
+  ctx.lineTo(last.x, last.y);
+  ctx.stroke();
+}
+
+// =====================================================
+// 1. SILK
+// =====================================================
+
+function drawRibbon(ctx, pts, style, color, alpha) {
+  if (!pts || pts.length < 2) return;
+
+  const matEl = document.getElementById('matSel');
+  const mat = matEl ? matEl.value : 'silk';
+
+  const v = getRibbonVertices(ctx, pts, style);
+  if (v.length < 2) return;
+
+  ctx.save();
+  ctx.globalAlpha = clamp01(alpha);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  if (mat === 'line') {
+    ctx.strokeStyle = 'rgba(236,240,240,0.62)';
+    ctx.lineWidth = 0.68;
+    strokeCenter(ctx, v);
+    ctx.restore();
+    return;
+  }
+
+  if (mat === 'silk') {
+    // 细微乳白光晕
+    ctx.strokeStyle = SILK_LOOK.silkHalo;
+    ctx.lineWidth = 1.25;
+    strokeCenter(ctx, v);
+
+    // 主丝线
+    ctx.strokeStyle = SILK_LOOK.silkCore;
+    ctx.lineWidth = 0.62;
+    strokeCenter(ctx, v);
+
+    // 极细高光
+    ctx.strokeStyle = SILK_LOOK.silkSheen;
+    ctx.lineWidth = 0.24;
+    strokeCenter(ctx, v, 0.12);
+
+    ctx.restore();
+    return;
+  }
+
+  // 可选丝带模式，但限制宽度
+  traceRibbonShape(ctx, v);
+  ctx.fillStyle = SILK_LOOK.ribbonBase;
+  ctx.fill();
+
+  ctx.strokeStyle = SILK_LOOK.ribbonShadow;
+  ctx.lineWidth = 0.55;
+  ctx.stroke();
+
+  ctx.save();
+  traceRibbonShape(ctx, v);
+  ctx.clip();
+
+  ctx.strokeStyle = SILK_LOOK.ribbonHighlight;
+  ctx.lineWidth = 0.38;
+  ctx.globalAlpha *= 0.72;
+  strokeCenter(ctx, v, -0.12);
+
+  ctx.restore();
+  ctx.restore();
+}
+
+// =====================================================
+// 2. BODY WIDTH
+// =====================================================
+
+function wormHalfWidth(t) {
+  const smooth = x => {
+    const q = clamp01(x);
+    return q * q * (3 - 2 * q);
+  };
+
+  if (t < 0.12) {
+    return 0.40 + 0.42 * smooth(t / 0.12);
+  }
+
+  if (t < 0.24) {
+    return 0.82 + 0.18 * smooth((t - 0.12) / 0.12);
+  }
+
+  if (t < 0.78) {
+    return 1.00 - 0.05 * ((t - 0.24) / 0.54);
+  }
+
+  if (t < 0.90) {
+    return 0.95 - 0.20 * smooth((t - 0.78) / 0.12);
+  }
+
+  return 0.75 - 0.70 * smooth((t - 0.90) / 0.10);
+}
+
+// =====================================================
+// 3. HISTORICAL SPINE
+// =====================================================
+
+function spineBehind(head, W, H, bodyLen, angle) {
+  const route = (state.route &amp;&amp; state.route.length)
+    ? state.route
+    : (state.points || []);
+
+  if (!head || !route.length) return [];
+
+  const headSc = projectPoint(head, W, H);
+
+  let idx = Math.min(
+    route.length - 1,
+    Math.max(0, state.frame || 0)
+  );
+
+  if (Number.isFinite(head.endIndex)) {
+    idx = Math.min(
+      route.length - 1,
+      Math.max(0, head.endIndex)
+    );
+  } else if (route[idx] !== head) {
+    let best = idx;
+    let bestD = Infinity;
+
+    for (let i = 0; i < route.length; i++) {
+      const dx = route[i].x - head.x;
+      const dy = route[i].y - head.y;
+      const d = dx * dx + dy * dy;
+
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+
+    idx = best;
+  }
+
+  const raw = [{ x: headSc.x, y: headSc.y }];
+  let acc = 0;
+
+  // 沿历史轨迹向后取身体骨架
+  for (let i = idx; i > 0 &amp;&amp; acc < bodyLen; i--) {
+    const a = i === idx
+      ? headSc
+      : projectPoint(route[i], W, H);
+
+    const b = projectPoint(route[i - 1], W, H);
+    const seg = Math.hypot(b.x - a.x, b.y - a.y);
+
+    if (seg < 1e-4) continue;
+
+    if (acc + seg <= bodyLen) {
+      raw.push(b);
+      acc += seg;
+    } else {
+      const f = (bodyLen - acc) / seg;
+
+      raw.push({
+        x: a.x + (b.x - a.x) * f,
+        y: a.y + (b.y - a.y) * f
+      });
+
+      acc = bodyLen;
+    }
+  }
+
+  // 播放初期历史长度不足时，沿当前方向补足身体
+  if (acc < bodyLen) {
+    const tail = raw[raw.length - 1];
+    const prev = raw[Math.max(0, raw.length - 2)];
+
+    let dir;
+
+    if (raw.length >= 2) {
+      dir = safeUnit(
+        tail.x - prev.x,
+        tail.y - prev.y
+      );
+    } else {
+      const a = Number.isFinite(angle) ? angle : 0;
+      dir = {
+        x: -Math.cos(a),
+        y: -Math.sin(a)
+      };
+    }
+
+    raw.push({
+      x: tail.x + dir.x * (bodyLen - acc),
+      y: tail.y + dir.y * (bodyLen - acc)
+    });
+  }
+
+  let total = 0;
+
+  for (let i = 1; i < raw.length; i++) {
+    total += Math.hypot(
+      raw[i].x - raw[i - 1].x,
+      raw[i].y - raw[i - 1].y
+    );
+  }
+
+  if (total < 1e-5) return [];
+
+  // 等弧长采样
+  const n = 44;
+  const out = [];
+
+  for (let k = 0; k < n; k++) {
+    const target = total * k / (n - 1);
+    let run = 0;
+    let placed = raw[raw.length - 1];
+
+    for (let i = 1; i < raw.length; i++) {
+      const a = raw[i - 1];
+      const b = raw[i];
+
+      const seg = Math.hypot(
+        b.x - a.x,
+        b.y - a.y
+      );
+
+      if (run + seg >= target || i === raw.length - 1) {
+        const f = seg < 1e-6
+          ? 0
+          : clamp01((target - run) / seg);
+
+        placed = {
+          x: a.x + (b.x - a.x) * f,
+          y: a.y + (b.y - a.y) * f
+        };
+
+        break;
+      }
+
+      run += seg;
+    }
+
+    out.push(placed);
+  }
+
+  for (let i = 0; i < n; i++) {
+    const prev = out[Math.max(0, i - 1)];
+    const next = out[Math.min(n - 1, i + 1)];
+
+    const tangent = safeUnit(
+      next.x - prev.x,
+      next.y - prev.y
+    );
+
+    out[i].nx = -tangent.y;
+    out[i].ny = tangent.x;
+    out[i].tx = tangent.x;
+    out[i].ty = tangent.y;
+  }
+
+  for (let i = 1; i < n; i++) {
+    if (
+      out[i - 1].nx * out[i].nx +
+      out[i - 1].ny * out[i].ny < 0
+    ) {
+      out[i].nx *= -1;
+      out[i].ny *= -1;
+    }
+  }
+
+  return out;
+}
+
+function sampleSpineAt(spine, t) {
+  const f = clamp01(t) * (spine.length - 1);
+  const i = Math.floor(f);
+  const j = Math.min(spine.length - 1, i + 1);
+  const q = f - i;
+
+  const a = spine[i];
+  const b = spine[j];
+
+  const tangent = safeUnit(
+    a.tx + (b.tx - a.tx) * q,
+    a.ty + (b.ty - a.ty) * q
+  );
+
+  const normal = safeUnit(
+    a.nx + (b.nx - a.nx) * q,
+    a.ny + (b.ny - a.ny) * q
+  );
+
+  return {
+    x: a.x + (b.x - a.x) * q,
+    y: a.y + (b.y - a.y) * q,
+    tx: tangent.x,
+    ty: tangent.y,
+    nx: normal.x,
+    ny: normal.y
+  };
+}
+
+// =====================================================
+// 4. BODY SILHOUETTE
+// =====================================================
+
+function traceBodySilhouette(ctx, spine, widths) {
+  const left = [];
+  const right = [];
+
+  for (let i = 0; i < spine.length; i++) {
+    const p = spine[i];
+    const w = widths[i];
+
+    left.push({
+      x: p.x + p.nx * w,
+      y: p.y + p.ny * w
+    });
+
+    right.push({
+      x: p.x - p.nx * w,
+      y: p.y - p.ny * w
+    });
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(left[0].x, left[0].y);
+
+  for (let i = 1; i < left.length; i++) {
+    const a = left[i - 1];
+    const b = left[i];
+
+    ctx.quadraticCurveTo(
+      a.x, a.y,
+      (a.x + b.x) * 0.5,
+      (a.y + b.y) * 0.5
+    );
+  }
+
+  ctx.lineTo(
+    left[left.length - 1].x,
+    left[left.length - 1].y
+  );
+
+  ctx.lineTo(
+    right[right.length - 1].x,
+    right[right.length - 1].y
+  );
+
+  for (let i = right.length - 1; i > 0; i--) {
+    const a = right[i];
+    const b = right[i - 1];
+
+    ctx.quadraticCurveTo(
+      a.x, a.y,
+      (a.x + b.x) * 0.5,
+      (a.y + b.y) * 0.5
+    );
+  }
+
+  ctx.lineTo(right[0].x, right[0].y);
+  ctx.closePath();
+}
+
+// =====================================================
+// 5. CAUDAL HORN
+// =====================================================
+
+function drawCaudalHorn(ctx, spine, widthAt, alpha) {
+  const p = sampleSpineAt(spine, 0.90);
+  const base = Math.max(1.25, widthAt(0.90) * 0.20);
+
+  const tipX = p.x + p.tx * 6.2 + p.nx * base * 1.8;
+  const tipY = p.y + p.ty * 6.2 + p.ny * base * 1.8;
+
+  ctx.save();
+  ctx.globalAlpha = clamp01(alpha * 0.88);
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    p.x - p.nx * base,
+    p.y - p.ny * base
+  );
+
+  ctx.quadraticCurveTo(
+    p.x + p.tx * 2.4 - p.nx * base * 0.75,
+    p.y + p.ty * 2.4 - p.ny * base * 0.75,
+    tipX, tipY
+  );
+
+  ctx.quadraticCurveTo(
+    p.x + p.tx * 2.4 + p.nx * base * 0.75,
+    p.y + p.ty * 2.4 + p.ny * base * 0.75,
+    p.x + p.nx * base,
+    p.y + p.ny * base
+  );
+
+  ctx.closePath();
+  ctx.fillStyle = '#b7b2a6';
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(145,141,132,0.42)';
+  ctx.lineWidth = 0.55;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// =====================================================
+// 6. HEAD CAPSULE
+// =====================================================
+
+function drawWormHeadCap(ctx, p, maxHalf, alpha) {
+  // tx / ty point from the head towards the tail
+  const tail = safeUnit(p.tx, p.ty);
+
+  const forward = {
+    x: -tail.x,
+    y: -tail.y
+  };
+
+  const normal = {
+    x: p.nx,
+    y: p.ny
+  };
+
+  const headLen = maxHalf * 1.02;
+  const headHalf = maxHalf * 0.45;
+
+  const center = {
+    x: p.x + tail.x * headLen * 0.48,
+    y: p.y + tail.y * headLen * 0.48
+  };
+
+  const at = (along, across) => ({
+    x: center.x +
+      forward.x * along * headLen +
+      normal.x * across * headHalf,
+
+    y: center.y +
+      forward.y * along * headLen +
+      normal.y * across * headHalf
+  });
+
+  ctx.save();
+  ctx.globalAlpha = clamp01(alpha);
+  ctx.beginPath();
+
+  let q = at(-0.54, 0.48);
+  ctx.moveTo(q.x, q.y);
+
+  q = at(-0.12, 0.96);
+  let c = at(-0.42, 1.00);
+  ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
+
+  q = at(0.43, 0.42);
+  c = at(0.30, 0.92);
+  ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
+
+  q = at(0.58, 0);
+  c = at(0.66, 0.08);
+  ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
+
+  q = at(0.43, -0.42);
+  c = at(0.66, -0.08);
+  ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
+
+  q = at(-0.12, -0.96);
+  c = at(0.30, -0.92);
+  ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
+
+  q = at(-0.54, -0.48);
+  c = at(-0.42, -1.00);
+  ctx.quadraticCurveTo(c.x, c.y, q.x, q.y);
+
+  ctx.closePath();
+
+  ctx.fillStyle = '#4b392e';
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(35,27,22,0.72)';
+  ctx.lineWidth = 0.72;
+  ctx.stroke();
+
+  // Restrained shell highlight; no oversized cartoon eyes.
+  ctx.globalAlpha = clamp01(alpha * 0.30);
+  ctx.beginPath();
+
+  const h1 = at(-0.16, 0.62);
+  const h2 = at(0.25, 0.48);
+  const hc = at(0.12, 0.70);
+
+  ctx.moveTo(h1.x, h1.y);
+  ctx.quadraticCurveTo(
+    hc.x, hc.y,
+    h2.x, h2.y
+  );
+
+  ctx.strokeStyle = 'rgba(235,220,202,0.62)';
+  ctx.lineWidth = 0.75;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// =====================================================
+// 7. COMPLETE WORM BODY
+// =====================================================
+
+function drawWormBody(ctx, head, style, alpha, angle) {
+  if (!head) return;
+
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+
+  // Display proportions, not physical measurements.
+  const bodyLen = Math.max(
+    96,
+    Math.min(190, Math.min(W, H) * 0.19)
+  );
+
+  const maxHalf = bodyLen / 12.2;
+
+  const spine = spineBehind(
+    head, W, H, bodyLen, angle
+  );
+
+  if (spine.length < 2) return;
+
+  const widthAt = t => wormHalfWidth(t) * maxHalf;
+
+  const widths = spine.map((_, i) =>
+    widthAt(i / (spine.length - 1))
+  );
+
+  ctx.save();
+  ctx.globalAlpha = clamp01(alpha);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  // Main body
+  traceBodySilhouette(ctx, spine, widths);
+
+  ctx.fillStyle = '#ecebe5';
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(151,148,139,0.58)';
+  ctx.lineWidth = 0.72;
+  ctx.stroke();
+
+  // Internal body details
+  ctx.save();
+
+  traceBodySilhouette(ctx, spine, widths);
+  ctx.clip();
+
+  // Dorsal highlight
+  ctx.globalAlpha = clamp01(alpha * 0.34);
+  ctx.strokeStyle = 'rgba(255,255,250,0.72)';
+  ctx.lineWidth = maxHalf * 0.78;
+  strokeCenter(ctx, spine);
+
+  // Lateral shading
+  ctx.globalAlpha = clamp01(alpha * 0.22);
+  ctx.strokeStyle = 'rgba(139,136,127,0.48)';
+  ctx.lineWidth = 1.05;
+
+  strokeCenter(ctx, spine, maxHalf * 0.68);
+  strokeCenter(ctx, spine, -maxHalf * 0.68);
+
+  // Segment folds
+  const ringTs = [
+    0.12, 0.19, 0.26,
+    0.33, 0.40, 0.47, 0.54, 0.61,
+    0.68, 0.75, 0.82, 0.88
+  ];
+
+  ctx.globalAlpha = clamp01(alpha * 0.52);
+  ctx.strokeStyle = 'rgba(130,127,119,0.38)';
+  ctx.lineWidth = 0.72;
+
+  for (const t of ringTs) {
+    const p = sampleSpineAt(spine, t);
+    const w = widthAt(t) * 0.86;
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      p.x + p.nx * w,
+      p.y + p.ny * w
+    );
+
+    ctx.quadraticCurveTo(
+      p.x + p.tx * 1.25,
+      p.y + p.ty * 1.25,
+      p.x - p.nx * w,
+      p.y - p.ny * w
+    );
+
+    ctx.stroke();
+  }
+
+  // Subtle lateral spiracles
+  ctx.globalAlpha = clamp01(alpha * 0.42);
+  ctx.fillStyle = 'rgba(116,108,98,0.42)';
+
+  for (let j = 0; j < 8; j++) {
+    const t = 0.34 + j * 0.067;
+    const p = sampleSpineAt(spine, t);
+    const w = widthAt(t) * 0.84;
+    const rot = Math.atan2(p.ny, p.nx);
+
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+
+      ctx.ellipse(
+        p.x + p.nx * w * side,
+        p.y + p.ny * w * side,
+        1.05, 0.62,
+        rot, 0, Math.PI * 2
+      );
+
+      ctx.fill();
+    }
+  }
+
+  ctx.restore();
+
+  // Posterior caudal horn
+  drawCaudalHorn(ctx, spine, widthAt, alpha);
+
+  // Anterior dark head capsule
+  drawWormHeadCap(ctx, spine[0], maxHalf, alpha);
+
+  ctx.restore();
+}
+
+// =====================================================
+// 8. KEEP ORIGINAL DRAW INTERFACE
+// =====================================================
+
+function screenHeading(from, to, W, H) {
+  if (!from || !to) return 0;
+
+  const a = projectPoint(from, W, H);
+  const b = projectPoint(to, W, H);
+
+  return Math.atan2(
+    b.y - a.y,
+    b.x - a.x
+  );
+}
+
+function drawWormHead(ctx, head, style) {
+  if (
+    !document.getElementById('showWorm').checked ||
+    !head
+  ) return;
+
+  const prev = state.route &amp;&amp; state.frame > 0
+    ? state.route[Math.max(0, state.frame - 1)]
+    : null;
+
+  const ang = screenHeading(
+    prev,
+    head,
+    ctx.canvas.width,
+    ctx.canvas.height
+  );
+
+  drawWormBody(ctx, head, style, 1, ang);
+}
+
+function draw() {
+  const cvs = document.getElementById('cvs');
+  const ctx = cvs.getContext('2d');
+  const W = cvs.width, H = cvs.height;
+  ctx.fillStyle = '#1a1c21';
+  ctx.fillRect(0, 0, W, H);
+
+  if (!state.points.length) {
+    ctx.fillStyle = '#8a8f99';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('请从描图器点「并排吐丝预览」或载入 motion-model / 3D JSON', W / 2, H / 2);
+    return;
+  }
+
+  const home = homeBox();
+  ctx.strokeStyle = 'rgba(210,206,198,0.14)';
+  ctx.lineWidth = 1;
+  for (let ix = -3; ix <= 4; ix++) {
+    for (let iy = -3; iy <= 3; iy++) {
+      traceProjectedRect(ctx, cellRect(ix, iy), W, H);
+      ctx.stroke();
+    }
+  }
+
+  for (const cell of state.litCells) {
+    const r = cellRect(cell.ix, cell.iy);
+    traceProjectedRect(ctx, r, W, H);
+    ctx.fillStyle = 'rgba(196,164,122,0.14)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(214,176,122,0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  if (document.getElementById('showBeh').checked) {
+    const boxes = state.behaviorBoxes.length ? state.behaviorBoxes : [{ box_px: home }];
+    boxes.forEach((bu, i) => {
+      const box = bu.box_px || bu;
+      if (box.x0 == null) return;
+      const rect = {
+        x0: Math.min(box.x0, box.x1),
+        y0: Math.min(box.y0, box.y1),
+        x1: Math.max(box.x0, box.x1),
+        y1: Math.max(box.y0, box.y1)
+      };
+      const corners = traceProjectedRect(ctx, rect, W, H);
+      ctx.strokeStyle = i === 0 ? 'rgba(150,176,170,0.9)' : 'rgba(196,164,122,0.85)';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(150,176,170,0.08)';
+      ctx.fill();
+      ctx.fillStyle = '#d7c4a4';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(String(box.id || bu.boxId || i + 1), corners[0].x + 8, corners[0].y + 20);
+    });
+  }
+
+  const route = state.route.length ? state.route : state.points;
+  const end = Math.min(state.frame + 1, route.length);
+  const slice = route.slice(0, end);
+  if (document.getElementById('showSilk').checked &amp;&amp; slice.length >= 2) {
+    drawRibbon(ctx, slice, state.style, state.color, state.style.opacity);
+  }
+  if (document.getElementById('showPts') &amp;&amp; document.getElementById('showPts').checked) {
+    ctx.fillStyle = state.color;
+    for (const p of slice) {
+      const sc = projectPoint(p, W, H);
+      ctx.beginPath(); ctx.arc(sc.x, sc.y, 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  const head = slice[slice.length - 1];
+  if (document.getElementById('showResidue') &amp;&amp; document.getElementById('showResidue').checked) {
+    (state.cellMarks || []).forEach((mark) => {
+      if (mark.endIndex < end - 1) {
+        const i = Math.min(route.length - 1, Math.max(1, mark.endIndex));
+        const ang = screenHeading(route[i - 1], route[i], W, H);
+        drawWormBody(ctx, mark, state.style, 0.38, ang);
+      }
+    });
+  }
+  drawWormHead(ctx, head, state.style);
+
+  const u = head &amp;&amp; head.u != null ? head.u : (end - 1) / Math.max(1, route.length - 1);
+  document.getElementById('uSlider').value = Math.round((u || 0) * 1000);
+  document.getElementById('playStat').innerHTML =
+    `帧 <b>${end}</b> / ${route.length} · 点亮 <b>${state.litCells.length}</b> 格` +
+    (state.statusNote ? `<br>${state.statusNote}` : '');
+}
+
+function tick(ts) {
+  if (!state.playing) return;
+  if (!state.lastT) state.lastT = ts;
+  const dt = (ts - state.lastT) / 1000;
+  state.lastT = ts;
+  const pps = parseFloat(document.getElementById('pps').value);
+  const rate = Number.isFinite(pps) ? pps : 4;
+  state.playAcc += dt * rate;
+  const adv = Math.floor(state.playAcc);
+  state.playAcc -= adv;
+  const route = state.route.length ? state.route : state.points;
+  state.frame += adv;
+  if (state.frame >= route.length - 1) {
+    if (document.getElementById('loopOn').checked) {
+      state.frame = 0;
+      state.playAcc = 0;
+    } else {
+      state.frame = Math.max(0, route.length - 1);
+      state.playing = false;
+    }
+  }
+  draw();
+  if (state.playing) requestAnimationFrame(tick);
+}
+
+function clearLit() {
+  state.litCells = [];
+  rebuildRoute();
+  computeBounds();
+  draw();
+}
+
+function traceProjectedRect(ctx, rect, W, H) {
+  const corners = [
+    { x: rect.x0, y: rect.y0 },
+    { x: rect.x1, y: rect.y0 },
+    { x: rect.x1, y: rect.y1 },
+    { x: rect.x0, y: rect.y1 }
+  ].map(p => projectPoint(p, W, H));
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  return corners;
+}
+
+function screenToWorld(sx, sy) {
+  const cvs = document.getElementById('cvs');
+  const W = cvs.width, H = cvs.height;
+  const cx = W / 2, cy = H / 2;
+  const { yaw, tilt } = cameraAngles();
+  const sxr = sx - cx;
+  const syr = sy - cy;
+  let xr, y2;
+  if (tilt > 0.001) {
+    const K = H * 6;
+    const denom = 1 - syr / K;
+    y2 = Math.abs(denom) < 1e-6 ? 0 : syr / denom;
+    const persp = 1 / (1 + y2 / K);
+    xr = sxr / (persp || 1);
+  } else {
+    xr = sxr;
+    y2 = syr;
+  }
+  const yr = y2 / (Math.cos(tilt) || 1e-6);
+  const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+  const preX = xr * cosY + yr * sinY + cx;
+  const preY = -xr * sinY + yr * cosY + cy;
+  const b = state.bounds;
+  const spanX = b.maxX - b.minX || 1;
+  const spanY = b.maxY - b.minY || 1;
+  const s = Math.min(W / spanX, H / spanY);
+  const ox = (W - spanX * s) / 2 + state.panX;
+  const oy = (H - spanY * s) / 2 + state.panY;
+  return { x: (preX - ox) / s + b.minX, y: (preY - oy) / s + b.minY };
+}
+
+function reachableLit(cells) {
+  const keep = [];
+  const pool = cells.map(c => ({ ix: c.ix, iy: c.iy }));
+  const seen = new Set(['0,0']);
+  const q = [{ ix: 0, iy: 0 }];
+  while (q.length) {
+    const cur = q.shift();
+    for (const c of pool) {
+      const key = c.ix + ',' + c.iy;
+      if (seen.has(key)) continue;
+      if (Math.abs(c.ix - cur.ix) + Math.abs(c.iy - cur.iy) === 1) {
+        seen.add(key);
+        keep.push(c);
+        q.push(c);
+      }
+    }
+  }
+  return keep;
+}
+
+function toggleCellAt(sx, sy) {
+  const wpt = screenToWorld(sx, sy);
+  const h = homeBox();
+  const ix = Math.floor((wpt.x - h.x0) / h.w);
+  const iy = Math.floor((wpt.y - h.y0) / h.h);
+  if (ix === 0 &amp;&amp; iy === 0) return;
+  const i = state.litCells.findIndex(c => c.ix === ix &amp;&amp; c.iy === iy);
+  if (i >= 0) {
+    state.litCells.splice(i, 1);
+    state.litCells = reachableLit(state.litCells);
+    state.statusNote = '';
+  } else {
+    const occupied = [{ ix: 0, iy: 0 }, ...state.litCells];
+    const near = occupied.some(c => Math.abs(c.ix - ix) + Math.abs(c.iy - iy) === 1);
+    if (!near) {
+      state.statusNote = '只能点亮上下左右相邻的格子';
+      draw();
+      return;
+    }
+    state.litCells.push({ ix, iy });
+    state.statusNote = '';
+  }
+  rebuildRoute();
+  computeBounds();
+  draw();
+}
+
+function onPointerDown(e) {
+  const cvs = document.getElementById('cvs');
+  const rect = cvs.getBoundingClientRect();
+  state.drag = {
+    id: e.pointerId,
+    x: e.clientX,
+    y: e.clientY,
+    panX: state.panX,
+    panY: state.panY,
+    moved: false,
+    sx: (e.clientX - rect.left) * (cvs.width / rect.width),
+    sy: (e.clientY - rect.top) * (cvs.height / rect.height),
+  };
+  cvs.setPointerCapture(e.pointerId);
+}
+
+function onPointerMove(e) {
+  const d = state.drag;
+  if (!d || d.id !== e.pointerId) return;
+  const dx = e.clientX - d.x;
+  const dy = e.clientY - d.y;
+  if (Math.hypot(dx, dy) > 5) d.moved = true;
+  if (d.moved) {
+    const cvs = document.getElementById('cvs');
+    const rect = cvs.getBoundingClientRect();
+    state.panX = d.panX + dx * (cvs.width / rect.width);
+    state.panY = d.panY + dy * (cvs.height / rect.height);
+    draw();
+  }
+}
+
+function onPointerUp(e) {
+  const d = state.drag;
+  if (!d || d.id !== e.pointerId) return;
+  if (!d.moved) toggleCellAt(d.sx, d.sy);
+  state.drag = null;
+}
+
+function exportPng() {
+  const cvs = document.getElementById('cvs');
+  cvs.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'silk-preview-' + Date.now() + '.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }, 'image/png');
+}
+
+function togglePlay() {
+  state.playing = !state.playing;
+  state.lastT = 0;
+  if (state.playing) requestAnimationFrame(tick);
+}
+
+function scrubU(v) {
+  const u = parseInt(v, 10) / 1000;
+  const route = state.route.length ? state.route : state.points;
+  let best = 0, bestD = 1e9;
+  for (let i = 0; i < route.length; i++) {
+    const d = Math.abs((route[i].u || 0) - u);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  state.frame = best;
+  state.playing = false;
+  draw();
+}
+
+function syncUI() {
+  document.getElementById('ppsVal').textContent = parseFloat(document.getElementById('pps').value).toFixed(1);
+  const n = parseFloat(document.getElementById('noise').value) / 100;
+  document.getElementById('noiseVal').textContent = n.toFixed(2);
+}
+
+function perturbPoints(base, noise, seed) {
+  const rand = mulberry32(seed);
+  const stoch = (state.synth &amp;&amp; state.synth.stochasticLayer) || {};
+  const sigma = (stoch.stepLength_mm &amp;&amp; stoch.stepLength_mm.sigma) || 0.15;
+  return base.map((p, i) => {
+    if (i === 0 || i === base.length - 1) return { ...p };
+    const j = noise * sigma * (rand() - 0.5) * 1.2;
+    const k = noise * sigma * (rand() - 0.5) * 1.2;
+    return { ...p, x: p.x + j, y: p.y + k, width_mm: p.width_mm };
+  });
+}
+
+function regenerateSynthetic() {
+  if (state.points.length < 2) return;
+  const noise = parseFloat(document.getElementById('noise').value) / 100;
+  const seed = parseInt(document.getElementById('seed').value, 10) || 1;
+  state.ghostPoints = state.points.map(p => ({ ...p }));
+  state.points = perturbPoints(state.points, noise, seed);
+  ensureUMonotone();
+  rebuildRoute();
+  computeBounds();
+  state.provenance = 'synthetic';
+  state.frame = 0;
+  state.playing = true;
+  state.lastT = 0;
+  document.getElementById('seed').value = seed + 1;
+  document.getElementById('dataBadge').textContent = '合成轨迹';
+  updateTrajStat();
+  requestAnimationFrame(tick);
+  draw();
+}
+
+function updateTrajStat() {
+  const t = state.trajectories[state.activeIdx];
+  document.getElementById('trajStat').innerHTML = t
+    ? `蚕 <b>${t.wormId}</b> · <b>${state.points.length}</b> 点 · 单位 <b>${state.unit}</b>`
+    : '—';
+}
+
+function ingestPayload(doc) {
+  const norm = normalizeIncoming(doc);
+  if (!setTrajectoryList(norm)) {
+    alert('未识别到可用轨迹点列');
+    return;
+  }
+  draw();
+}
+
+function loadJsonFile(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try { ingestPayload(JSON.parse(rd.result)); }
+    catch (err) { alert('JSON 无效: ' + err.message); }
+    e.target.value = '';
+  };
+  rd.readAsText(f);
+}
+
+function tryStorage() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (raw) ingestPayload(JSON.parse(raw));
+  } catch (_) { /* */ }
+}
+
+window.addEventListener('message', (ev) => {
+  if (ev.data &amp;&amp; ev.data.type === 'silkworm-preview/v1') ingestPayload(ev.data);
+  if (ev.data &amp;&amp; ev.data.type === 'silkworm-preview-push') ingestPayload(ev.data.payload);
+});
+
+window.addEventListener('resize', () => draw());
+tryStorage();
+const cvs = document.getElementById('cvs');
+cvs.addEventListener('pointerdown', onPointerDown);
+cvs.addEventListener('pointermove', onPointerMove);
+cvs.addEventListener('pointerup', onPointerUp);
+cvs.addEventListener('pointercancel', onPointerUp);
+draw();
+
+if (window.parent !== window) {
+  window.parent.postMessage({ type: 'silkworm-preview-ready' }, '*');
+}
+</script>
+<script>
+(function () {
+  if (document.body.classList.contains('embed')) return;
+
+  const MODEL = 'habitat-demo-0.1';
+  const habitat = {
+    shape: 'square',
+    tempC: 25,
+    humidity: 65,
+    seed: 1,
+    simTime: 0,
+    runningClock: false,
+    tool: 'worm',
+    selected: null,
+    selectedLeaf: null,
+    agents: [],
+    orphans: [],
+    obstacles: [],
+    reference: null,
+    undo: [],
+    drag: null,
+    mistPhase: 0,
+  };
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t ^= t + Math.imul(t ^ t >>> 7, 61 | t);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  function arenaSpec() {
+    if (habitat.shape === 'rect') return { kind: 'rect', hw: 220, hh: 140 };
+    if (habitat.shape === 'circle') return { kind: 'circle', r: 180 };
+    return { kind: 'square', hw: 180, hh: 180 };
+  }
+
+  function insideArena(x, y, pad) {
+    const a = arenaSpec();
+    const p = pad || 0;
+    if (a.kind === 'circle') return x * x + y * y <= (a.r - p) * (a.r - p);
+    return Math.abs(x) <= a.hw - p &amp;&amp; Math.abs(y) <= a.hh - p;
+  }
+
+  function inLeaf(x, y, leaf, pad) {
+    const extra = pad || 0;
+    const dx = x - leaf.x, dy = y - leaf.y;
+    const c = Math.cos(-leaf.rot), s = Math.sin(-leaf.rot);
+    const lx = dx * c - dy * s;
+    const ly = dx * s + dy * c;
+    const rx = leaf.rx + extra, ry = leaf.ry + extra;
+    return (lx * lx) / (rx * rx) + (ly * ly) / (ry * ry) < 1;
+  }
+
+  function blocked(x, y) {
+    if (!insideArena(x, y, 10)) return true;
+    return habitat.obstacles.some(leaf => inLeaf(x, y, leaf, 8));
+  }
+
+  function drive() {
+    const t = habitat.tempC;
+    const h = habitat.humidity / 100;
+    const tempDelta = t - 25;
+    const speed = 22 * (1 + tempDelta * 0.035) * (0.72 + h * 0.45);
+    const sway = 0.55 + Math.abs(tempDelta) * 0.03 + (1 - h) * 0.65;
+    const pauseChance = Math.min(0.35, Math.abs(tempDelta) * 0.012 + (h < 0.45 ? 0.08 : 0));
+    const silkAlpha = 0.22 + h * 0.18;
+    return { speed, sway, pauseChance, silkAlpha, version: MODEL };
+  }
+
+  function pushUndo() {
+    habitat.undo.push(JSON.stringify({
+      agents: habitat.agents,
+      orphans: habitat.orphans,
+      obstacles: habitat.obstacles,
+    }));
+    if (habitat.undo.length > 24) habitat.undo.shift();
+  }
+
+  function spawnBench() {
+    for (let i = 0; i < 3; i++) {
+      habitat.agents.push({
+        id: 'sw-' + (i + 1),
+        mode: 'bench',
+        bodyVisible: true,
+        x: 0, y: 0, heading: -Math.PI / 2,
+        silk: [],
+        phase: i * 1.7,
+        turnSign: i % 2 ? 1 : -1,
+        pauseUntil: 0,
+      });
+    }
+  }
+
+  const bg = document.getElementById('habBg');
+  const far = document.getElementById('habLeaves');
+  const mist = document.getElementById('habMist');
+  const world = document.getElementById('habWorld');
+  const wrap = document.getElementById('habWorldWrap');
+
+  function fit(canvas, scale) {
+    const r = wrap.getBoundingClientRect();
+    const w = Math.max(2, Math.floor(r.width * (scale || 1)));
+    const h = Math.max(2, Math.floor(r.height * (scale || 1)));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    return { w, h, cssW: r.width, cssH: r.height };
+  }
+
+  function view() {
+    const w = world.width, h = world.height;
+    const a = arenaSpec();
+    const span = a.kind === 'circle' ? a.r * 2 : Math.max(a.hw, a.hh) * 2;
+    const s = Math.min(w, h) / (span * 1.35);
+    return {
+      w, h, s,
+      px: x => w / 2 + x * s,
+      py: y => h / 2 + y * s,
+    };
+  }
+
+  function screenToHab(ev) {
+    const rect = world.getBoundingClientRect();
+    const sx = (ev.clientX - rect.left) * (world.width / rect.width);
+    const sy = (ev.clientY - rect.top) * (world.height / rect.height);
+    const v = view();
+    return { x: (sx - v.w / 2) / v.s, y: (sy - v.h / 2) / v.s, sx, sy };
+  }
+
+  function drawLeaf(ctx, x, y, rot, rx, ry, fill) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    ctx.moveTo(0, -ry);
+    ctx.bezierCurveTo(rx, -ry * 0.25, rx * 0.72, ry * 0.45, 0, ry);
+    ctx.bezierCurveTo(-rx * 0.72, ry * 0.45, -rx, -ry * 0.25, 0, -ry);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, -ry * 0.8);
+    ctx.lineTo(0, ry * 0.75);
+    ctx.strokeStyle = 'rgba(180,196,176,0.18)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function paintStatic() {
+    fit(bg, 1);
+    fit(far, 1);
+    const w = bg.width, h = bg.height;
+    const g = bg.getContext('2d');
+    g.fillStyle = '#070A0C';
+    g.fillRect(0, 0, w, h);
+    const vg = g.createRadialGradient(w * 0.5, h * 0.45, w * 0.1, w * 0.5, h * 0.5, w * 0.72);
+    vg.addColorStop(0, 'rgba(18,28,26,0.55)');
+    vg.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = vg;
+    g.fillRect(0, 0, w, h);
+    const f = far.getContext('2d');
+    f.clearRect(0, 0, w, h);
+    const decor = [
+      [0.12, 0.2, 0.4, 70, 110], [0.84, 0.18, -0.6, 90, 130],
+      [0.08, 0.78, 0.9, 80, 120], [0.9, 0.82, -0.2, 76, 118],
+      [0.22, 0.08, 1.1, 54, 86],
+    ];
+    decor.forEach((d, i) => {
+      drawLeaf(f, d[0] * w, d[1] * h, d[2], d[3], d[4], i % 2 ? 'rgba(28,52,44,0.55)' : 'rgba(22,42,38,0.45)');
+    });
+  }
+
+  function paintMist() {
+    const m = fit(mist, 0.22);
+    const ctx = mist.getContext('2d');
+    ctx.clearRect(0, 0, m.w, m.h);
+    habitat.mistPhase += 0.004;
+    const ph = habitat.mistPhase;
+    for (let y = 0; y < m.h; y += 3) {
+      for (let x = 0; x < m.w; x += 3) {
+        const n = Math.sin(x * 0.17 + ph) * Math.cos(y * 0.13 - ph * 0.7) + Math.sin((x + y) * 0.05 + ph * 0.4);
+        if (n < 0.35) continue;
+        ctx.fillStyle = 'rgba(210,220,214,' + ((n - 0.35) * 0.045).toFixed(3) + ')';
+        ctx.fillRect(x, y, 3, 3);
+      }
+    }
+  }
+
+  function drawSilk(ctx, pts, v, alpha) {
+    if (!pts || pts.length < 2) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(226,230,228,' + alpha + ')';
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(v.px(pts[0].x), v.py(pts[0].y));
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(v.px(pts[i].x), v.py(pts[i].y));
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawHabitatWorm(ctx, agent, v) {
+    if (!agent.bodyVisible || agent.mode === 'bench') return;
+    const bodyLen = 78;
+    const pts = [{ x: agent.x, y: agent.y }];
+    let acc = 0;
+    for (let i = agent.silk.length - 1; i >= 0 &amp;&amp; acc < bodyLen; i--) {
+      const b = agent.silk[i];
+      const a = pts[pts.length - 1];
+      const seg = Math.hypot(b.x - a.x, b.y - a.y) * v.s;
+      if (seg < 0.4) continue;
+      if (acc + seg >= bodyLen) {
+        const u = (bodyLen - acc) / seg;
+        pts.push({ x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u });
+        acc = bodyLen;
+      } else {
+        pts.push(b);
+        acc += seg;
+      }
+    }
+    if (acc < bodyLen) {
+      pts.push({
+        x: agent.x - Math.cos(agent.heading) * ((bodyLen - acc) / v.s),
+        y: agent.y - Math.sin(agent.heading) * ((bodyLen - acc) / v.s),
+      });
+    }
+    const scr = pts.map(p => ({ x: v.px(p.x), y: v.py(p.y) }));
+    for (let i = 0; i < scr.length; i++) {
+      const prev = scr[Math.max(0, i - 1)];
+      const next = scr[Math.min(scr.length - 1, i + 1)];
+      const dx = next.x - prev.x, dy = next.y - prev.y;
+      const len = Math.hypot(dx, dy) || 1;
+      scr[i].tx = dx / len; scr[i].ty = dy / len;
+      scr[i].nx = -dy / len; scr[i].ny = dx / len;
+    }
+    for (let i = 1; i < scr.length; i++) {
+      if (scr[i - 1].nx * scr[i].nx + scr[i - 1].ny * scr[i].ny < 0) {
+        scr[i].nx *= -1; scr[i].ny *= -1;
+      }
+    }
+    const maxHalf = 7.2;
+    const widthAt = t => {
+      if (t < 0.14) return 0.42 + t / 0.14 * 0.4;
+      if (t < 0.8) return 1;
+      return 1 - (t - 0.8) / 0.2 * 0.55;
+    };
+    ctx.beginPath();
+    const hw = i => widthAt(i / (scr.length - 1)) * maxHalf;
+    ctx.moveTo(scr[0].x + scr[0].nx * hw(0), scr[0].y + scr[0].ny * hw(0));
+    for (let i = 1; i < scr.length; i++) ctx.lineTo(scr[i].x + scr[i].nx * hw(i), scr[i].y + scr[i].ny * hw(i));
+    for (let i = scr.length - 1; i >= 0; i--) ctx.lineTo(scr[i].x - scr[i].nx * hw(i), scr[i].y - scr[i].ny * hw(i));
+    ctx.closePath();
+    ctx.fillStyle = '#ecebe5';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(151,148,139,0.55)';
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+    for (let s = 1; s <= 8; s++) {
+      const i = Math.round(scr.length * (0.12 + s * 0.08));
+      const p = scr[Math.min(scr.length - 1, i)];
+      const w = hw(Math.min(scr.length - 1, i)) * 0.86;
+      ctx.beginPath();
+      ctx.moveTo(p.x + p.nx * w, p.y + p.ny * w);
+      ctx.lineTo(p.x - p.nx * w, p.y - p.ny * w);
+      ctx.strokeStyle = 'rgba(130,127,119,0.4)';
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+    }
+    const tail = scr[scr.length - 1];
+    ctx.beginPath();
+    ctx.moveTo(tail.x, tail.y);
+    ctx.lineTo(tail.x + tail.tx * 8 + tail.nx * 4, tail.y + tail.ty * 8 + tail.ny * 4);
+    ctx.lineTo(tail.x + tail.tx * 3, tail.y + tail.ty * 3);
+    ctx.closePath();
+    ctx.fillStyle = '#b7b2a6';
+    ctx.fill();
+    const head = scr[0];
+    ctx.beginPath();
+    ctx.ellipse(head.x + head.tx * 6, head.y + head.ty * 6, 6.2, 4.2, Math.atan2(head.ty, head.tx), 0, Math.PI * 2);
+    ctx.fillStyle = '#4b392e';
+    ctx.fill();
+  }
+
+  function paintWorld() {
+    fit(world, 1);
+    const ctx = world.getContext('2d');
+    const v = view();
+    ctx.clearRect(0, 0, v.w, v.h);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(230,236,233,0.09)';
+    ctx.lineWidth = 1;
+    const a = arenaSpec();
+    const reach = a.kind === 'circle' ? a.r : Math.max(a.hw, a.hh);
+    for (let x = -reach; x <= reach; x += 20) {
+      ctx.beginPath();
+      ctx.moveTo(v.px(x), v.py(-reach));
+      ctx.lineTo(v.px(x), v.py(reach));
+      ctx.stroke();
+    }
+    for (let y = -reach; y <= reach; y += 20) {
+      ctx.beginPath();
+      ctx.moveTo(v.px(-reach), v.py(y));
+      ctx.lineTo(v.px(reach), v.py(y));
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(230,236,233,0.45)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    if (a.kind === 'circle') {
+      ctx.arc(v.px(0), v.py(0), a.r * v.s, 0, Math.PI * 2);
+    } else {
+      ctx.rect(v.px(-a.hw), v.py(-a.hh), a.hw * 2 * v.s, a.hh * 2 * v.s);
+    }
+    ctx.stroke();
+    habitat.obstacles.forEach(leaf => {
+      drawLeaf(ctx, v.px(leaf.x), v.py(leaf.y), leaf.rot, leaf.rx * v.s, leaf.ry * v.s,
+        leaf.id === habitat.selectedLeaf ? 'rgba(46,78,64,0.82)' : 'rgba(32,58,48,0.72)');
+    });
+    const env = drive();
+    if (habitat.reference &amp;&amp; habitat.reference.length > 1) {
+      drawSilk(ctx, habitat.reference, v, 0.09);
+    }
+    habitat.orphans.forEach(line => drawSilk(ctx, line, v, env.silkAlpha));
+    habitat.agents.forEach(agent => {
+      if (agent.mode === 'bench') return;
+      drawSilk(ctx, agent.silk, v, env.silkAlpha);
+      drawHabitatWorm(ctx, agent, v);
+      if (agent.id === habitat.selected) {
+        ctx.strokeStyle = 'rgba(230,236,233,0.35)';
+        ctx.strokeRect(v.px(agent.x) - 16, v.py(agent.y) - 16, 32, 32);
+      }
+    });
+    ctx.restore();
+  }
+
+  function renderList() {
+    const box = document.getElementById('habAgents');
+    box.innerHTML = habitat.agents.map(a => {
+      const label = { bench: '待放入', idle: '已放置', drag: '拖动中', run: '爬行', paused: '暂停' }[a.mode] || a.mode;
+      return '<div class=&quot;agent-card' + (a.id === habitat.selected ? ' on' : '') + '&quot; data-id=&quot;' + a.id + '&quot;><b>' + a.id + '</b><br><span class=&quot;hab-note&quot;>' + label + (a.bodyVisible ? '' : ' · 身体已隐藏') + '</span></div>';
+    }).join('');
+  }
+
+  function renderDrive() {
+    const d = drive();
+    document.getElementById('habTempVal').textContent = habitat.tempC.toFixed(1);
+    document.getElementById('habHumVal').textContent = String(habitat.humidity);
+    document.getElementById('habDrive').textContent =
+      '演示：速度 ' + d.speed.toFixed(1) + '，摆动 ' + d.sway.toFixed(2) + '，停顿倾向 ' + d.pauseChance.toFixed(2) + '。模型 ' + MODEL + '。';
+    document.getElementById('habClock').textContent = '模拟 ' + habitat.simTime.toFixed(1) + ' s';
+  }
+
+  function selectAgent(id) {
+    habitat.selected = id;
+    habitat.selectedLeaf = null;
+    renderList();
+  }
+
+  function placeAgent(agent, x, y) {
+    if (blocked(x, y)) return false;
+    agent.x = x;
+    agent.y = y;
+    if (agent.mode === 'bench') agent.silk = [{ x, y, t: habitat.simTime }];
+    agent.mode = 'idle';
+    return true;
+  }
+
+  function step(dt) {
+    const env = drive();
+    habitat.agents.forEach(agent => {
+      if (agent.mode !== 'run') return;
+      const rand = mulberry32((habitat.seed * 1000 + Math.floor(habitat.simTime * 20) + agent.id.length * 17) >>> 0);
+      if (performance.now() < agent.pauseUntil) return;
+      if (rand() < env.pauseChance * dt) {
+        agent.pauseUntil = performance.now() + 500 + rand() * 700;
+        return;
+      }
+      agent.phase += dt * (0.8 + env.sway);
+      const turn = Math.sin(agent.phase) * env.sway * dt * agent.turnSign;
+      agent.heading += Math.max(-1.2 * dt, Math.min(1.2 * dt, turn));
+      const nx = agent.x + Math.cos(agent.heading) * env.speed * dt;
+      const ny = agent.y + Math.sin(agent.heading) * env.speed * dt;
+      if (!blocked(nx, ny)) {
+        agent.x = nx;
+        agent.y = ny;
+        const last = agent.silk[agent.silk.length - 1];
+        if (!last || Math.hypot(last.x - nx, last.y - ny) > 1.2) {
+          agent.silk.push({ x: nx, y: ny, t: habitat.simTime });
+        }
+      } else {
+        agent.heading += agent.turnSign * 1.6 * dt;
+      }
+    });
+  }
+
+  let last = 0;
+  function frame(ts) {
+    const dt = Math.min(0.05, last ? (ts - last) / 1000 : 0.016);
+    last = ts;
+    if (habitat.agents.some(a => a.mode === 'run')) {
+      habitat.runningClock = true;
+      habitat.simTime += dt;
+      step(dt);
+    }
+    paintMist();
+    paintWorld();
+    renderDrive();
+    requestAnimationFrame(frame);
+  }
+
+  world.addEventListener('pointerdown', (ev) => {
+    const p = screenToHab(ev);
+    if (habitat.tool === 'leaf') {
+      if (!insideArena(p.x, p.y, 0)) return;
+      pushUndo();
+      const id = 'leaf-' + Date.now();
+      habitat.obstacles.push({ id, x: p.x, y: p.y, rot: 0, rx: 36, ry: 58 });
+      habitat.selectedLeaf = id;
+      habitat.drag = { kind: 'leaf', id, dx: 0, dy: 0 };
+      world.setPointerCapture(ev.pointerId);
+      return;
+    }
+    const hit = habitat.agents.find(a => a.mode !== 'bench' &amp;&amp; Math.hypot(a.x - p.x, a.y - p.y) < 16);
+    if (!hit) return;
+    selectAgent(hit.id);
+    habitat.drag = { kind: 'agent', id: hit.id, modeBefore: hit.mode === 'drag' ? 'idle' : hit.mode, x0: hit.x, y0: hit.y };
+    hit.mode = 'drag';
+    renderList();
+    world.setPointerCapture(ev.pointerId);
+  });
+
+  world.addEventListener('pointermove', (ev) => {
+    const d = habitat.drag;
+    if (!d) return;
+    const p = screenToHab(ev);
+    if (d.kind === 'leaf') {
+      const leaf = habitat.obstacles.find(l => l.id === d.id);
+      if (leaf &amp;&amp; insideArena(p.x, p.y, 0)) { leaf.x = p.x; leaf.y = p.y; }
+      return;
+    }
+    const agent = habitat.agents.find(a => a.id === d.id);
+    if (!agent) return;
+    if (!blocked(p.x, p.y)) { agent.x = p.x; agent.y = p.y; }
+  });
+
+  world.addEventListener('pointerup', () => {
+    const d = habitat.drag;
+    if (!d || d.kind === 'bench') return;
+    habitat.drag = null;
+    if (d.kind !== 'agent') return;
+    const agent = habitat.agents.find(a => a.id === d.id);
+    if (!agent) return;
+    agent.mode = d.modeBefore === 'run' ? 'paused' : (d.modeBefore === 'bench' ? 'idle' : d.modeBefore);
+    if (agent.mode === 'bench') agent.mode = 'idle';
+    renderList();
+  });
+
+  document.getElementById('habAgents').addEventListener('pointerdown', (ev) => {
+    const card = ev.target.closest('.agent-card');
+    if (!card) return;
+    const agent = habitat.agents.find(a => a.id === card.dataset.id);
+    if (!agent) return;
+    selectAgent(agent.id);
+    if (agent.mode !== 'bench') return;
+    habitat.drag = { kind: 'bench', id: agent.id };
+    world.setPointerCapture &amp;&amp; ev.pointerId;
+  });
+
+  window.addEventListener('pointerup', (ev) => {
+    const d = habitat.drag;
+    if (!d || d.kind !== 'bench') return;
+    habitat.drag = null;
+    const agent = habitat.agents.find(a => a.id === d.id);
+    if (!agent) return;
+    const rect = world.getBoundingClientRect();
+    if (ev.clientX < rect.left || ev.clientX > rect.right || ev.clientY < rect.top || ev.clientY > rect.bottom) return;
+    const p = screenToHab(ev);
+    placeAgent(agent, p.x, p.y);
+    renderList();
+  });
+
+  document.getElementById('habTemp').addEventListener('input', (e) => { habitat.tempC = parseFloat(e.target.value); });
+  document.getElementById('habHum').addEventListener('input', (e) => { habitat.humidity = parseFloat(e.target.value); });
+  document.querySelectorAll('[data-shape]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      habitat.shape = btn.dataset.shape;
+      document.querySelectorAll('[data-shape]').forEach(b => b.classList.toggle('active', b === btn));
+      habitat.agents.forEach(a => {
+        if (a.mode !== 'bench' &amp;&amp; blocked(a.x, a.y)) a.mode = 'paused';
+      });
+    });
+  });
+  document.getElementById('habLeafTool').addEventListener('click', () => {
+    habitat.tool = habitat.tool === 'leaf' ? 'worm' : 'leaf';
+    document.getElementById('habLeafTool').classList.toggle('active', habitat.tool === 'leaf');
+  });
+  function currentLeaf() { return habitat.obstacles.find(l => l.id === habitat.selectedLeaf); }
+  document.getElementById('habLeafRotL').addEventListener('click', () => { const l = currentLeaf(); if (l) l.rot -= 0.25; });
+  document.getElementById('habLeafRotR').addEventListener('click', () => { const l = currentLeaf(); if (l) l.rot += 0.25; });
+  document.getElementById('habLeafDel').addEventListener('click', () => {
+    const l = currentLeaf();
+    if (!l) return;
+    pushUndo();
+    habitat.obstacles = habitat.obstacles.filter(x => x.id !== l.id);
+    habitat.selectedLeaf = null;
+  });
+
+  function chosen() { return habitat.agents.find(a => a.id === habitat.selected); }
+  document.getElementById('habHide').addEventListener('click', () => { const a = chosen(); if (a) { a.bodyVisible = false; renderList(); } });
+  document.getElementById('habShow').addEventListener('click', () => { const a = chosen(); if (a) { a.bodyVisible = true; renderList(); } });
+  document.getElementById('habDropSilk').addEventListener('click', () => {
+    const a = chosen();
+    if (!a || a.mode === 'bench') return;
+    pushUndo();
+    if (a.silk.length > 1) habitat.orphans.push(a.silk.slice());
+    a.mode = 'bench'; a.silk = []; a.bodyVisible = true;
+    renderList();
+  });
+  document.getElementById('habDropAll').addEventListener('click', () => {
+    const a = chosen();
+    if (!a || a.mode === 'bench') return;
+    pushUndo();
+    a.mode = 'bench'; a.silk = []; a.bodyVisible = true;
+    renderList();
+  });
+  document.getElementById('habUndo').addEventListener('click', () => {
+    const raw = habitat.undo.pop();
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    habitat.agents = data.agents;
+    habitat.orphans = data.orphans;
+    habitat.obstacles = data.obstacles;
+    renderList();
+  });
+  document.getElementById('habStart').addEventListener('click', () => {
+    habitat.agents.forEach(a => { if (a.mode === 'idle' || a.mode === 'paused') a.mode = 'run'; });
+    renderList();
+  });
+  document.getElementById('habPause').addEventListener('click', () => {
+    habitat.agents.forEach(a => { if (a.mode === 'run') a.mode = 'paused'; });
+    renderList();
+  });
+  document.getElementById('habResume').addEventListener('click', () => {
+    habitat.agents.forEach(a => { if (a.mode === 'paused') a.mode = 'run'; });
+    renderList();
+  });
+  document.getElementById('habSave').addEventListener('click', () => {
+    const doc = {
+      type: 'silkworm-habitat/v1',
+      modelVersion: MODEL,
+      disclaimer: '温湿度映射为演示模型，不是已验证的生理规律',
+      temperatureC: habitat.tempC,
+      humidity: habitat.humidity,
+      seed: habitat.seed,
+      simTime: habitat.simTime,
+      shape: habitat.shape,
+      obstacles: habitat.obstacles,
+      agents: habitat.agents.map(a => ({
+        id: a.id, mode: a.mode, bodyVisible: a.bodyVisible,
+        x: a.x, y: a.y, heading: a.heading, silk: a.silk,
+      })),
+      orphanSilk: habitat.orphans,
+      referenceReadOnly: habitat.reference,
+    };
+    const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'habitat-' + Date.now() + '.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  });
+  document.getElementById('habRef').addEventListener('click', () => {
+    const src = (typeof state !== 'undefined' &amp;&amp; state.route &amp;&amp; state.route.length) ? state.route : (state.points || []);
+    if (!src.length) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    src.forEach(p => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
+    const a = arenaSpec();
+    const span = Math.max(maxX - minX, maxY - minY) || 1;
+    const target = (a.kind === 'circle' ? a.r * 1.4 : Math.min(a.hw, a.hh) * 1.4);
+    habitat.reference = src.map(p => ({
+      x: ((p.x - (minX + maxX) / 2) / span) * target,
+      y: ((p.y - (minY + maxY) / 2) / span) * target,
+    }));
+  });
+  document.getElementById('habClearRef').addEventListener('click', () => { habitat.reference = null; });
+  document.getElementById('habOpenLeft').addEventListener('click', () => document.getElementById('habLeft').classList.toggle('open'));
+  document.getElementById('habOpenRight').addEventListener('click', () => document.getElementById('habRight').classList.toggle('open'));
+
+  spawnBench();
+  renderList();
+  paintStatic();
+  window.addEventListener('resize', paintStatic);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
+"></iframe>
+</div>
 
 <div class="transport">
   <button type="button" id="playBtn" data-tip="快捷键：Space" onclick="togglePlay()">▶</button>
@@ -426,6 +2939,9 @@
 <script>
 // ==================== 状态 ====================
 const COLORS = ["#e8a04c","#5eb6a8","#d96b5a","#7a9cd6","#b678c9","#8fbf6a","#d9c25a","#6ec4d9","#c98a6e"];
+const PROJECT_FILE_VERSION = 2;
+const SCHEMA_CURVES3D = 'curves3d/v2';
+const SCHEMA_MOTION = 'silkworm-motion-model/v2';
 const state = {
   video: null,
   canvas: null, ctx: null,
@@ -441,7 +2957,13 @@ const state = {
   maxWormTab: 1,
   bridge: { enabled: true, tension: 0.4 },
   regionDrag: null,
+  boxDrag: null,
+  editHistory: {},
+  _trajCache: {},
+  _draw: { raf: 0, dirtyTraj: true },
+  uPlay: { playing: false, frame: 0, traj: null, raf: 0, lastT: 0 },
 };
+const PREVIEW_STORAGE_KEY = 'SILKWORM_PREVIEW_V1';
 const FRAME = 1/30;
 /** 绘制时仅用于采集笔迹的最低像素步长（与最终点距无关） */
 const RAW_CAPTURE_STEP = 3;
@@ -490,6 +3012,8 @@ window.addEventListener('load', () => {
   ensureWorm(1);
   document.getElementById('fileVideo').addEventListener('change', loadVideo);
   document.getElementById('fileProject').addEventListener('change', loadProject);
+  const ft = document.getElementById('fileTrack');
+  if (ft) ft.addEventListener('change', importTrackingJson);
   document.addEventListener('keydown', onKey);
   const c = state.canvas;
   c.addEventListener('pointerdown', onPointerDown);
@@ -522,12 +3046,24 @@ function ensureWorm(id) {
       points: [],
       strokes: [],
       style: { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.9, material: 'ribbon' },
-      behaviorBox: null,
+      behaviorBoxes: [],
+      selectedBoxId: null,
+      nextBoxId: 1,
       motionPattern: 'figure8',
     };
   }
   if (!state.worms[id].strokes) state.worms[id].strokes = [];
-  if (state.worms[id].behaviorBox === undefined) state.worms[id].behaviorBox = null;
+  if (!Array.isArray(state.worms[id].behaviorBoxes)) {
+    const old = state.worms[id].behaviorBox;
+    state.worms[id].behaviorBoxes = old && old.x0 != null
+      ? [{ id: old.id || 1, x0: old.x0, y0: old.y0, x1: old.x1, y1: old.y1 }]
+      : [];
+    state.worms[id].nextBoxId = state.worms[id].behaviorBoxes.reduce((m, b) => Math.max(m, b.id), 0) + 1;
+    state.worms[id].selectedBoxId = state.worms[id].behaviorBoxes.length
+      ? state.worms[id].behaviorBoxes[state.worms[id].behaviorBoxes.length - 1].id
+      : null;
+  }
+  syncPrimaryBox(state.worms[id]);
 }
 
 // ==================== 视频 ====================
@@ -700,6 +3236,13 @@ function resizeCanvas() {
   state.canvas.style.width = (vw*scale)+'px';
   state.canvas.style.height = (vh*scale)+'px';
   state.canvas.width = vw; state.canvas.height = vh;
+  const tC = document.getElementById('canvasTraj');
+  if (tC) {
+    tC.style.width = state.canvas.style.width;
+    tC.style.height = state.canvas.style.height;
+    tC.width = vw;
+    tC.height = vh;
+  }
 }
 
 // ==================== 交互 ====================
@@ -730,12 +3273,17 @@ function onKey(e) {
   }
   if (mod && e.code === 'KeyZ' && !e.shiftKey) {
     e.preventDefault();
+    undoStroke();
+    return;
+  }
+  if (mod && e.code === 'KeyZ' && e.shiftKey) {
+    e.preventDefault();
     undoLast();
     return;
   }
-  if (mod && (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey))) {
+  if (mod && e.code === 'KeyY') {
     e.preventDefault();
-    undoStroke();
+    redoEdit();
     return;
   }
   if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
@@ -760,8 +3308,11 @@ function onKey(e) {
     updateBehaviorStat();
     draw();
   } else if (e.code === 'Escape') {
-    state.mode = null;
+    state.mode = null; hideModeBanner();
     state.regionDrag = null;
+    state.boxDrag = null;
+    const ban = document.getElementById('modeBanner');
+    if (ban) ban.style.display = 'none';
     draw();
   }
 }
@@ -817,17 +3368,24 @@ function updateTime() {
   updateStat();
 }
 
+function hideModeBanner() {
+  const ban = document.getElementById('modeBanner');
+  if (ban && !state.mode) ban.style.display = 'none';
+}
 function setMode(m) {
   state.mode = m;
   const hints = {
-    origin: '点击视频上一个格子交点作为原点 (0,0)。',
-    scale: '先点第一个点，再点第二个格子交点（格边 10mm）。',
-    region: '在视频上<b>拖拽</b>矩形，圈住本次头部「八字」的大致范围。'
+    origin: '在画面上点一下格子的交点，这里就是 (0, 0)。',
+    scale: '先点格子的一个角，再点相邻角。两点距离应等于下方的毫米数（默认 10 mm = 1 cm）。',
+    region: '按住拖出一个新框。松开后它会得到新编号，原来的框和丝线都还在。',
+    movebox: '点中要挪的框，按住拖到新位置。这只移动框，不改丝线。',
   };
-  if (m === 'region') {
-    document.getElementById('calHint').innerHTML = '<b>框选中：</b>' + hints.region;
-  } else {
-    document.getElementById('calHint').innerHTML = '<b>标定中：</b>' + hints[m];
+  const titles = { origin: '正在设原点', scale: '正在量一格', region: '正在加一个新框', movebox: '正在挪动框' };
+  document.getElementById('calHint').innerHTML = '<b>' + titles[m] + '：</b>' + hints[m];
+  const ban = document.getElementById('modeBanner');
+  if (ban) {
+    ban.style.display = 'block';
+    ban.innerHTML = '<b>' + titles[m] + '</b><br>' + hints[m] + '<br><span style="color:#8a8f99">按 Esc 取消</span>';
   }
 }
 
@@ -846,6 +3404,20 @@ function onPointerDown(e) {
   if (state.mode === 'origin' || state.mode === 'scale') {
     e.preventDefault();
     handleCalPoint(x, y);
+    return;
+  }
+
+  if (state.mode === 'movebox') {
+    e.preventDefault();
+    const hit = hitBehaviorBox(state.activeId, x, y);
+    if (!hit) return;
+    ensureWorm(state.activeId);
+    state.worms[state.activeId].selectedBoxId = hit.id;
+    syncPrimaryBox(state.worms[state.activeId]);
+    state.canvas.setPointerCapture(e.pointerId);
+    state.boxDrag = { id: e.pointerId, boxId: hit.id, ox: x - hit.x0, oy: y - hit.y0 };
+    updateBehaviorStat();
+    draw();
     return;
   }
 
@@ -880,7 +3452,7 @@ function onPointerDown(e) {
 function handleCalPoint(x, y) {
   if (state.mode === 'origin') {
     state.cal.ox = x; state.cal.oy = y;
-    state.mode = null;
+    state.mode = null; hideModeBanner();
     document.getElementById('calHint').innerHTML = '原点已设。接下来点「量比例尺」点两个格子交点。';
     updateCalStat(); draw(); return;
   }
@@ -891,7 +3463,7 @@ function handleCalPoint(x, y) {
       const distPx = Math.hypot(p2.x-state.cal.p1.x, p2.y-state.cal.p1.y);
       const mm = parseFloat(document.getElementById('scaleDist').value) || 10;
       state.cal.scale = distPx / mm;  // px per mm
-      state.cal.p1 = null; state.mode = null;
+      state.cal.p1 = null; state.mode = null; hideModeBanner();
       document.getElementById('calHint').innerHTML = '标定完成：<b>'+state.cal.scale.toFixed(2)+' px/mm</b>。现在可以开始描点。';
       updateCalStat();
     }
@@ -932,13 +3504,30 @@ function onPointerMove(e) {
     draw();
     return;
   }
+  const bd = state.boxDrag;
+  if (bd && bd.id === e.pointerId) {
+    e.preventDefault();
+    const { x, y } = pointerToCanvas(e);
+    const w = state.worms[state.activeId];
+    const box = wormBoxes(w).find(b => b.id === bd.boxId);
+    if (box) {
+      const bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+      box.x0 = x - bd.ox;
+      box.y0 = y - bd.oy;
+      box.x1 = box.x0 + bw;
+      box.y1 = box.y0 + bh;
+      syncPrimaryBox(w);
+    }
+    draw();
+    return;
+  }
   const ptr = state.pointer;
   if (!ptr || ptr.id !== e.pointerId || state.mode) return;
   e.preventDefault();
   const { x, y } = pointerToCanvas(e);
   ptr.lastRaw = { x, y };
   acceptStrokeSample(ptr, x, y, getStrokeOpts());
-  draw();
+  scheduleDraw({ traj: true });
 }
 
 function chaikinSmooth(pts, passes) {
@@ -960,12 +3549,19 @@ function chaikinSmooth(pts, passes) {
   return cur;
 }
 
-function pointAtDistance(pts, lens, d) {
+function pointAtDistance(pts, lens, d, hintFrom) {
+  if (!pts.length) return { x: 0, y: 0 };
   if (d <= 0) return { x: pts[0].x, y: pts[0].y };
   const total = lens[lens.length - 1];
   if (d >= total) return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y };
-  let j = 1;
-  while (j < lens.length && lens[j] < d) j++;
+  let lo = Math.max(1, hintFrom || 1);
+  let hi = lens.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (lens[mid] < d) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  const j = Math.min(lo, lens.length - 1);
   const d0 = lens[j - 1], d1 = lens[j];
   const t = d1 > d0 ? (d - d0) / (d1 - d0) : 0;
   return {
@@ -974,24 +3570,163 @@ function pointAtDistance(pts, lens, d) {
   };
 }
 
-function resampleUniform(pts, spacing) {
+function dedupeConsecutivePoints(pts, eps) {
   if (pts.length < 2) return pts.map(p => ({ x: p.x, y: p.y }));
-  const { lens, total } = pathLengths(pts);
-  if (total < spacing * 0.5) return [{ x: pts[0].x, y: pts[0].y }, { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y }];
-  const out = [pointAtDistance(pts, lens, 0)];
+  const out = [{ x: pts[0].x, y: pts[0].y }];
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i];
+    const last = out[out.length - 1];
+    if (Math.hypot(p.x - last.x, p.y - last.y) > eps) out.push({ x: p.x, y: p.y });
+  }
+  return out.length ? out : [{ x: pts[0].x, y: pts[0].y }];
+}
+
+function resampleUniform(pts, spacing) {
+  const clean = dedupeConsecutivePoints(pts, spacing * 0.05);
+  if (clean.length < 2) return clean.map(p => ({ x: p.x, y: p.y }));
+  const { lens, total } = pathLengths(clean);
+  const tailTol = spacing * 0.35;
+  if (total < spacing * 0.5) {
+    return [{ x: clean[0].x, y: clean[0].y }, { x: clean[clean.length - 1].x, y: clean[clean.length - 1].y }];
+  }
+  const out = [pointAtDistance(clean, lens, 0)];
   let d = spacing;
-  while (d < total - spacing * 0.35) {
-    out.push(pointAtDistance(pts, lens, d));
+  let segHint = 1;
+  while (d < total - tailTol) {
+    out.push(pointAtDistance(clean, lens, d, segHint));
+    while (segHint < lens.length - 1 && lens[segHint] < d) segHint++;
     d += spacing;
   }
-  const end = { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y };
+  const end = { x: clean[clean.length - 1].x, y: clean[clean.length - 1].y };
   const last = out[out.length - 1];
   if (Math.hypot(end.x - last.x, end.y - last.y) > spacing * 0.2) out.push(end);
   return out;
 }
 
+function ensureEditHistory(wormId) {
+  if (!state.editHistory[wormId]) state.editHistory[wormId] = { undo: [], redo: [] };
+}
+
+function cloneWormGeometry(wormId) {
+  const w = state.worms[wormId];
+  return {
+    points: w.points.map(p => ({ ...p })),
+    strokes: (w.strokes || []).map(s => ({ start: s.start, end: s.end })),
+  };
+}
+
+function applyWormGeometry(wormId, snap) {
+  const w = state.worms[wormId];
+  w.points = snap.points.map(p => ({ ...p }));
+  w.strokes = snap.strokes.map(s => ({ start: s.start, end: s.end }));
+}
+
+function pushUndoSnapshot(wormId) {
+  ensureEditHistory(wormId);
+  const h = state.editHistory[wormId];
+  h.undo.push(cloneWormGeometry(wormId));
+  if (h.undo.length > 120) h.undo.shift();
+  h.redo.length = 0;
+  invalidateTrajCache(wormId);
+  state._draw.dirtyTraj = true;
+}
+
+function redoEdit() {
+  const id = state.activeId;
+  const h = state.editHistory[id];
+  if (!h || !h.redo.length) return;
+  h.undo.push(cloneWormGeometry(id));
+  applyWormGeometry(id, h.redo.pop());
+  scheduleDraw({ traj: true });
+  updateStat();
+  updateMotionStat();
+}
+
+function resetEditHistory(all) {
+  if (all) state.editHistory = {};
+  else if (state.editHistory[state.activeId]) state.editHistory[state.activeId] = { undo: [], redo: [] };
+}
+
+function isFiniteNum(n) { return typeof n === 'number' && Number.isFinite(n); }
+
+function isCalibrated() {
+  const c = state.cal;
+  return !!(c && isFiniteNum(c.scale) && c.scale > 0 && isFiniteNum(c.ox) && isFiniteNum(c.oy));
+}
+
+function requireCalibration(exportLabel) {
+  if (isCalibrated()) return true;
+  alert(`「${exportLabel}」需要先完成标定：设原点 + 量比例尺（格边 10mm）。\n未标定时可「保存工程」保留像素坐标，或使用 SVG（视图坐标）。`);
+  return false;
+}
+
+function validateWorm(w, id) {
+  if (!w || !Array.isArray(w.points)) return `蚕 ${id}：缺少 points`;
+  for (let i = 0; i < w.points.length; i++) {
+    const p = w.points[i];
+    if (!isFiniteNum(p.x) || !isFiniteNum(p.y)) return `蚕 ${id} 点 ${i} 坐标无效`;
+  }
+  const strokes = w.strokes || [];
+  let prevEnd = -1;
+  for (let si = 0; si < strokes.length; si++) {
+    const s = strokes[si];
+    if (!Number.isInteger(s.start) || !Number.isInteger(s.end)) return `蚕 ${id} 笔 ${si} 索引非整数`;
+    if (s.start < 0 || s.end >= w.points.length || s.start > s.end) return `蚕 ${id} 笔 ${si} 区间非法`;
+    if (s.start < prevEnd) return `蚕 ${id} 笔 ${si} 与前一笔画重叠`;
+    prevEnd = s.end;
+  }
+  for (const b of (w.behaviorBoxes || [])) {
+    if (![b.x0, b.y0, b.x1, b.y1].every(isFiniteNum)) return `蚕 ${id} 框 ${b.id} 无效`;
+  }
+  if (w.style) {
+    const st = w.style;
+    if (st.opacity != null && (st.opacity < 0 || st.opacity > 1)) return `蚕 ${id} 透明度越界`;
+  }
+  return null;
+}
+
+function validateProjectData(data) {
+  if (!data || typeof data !== 'object') return '工程不是有效对象';
+  if (data.calibration && data.calibration.scale != null) {
+    if (!isFiniteNum(data.calibration.scale) || data.calibration.scale <= 0) return '标定 scale 无效';
+  }
+  if (!data.worms || typeof data.worms !== 'object') return '缺少 worms';
+  for (const id of Object.keys(data.worms)) {
+    const err = validateWorm(data.worms[id], id);
+    if (err) return err;
+  }
+  if (data.activeId != null && !data.worms[data.activeId]) return '活动蚕不存在';
+  return null;
+}
+
+function normalizeLoadedProject(data) {
+  if (!data.worms) data.worms = { 1: { points: [], strokes: [], style: {}, color: COLORS[0] } };
+  for (const id of Object.keys(data.worms)) ensureWorm(+id);
+  if (!data.calibration) data.calibration = { ox: null, oy: null, scale: null, p1: null };
+  return data;
+}
+
+function invalidateTrajCache(wormId) {
+  if (wormId == null) state._trajCache = {};
+  else delete state._trajCache[wormId];
+}
+
+function wormGeomCacheKey(w) {
+  return (w.strokes || []).length + ':' + w.points.length + ':' + (w.points[w.points.length - 1] && w.points[w.points.length - 1].x);
+}
+
+function scheduleDraw(opts) {
+  if (opts && opts.traj) state._draw.dirtyTraj = true;
+  if (state._draw.raf) return;
+  state._draw.raf = requestAnimationFrame(() => {
+    state._draw.raf = 0;
+    draw();
+  });
+}
+
 function commitStroke(ptr) {
   const id = state.activeId;
+  pushUndoSnapshot(id);
   ensureWorm(id);
   const w = state.worms[id];
   const opts = getStrokeOpts();
@@ -1012,9 +3747,20 @@ function commitStroke(ptr) {
     w.points.push(pt);
   }
   w.strokes.push({ start: startIdx, end: w.points.length - 1 });
+  refreshUPlayTrajectory();
+  if (document.body.classList.contains('split-preview')) pushPreviewToPane();
 }
 
 function onPointerUp(e) {
+  const bd = state.boxDrag;
+  if (bd && bd.id === e.pointerId) {
+    if (state.canvas.hasPointerCapture(e.pointerId)) state.canvas.releasePointerCapture(e.pointerId);
+    state.boxDrag = null;
+    updateBehaviorStat();
+    draw();
+    if (document.body.classList.contains('split-preview')) pushPreviewToPane();
+    return;
+  }
   const rd = state.regionDrag;
   if (rd && rd.id === e.pointerId) {
     if (state.canvas.hasPointerCapture(e.pointerId)) {
@@ -1022,8 +3768,8 @@ function onPointerUp(e) {
     }
     normalizeBehaviorBox(rd);
     state.regionDrag = null;
-    state.mode = null;
-    document.getElementById('calHint').innerHTML = '框选完成。八字范围已绑定到当前蚕。';
+    state.mode = null; hideModeBanner();
+    document.getElementById('calHint').innerHTML = '新框已加上，原来的框和丝线都还在。点「挪动选中框」可以换位置。';
     draw();
     updateBehaviorStat();
     return;
@@ -1039,15 +3785,60 @@ function onPointerUp(e) {
   updateMotionStat();
 }
 
+function wormBoxes(w) {
+  if (!w) return [];
+  if (!Array.isArray(w.behaviorBoxes)) {
+    w.behaviorBoxes = w.behaviorBox && w.behaviorBox.x0 != null
+      ? [{ id: w.behaviorBox.id || 1, x0: w.behaviorBox.x0, y0: w.behaviorBox.y0, x1: w.behaviorBox.x1, y1: w.behaviorBox.y1 }]
+      : [];
+    w.nextBoxId = w.behaviorBoxes.reduce((m, b) => Math.max(m, b.id), 0) + 1;
+  }
+  return w.behaviorBoxes;
+}
+
+function syncPrimaryBox(w) {
+  const boxes = wormBoxes(w);
+  const sel = boxes.find(b => b.id === w.selectedBoxId) || boxes[boxes.length - 1] || null;
+  w.selectedBoxId = sel ? sel.id : null;
+  w.behaviorBox = sel ? { id: sel.id, x0: sel.x0, y0: sel.y0, x1: sel.x1, y1: sel.y1 } : null;
+}
+
+function hitBehaviorBox(wormId, x, y) {
+  const boxes = wormBoxes(state.worms[wormId]).slice().reverse();
+  return boxes.find(b => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) || null;
+}
+
+function addBehaviorBox(rect) {
+  ensureWorm(state.activeId);
+  const w = state.worms[state.activeId];
+  const boxes = wormBoxes(w);
+  const id = w.nextBoxId || (boxes.reduce((m, b) => Math.max(m, b.id), 0) + 1);
+  w.nextBoxId = id + 1;
+  boxes.push({ id, x0: rect.x0, y0: rect.y0, x1: rect.x1, y1: rect.y1 });
+  w.selectedBoxId = id;
+  w.motionPattern = 'figure8';
+  syncPrimaryBox(w);
+}
+
+function deleteSelectedBehaviorBox() {
+  const w = state.worms[state.activeId];
+  if (!w || w.selectedBoxId == null) { alert('先点「挪动选中框」，再点一下要删的框。'); return; }
+  if (!confirm('只删除框 ' + w.selectedBoxId + '，已描的丝线会保留。')) return;
+  w.behaviorBoxes = wormBoxes(w).filter(b => b.id !== w.selectedBoxId);
+  w.selectedBoxId = w.behaviorBoxes.length ? w.behaviorBoxes[w.behaviorBoxes.length - 1].id : null;
+  syncPrimaryBox(w);
+  updateBehaviorStat();
+  draw();
+  if (document.body.classList.contains('split-preview')) pushPreviewToPane();
+}
+
 function normalizeBehaviorBox(rd) {
   const x0 = Math.min(rd.x0, rd.x1);
   const x1 = Math.max(rd.x0, rd.x1);
   const y0 = Math.min(rd.y0, rd.y1);
   const y1 = Math.max(rd.y0, rd.y1);
   if (Math.abs(x1 - x0) < 4 || Math.abs(y1 - y0) < 4) return;
-  ensureWorm(state.activeId);
-  state.worms[state.activeId].behaviorBox = { x0, y0, x1, y1 };
-  state.worms[state.activeId].motionPattern = 'figure8';
+  addBehaviorBox({ x0, y0, x1, y1 });
 }
 
 function behaviorBoxMetrics(box) {
@@ -1073,18 +3864,17 @@ function updateBehaviorStat() {
   const el = document.getElementById('behaviorStat');
   if (!el) return;
   const w = state.worms[state.activeId];
-  const m = behaviorBoxMetrics(w && w.behaviorBox);
-  if (!m) {
-    el.textContent = '未框选';
+  const boxes = wormBoxes(w);
+  if (!boxes.length) {
+    el.textContent = '还没有活动框';
     return;
   }
-  if (m.gridW != null) {
-    el.innerHTML =
-      `当前蚕 <b>${state.activeId}</b>：约 <b>${m.gridW}×${m.gridH}</b> 格 · ` +
-      `${m.w_mm}×${m.h_mm} mm<br>模式 <b>八字</b>（可作生成时的包络）`;
-  } else {
-    el.textContent = `已框选 ${m.w_px.toFixed(0)}×${m.h_px.toFixed(0)} px（请先标定比例尺）`;
-  }
+  const sel = boxes.find(b => b.id === w.selectedBoxId) || boxes[boxes.length - 1];
+  const m = behaviorBoxMetrics(sel);
+  const size = m && m.gridW != null
+    ? `${m.gridW}×${m.gridH} 格 · ${m.w_mm}×${m.h_mm} mm`
+    : `${m.w_px.toFixed(0)}×${m.h_px.toFixed(0)} px`;
+  el.innerHTML = `共 <b>${boxes.length}</b> 个框，选中 <b>${sel.id}</b><br>${size}<br>丝线不受框的新增、挪动或删除影响`;
 }
 
 function presetBehaviorBox15() {
@@ -1108,8 +3898,7 @@ function presetBehaviorBox15() {
   }
   const bw = cellPx * 1.5;
   const bh = cellPx * 1.0;
-  w.behaviorBox = { x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 };
-  w.motionPattern = 'figure8';
+  addBehaviorBox({ x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 });
   updateBehaviorStat();
   draw();
 }
@@ -1118,15 +3907,19 @@ function exportBehaviorUnits() {
   const units = [];
   for (const id of Object.keys(state.worms).map(Number).sort((a, b) => a - b)) {
     const w = state.worms[id];
-    if (!w.behaviorBox) continue;
-    const m = behaviorBoxMetrics(w.behaviorBox);
-    units.push({
-      wormId: id,
-      pattern: w.motionPattern || 'figure8',
-      box_px: { ...w.behaviorBox },
-      envelope_mm: m && m.w_mm ? { width_mm: m.w_mm, height_mm: m.h_mm } : null,
-      envelope_grid: m && m.gridW ? { cols: m.gridW, rows: m.gridH, cell_mm: m.cell_mm } : null,
-      note: 'Head wag envelope; ~1.5x1 cells typical, varies per instance',
+    const boxes = wormBoxes(w);
+    if (!boxes.length) continue;
+    boxes.forEach((box) => {
+      const m = behaviorBoxMetrics(box);
+      units.push({
+        wormId: id,
+        boxId: box.id,
+        pattern: w.motionPattern || 'figure8',
+        box_px: { id: box.id, x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1 },
+        envelope_mm: m && m.w_mm ? { width_mm: m.w_mm, height_mm: m.h_mm } : null,
+        envelope_grid: m && m.gridW ? { cols: m.gridW, rows: m.gridH, cell_mm: m.cell_mm } : null,
+        note: 'Activity frame; silk strokes are stored separately and are not deleted with the frame',
+      });
     });
   }
   return units;
@@ -1134,6 +3927,7 @@ function exportBehaviorUnits() {
 
 function undoLast() {
   const w = state.worms[state.activeId]; if (!w || !w.points.length) return;
+  pushUndoSnapshot(state.activeId);
   w.points.pop();
   if (w.strokes && w.strokes.length) {
     const last = w.strokes[w.strokes.length - 1];
@@ -1142,21 +3936,25 @@ function undoLast() {
       else w.strokes[w.strokes.length - 1] = { ...last, end: w.points.length - 1 };
     }
   }
-  draw();
+  scheduleDraw({ traj: true });
+  updateStat();
 }
 function undoStroke() {
   const w = state.worms[state.activeId];
   if (!w || !w.strokes || !w.strokes.length) return undoLast();
+  pushUndoSnapshot(state.activeId);
   const seg = w.strokes.pop();
   w.points.splice(seg.start, Math.max(0, seg.end - seg.start + 1));
   for (const s of w.strokes) {
     const len = seg.end - seg.start + 1;
     if (s.start > seg.end) { s.start -= len; s.end -= len; }
   }
-  draw();
+  scheduleDraw({ traj: true });
+  updateStat();
 }
 function clearWorm() {
   if (!confirm('清空蚕 '+state.activeId+' 的所有点？')) return;
+  pushUndoSnapshot(state.activeId);
   const w = state.worms[state.activeId];
   w.points = [];
   w.strokes = [];
@@ -1166,6 +3964,7 @@ function clearWorm() {
 // ==================== 样式 ====================
 function updateStyle() {
   const w = state.worms[state.activeId]; if (!w) return;
+  invalidateTrajCache(state.activeId);
   w.style.headWidth = parseFloat(document.getElementById('sHead').value);
   w.style.midWidth  = parseFloat(document.getElementById('sMid').value);
   w.style.tailWidth = parseFloat(document.getElementById('sTail').value);
@@ -1252,7 +4051,8 @@ function onBridgeUI() {
   state.bridge.enabled = document.getElementById('bridgeStrokes').checked;
   state.bridge.tension = parseFloat(document.getElementById('bridgeTension').value) || 0.4;
   document.getElementById('vBridgeT').textContent = state.bridge.tension.toFixed(2);
-  draw();
+  invalidateTrajCache();
+  scheduleDraw({ traj: true });
   updateMotionStat();
 }
 
@@ -1373,19 +4173,37 @@ function buildWormTrajectory(w) {
   });
 
   const { lens: arc, total } = pathLengths(poly);
+  const segAtPoint = new Array(poly.length);
+  for (const seg of segmentTable) {
+    for (let ii = seg.pointIndexStart; ii <= seg.pointIndexEnd; ii++) segAtPoint[ii] = seg;
+  }
+  const strokeArc = {};
+  for (const seg of segmentTable) {
+    if (seg.kind !== 'stroke') continue;
+    const sub = poly.slice(seg.pointIndexStart, seg.pointIndexEnd + 1).map(q => ({ x: q.x, y: q.y }));
+    const { lens, total: stotal } = pathLengths(sub);
+    strokeArc[seg.strokeIndex] = { lens, total: stotal, i0: seg.pointIndexStart };
+  }
   poly.forEach((p, i) => {
     p.u = total > 0 ? arc[i] / total : 0;
     const m = toMM(p);
-    p.x_mm = +m.x_mm.toFixed(4);
-    p.y_mm = +m.y_mm.toFixed(4);
+    p.x_px = m.x_px;
+    p.y_px = m.y_px;
+    p.x_mm = m.x_mm != null ? +m.x_mm.toFixed(4) : null;
+    p.y_mm = m.y_mm != null ? +m.y_mm.toFixed(4) : null;
+    p.coordUnit = m.unit;
     p.z_mm = p.z_mm != null ? p.z_mm : 0;
     p.u = +p.u.toFixed(6);
-    const uLocal = (() => {
-      const seg = segmentTable.find(s => i >= s.pointIndexStart && i <= s.pointIndexEnd && s.kind === 'stroke');
-      if (!seg) return null;
+  const seg = segAtPoint[i];
+    let uLocal = null;
+    if (seg && seg.kind === 'stroke' && strokeArc[seg.strokeIndex]) {
+      const sa = strokeArc[seg.strokeIndex];
+      const li = i - sa.i0;
+      uLocal = sa.total > 0 ? sa.lens[li] / sa.total : 0;
+    } else if (seg && seg.kind === 'stroke') {
       const sl = seg.pointIndexEnd - seg.pointIndexStart;
-      return sl > 0 ? (i - seg.pointIndexStart) / sl : 0;
-    })();
+      uLocal = sl > 0 ? (i - seg.pointIndexStart) / sl : 0;
+    }
     if (uLocal != null) p.u_within_stroke = +uLocal.toFixed(6);
     let uStyle = p.u;
     if (p.kind === 'stroke' && p.u_within_stroke != null) uStyle = p.u_within_stroke;
@@ -1396,9 +4214,14 @@ function buildWormTrajectory(w) {
   segmentTable.forEach(seg => {
     if (poly[seg.pointIndexStart]) seg.u0 = poly[seg.pointIndexStart].u;
     if (poly[seg.pointIndexEnd]) seg.u1 = poly[seg.pointIndexEnd].u;
-    seg.length_mm = +polylineLengthMm(
-      poly.slice(seg.pointIndexStart, seg.pointIndexEnd + 1).map(q => ({ x_mm: q.x_mm, y_mm: q.y_mm }))
-    ).toFixed(3);
+    seg.length_mm = isCalibrated()
+      ? +polylineLengthMm(
+          poly.slice(seg.pointIndexStart, seg.pointIndexEnd + 1).map(q => ({ x_mm: q.x_mm, y_mm: q.y_mm }))
+        ).toFixed(3)
+      : null;
+    seg.length_px = +pathLengths(
+      poly.slice(seg.pointIndexStart, seg.pointIndexEnd + 1).map(q => ({ x: q.x, y: q.y }))
+    ).total.toFixed(2);
   });
 
   return {
@@ -1442,14 +4265,14 @@ function computeMotionFeatures(traj) {
   const widths = [];
   const pts = traj.points;
   for (let i = 1; i < pts.length; i++) {
-    steps.push(Math.hypot(pts[i].x_mm - pts[i - 1].x_mm, pts[i].y_mm - pts[i - 1].y_mm));
+    steps.push(distBetweenPoints(pts[i], pts[i - 1]));
     widths.push(pts[i].width_mm);
   }
   for (let i = 2; i < pts.length; i++) {
-    const v0x = pts[i - 1].x_mm - pts[i - 2].x_mm;
-    const v0y = pts[i - 1].y_mm - pts[i - 2].y_mm;
-    const v1x = pts[i].x_mm - pts[i - 1].x_mm;
-    const v1y = pts[i].y_mm - pts[i - 1].y_mm;
+    const v0x = (pts[i - 1].x_mm != null ? pts[i - 1].x_mm : pts[i - 1].x_px) - (pts[i - 2].x_mm != null ? pts[i - 2].x_mm : pts[i - 2].x_px);
+    const v0y = (pts[i - 1].y_mm != null ? pts[i - 1].y_mm : pts[i - 1].y_px) - (pts[i - 2].y_mm != null ? pts[i - 2].y_mm : pts[i - 2].y_px);
+    const v1x = (pts[i].x_mm != null ? pts[i].x_mm : pts[i].x_px) - (pts[i - 1].x_mm != null ? pts[i - 1].x_mm : pts[i - 1].x_px);
+    const v1y = (pts[i].y_mm != null ? pts[i].y_mm : pts[i].y_px) - (pts[i - 1].y_mm != null ? pts[i - 1].y_mm : pts[i - 1].y_px);
     const a0 = Math.atan2(v0y, v0x);
     const a1 = Math.atan2(v1y, v1x);
     let d = a1 - a0;
@@ -1476,34 +4299,59 @@ function computeMotionFeatures(traj) {
   };
 }
 
+function lognormalMuSigmaFromSamples(vals) {
+  const pos = vals.filter(v => v > 0 && Number.isFinite(v));
+  if (pos.length < 3) return { fitted: false, mu: 0, sigma: 0.15, n: pos.length };
+  const logs = pos.map(v => Math.log(v));
+  const st = statsArray(logs);
+  return { fitted: true, mu: st.mean, sigma: Math.max(0.02, st.std), n: pos.length };
+}
+
 function buildSynthesisRecipe(featuresList) {
-  const allSteps = featuresList.flatMap(f => {
-    const st = f.stepLength_mm;
-    return st.n ? [st.mean] : [];
+  const stepSamples = featuresList.flatMap(f => {
+    if (!f.stepLength_mm || !f.stepLength_mm.n) return [];
+    return [f.stepLength_mm.mean];
   });
-  const allTurns = featuresList.flatMap(f => {
-    const t = f.turning_rad;
-    return t.n ? [t.std] : [];
+  const turnStdSamples = featuresList.flatMap(f => {
+    if (!f.turning_rad || !f.turning_rad.n) return [];
+    return [f.turning_rad.std];
   });
+  const widthStdSamples = featuresList.flatMap(f => {
+    if (!f.width_mm || !f.width_mm.n) return [];
+    return [f.width_mm.std];
+  });
+  const lnStep = lognormalMuSigmaFromSamples(stepSamples);
+  const turnStats = statsArray(turnStdSamples);
+  const widthStats = statsArray(widthStdSamples);
   return {
-    parameterization: 'Arc-length u in [0,1]; position in mm; optional t_video on stroke starts',
+    parameterization: 'Arc-length u in [0,1]; position in mm when calibrated; optional t_video on stroke starts',
     bridgeCurve: 'Cubic Bezier between strokes; tension from project bridge.tension',
+    dataProvenance: {
+      measuredWorms: featuresList.length,
+      note: 'stochasticLayer values tagged fitted vs default',
+    },
     stochasticLayer: {
       description: 'Add per-instance noise when batch-generating virtual silk',
       stepLength_mm: {
         distribution: 'lognormal',
-        mu: 0,
-        sigma: Math.max(0.02, statsArray(allSteps).std / (statsArray(allSteps).mean || 1)),
+        mu: lnStep.mu,
+        sigma: lnStep.sigma,
+        source: lnStep.fitted ? 'fitted_from_measured_step_means' : 'default_insufficient_samples',
+        sampleCount: lnStep.n,
       },
       turn_rad: {
         distribution: 'normal',
         mu: 0,
-        sigma: allTurns.length ? statsArray(allTurns).mean : 0.08,
+        sigma: turnStats.n >= 2 ? Math.max(0.02, turnStats.mean) : 0.08,
+        source: turnStats.n >= 2 ? 'fitted_from_measured_turn_spread' : 'default',
+        sampleCount: turnStats.n,
       },
       width_mm: {
         distribution: 'normal',
         scale: 'multiply (1 + N(0, sigma)) on widthAlongStyle(u)',
-        sigma: 0.06,
+        sigma: widthStats.n >= 2 ? Math.max(0.02, widthStats.mean) : 0.06,
+        source: widthStats.n >= 2 ? 'fitted_from_measured_width_spread' : 'default',
+        sampleCount: widthStats.n,
       },
       seedNote: 'Use random seed per virtual worm; keep segment u-ranges from strokeBlocks',
     },
@@ -1538,7 +4386,16 @@ function updateMotionStat() {
     `连接 <b>${t.bridgeEnabled ? '开' : '关'}</b> · u=0→1`;
 }
 
-function drawWormTrajectories(ctx, w) {
+function getCachedWormTrajectory(w, wormId) {
+  const key = wormGeomCacheKey(w) + ':' + (wormBridgeEnabled(w) ? 1 : 0) + ':' + bridgeSettings().tension;
+  const cache = state._trajCache[wormId];
+  if (cache && cache.key === key) return cache.traj;
+  const traj = buildWormTrajectory(w);
+  state._trajCache[wormId] = { key, traj };
+  return traj;
+}
+
+function drawWormTrajectories(ctx, w, wormId) {
   const bridgeOn = wormBridgeEnabled(w);
   if (!bridgeOn) {
     for (const seg of wormStrokeList(w)) {
@@ -1548,7 +4405,8 @@ function drawWormTrajectories(ctx, w) {
     }
     return;
   }
-  const traj = buildWormTrajectory(w);
+  const id = wormId != null ? wormId : state.activeId;
+  const traj = getCachedWormTrajectory(w, id);
   let i = 0;
   while (i < traj.points.length) {
     const p0 = traj.points[i];
@@ -1668,26 +4526,16 @@ function drawStyledPathOnCtx(ctx, pts, style, color, layerOpacity, scaleMul) {
       ctx.lineTo(pts[i + 1].x, pts[i + 1].y);
       ctx.stroke();
     }
-  } else if (mat === 'tube') {
-    ctx.shadowColor = 'rgba(0,0,0,0.45)';
-    ctx.shadowBlur = Math.max(2, style.midWidth * 0.15);
+  } else if (mat === 'silk' || mat === 'tube') {
+    ctx.shadowColor = mat === 'silk' ? 'rgba(255,236,200,0.55)' : 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = Math.max(4, style.midWidth * (mat === 'silk' ? 0.35 : 0.15));
     const outer = ribbonPolygon(pts, lens, total, style, 1);
     fillRibbon(ctx, outer.left, outer.right, color);
     ctx.shadowBlur = 0;
-    const innerStyle = { ...style, headWidth: style.headWidth * 0.42, midWidth: style.midWidth * 0.42, tailWidth: style.tailWidth * 0.42 };
+    const innerStyle = { ...style, headWidth: style.headWidth * 0.35, midWidth: style.midWidth * 0.35, tailWidth: style.tailWidth * 0.35 };
     const inner = ribbonPolygon(pts, lens, total, innerStyle, 1);
-    ctx.globalAlpha = op * 0.9;
-    fillRibbon(ctx, inner.left, inner.right, mixColor(color, true, 0.62));
-    for (let i = 0; i < pts.length - 1; i++) {
-      const u = total > 0 ? (lens[i] + lens[i + 1]) / 2 / total : 0.5;
-      ctx.strokeStyle = mixColor(color, true, 0.78);
-      ctx.lineWidth = Math.max(1, widthAlongStyle(style, u) * 0.18);
-      ctx.globalAlpha = op * 0.65;
-      ctx.beginPath();
-      ctx.moveTo(pts[i].x, pts[i].y);
-      ctx.lineTo(pts[i + 1].x, pts[i + 1].y);
-      ctx.stroke();
-    }
+    ctx.globalAlpha = op * 0.85;
+    fillRibbon(ctx, inner.left, inner.right, mixColor(color, true, mat === 'silk' ? 0.82 : 0.62));
   } else {
     const rib = ribbonPolygon(pts, lens, total, style, 1);
     fillRibbon(ctx, rib.left, rib.right, color);
@@ -1793,22 +4641,22 @@ function draw() {
   const showBeh = !document.getElementById('tBehBox') || document.getElementById('tBehBox').checked;
   if (showBeh) {
     for (const id in state.worms) {
-      const wb = state.worms[id].behaviorBox;
-      if (!wb) continue;
+      const worm = state.worms[id];
+      const boxes = wormBoxes(worm);
+      boxes.forEach((wb) => {
       const x = wb.x0, y = wb.y0, w = wb.x1 - wb.x0, h = wb.y1 - wb.y0;
       const active = +id === state.activeId;
-      ctx.strokeStyle = active ? 'rgba(94,182,168,0.95)' : 'rgba(94,182,168,0.45)';
-      ctx.lineWidth = active ? 2.5 : 1.5;
-      ctx.setLineDash([8, 6]);
-      ctx.strokeRect(x, y, w, h);
+      const selected = active && wb.id === worm.selectedBoxId;
+      ctx.strokeStyle = selected ? 'rgba(232,160,76,1)' : (active ? 'rgba(120,230,210,1)' : 'rgba(94,182,168,0.7)');
+      ctx.lineWidth = selected ? 4 : 2.5;
       ctx.setLineDash([]);
-      if (active) {
-        const m = behaviorBoxMetrics(wb);
-        const label = m && m.gridW != null ? `八字 ~${m.gridW}×${m.gridH}格` : '八字范围';
-        ctx.fillStyle = 'rgba(94,182,168,0.9)';
-        ctx.font = '14px sans-serif';
-        ctx.fillText(label, x + 4, y - 6);
-      }
+      ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = selected ? 'rgba(232,160,76,0.14)' : 'rgba(94,182,168,0.08)';
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = selected ? '#e8a04c' : 'rgba(120,230,210,0.95)';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillText(String(wb.id), x + 8, y + 22);
+      });
     }
   }
   if (state.regionDrag) {
@@ -1824,12 +4672,20 @@ function draw() {
     ctx.setLineDash([]);
   }
 
-  // 轨迹（头/中/尾粗细 + 材质实时预览）
+  drawTrajOverlay(v);
+}
+
+function drawTrajOverlay(v) {
+  const cvs = document.getElementById('canvasTraj');
+  if (!cvs || !cvs.width) return;
+  const ctx = cvs.getContext('2d');
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
+
   if (document.getElementById('tTraj').checked) {
     for (const id in state.worms) {
       const w = state.worms[id];
       if (w.points.length < 2) continue;
-      drawWormTrajectories(ctx, w);
+      drawWormTrajectories(ctx, w, +id);
     }
   }
 
@@ -1848,26 +4704,36 @@ function draw() {
     }
   }
 
-  // 当前点
   if (document.getElementById('tPts').checked) {
     for (const id in state.worms) {
       const w = state.worms[id];
       ctx.fillStyle = w.color;
       for (const p of w.points) {
-        ctx.beginPath(); ctx.arc(p.x, p.y, id==state.activeId?3:1.5, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, id == state.activeId ? 3 : 1.5, 0, Math.PI * 2); ctx.fill();
       }
     }
-    // 当前时间最新点高亮
     if (v) {
       const w = state.worms[state.activeId];
       const t = v.currentTime;
-      const near = w.points.find(p => Math.abs(p.t-t) < FRAME);
+      const near = w.points.find(p => Math.abs(p.t - t) < FRAME);
       if (near) {
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(near.x, near.y, 7, 0, Math.PI*2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(near.x, near.y, 7, 0, Math.PI * 2); ctx.stroke();
       }
     }
+  }
+
+  const up = state.uPlay;
+  if (up.traj && up.traj.length >= 2 && up.frame > 0) {
+    const p = up.traj[Math.min(up.frame, up.traj.length - 1)];
+    ctx.strokeStyle = '#fff';
+    ctx.fillStyle = 'rgba(232,160,76,0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
   }
 }
 
@@ -1890,11 +4756,27 @@ function updateStat() {
 
 // ==================== 导出 ====================
 function toMM(p) {
-  if (!state.cal.scale) return { x_mm: p.x, y_mm: p.y };
+  const x_px = +p.x;
+  const y_px = +p.y;
+  if (!isCalibrated()) {
+    return { unit: 'px', x_px, y_px, x_mm: null, y_mm: null };
+  }
   return {
+    unit: 'mm',
+    x_px,
+    y_px,
     x_mm: (p.x - state.cal.ox) / state.cal.scale,
-    y_mm: (state.cal.oy - p.y) / state.cal.scale
+    y_mm: (state.cal.oy - p.y) / state.cal.scale,
   };
+}
+
+function distBetweenPoints(a, b) {
+  if (a.x_mm != null && b.x_mm != null) return Math.hypot(a.x_mm - b.x_mm, a.y_mm - b.y_mm);
+  const ax = a.x_px != null ? a.x_px : a.x;
+  const ay = a.y_px != null ? a.y_px : a.y;
+  const bx = b.x_px != null ? b.x_px : b.x;
+  const by = b.y_px != null ? b.y_px : b.y;
+  return Math.hypot(bx - ax, by - ay);
 }
 
 function wormStrokeList(w) {
@@ -1919,6 +4801,7 @@ function axisPointMm(p, z) {
 }
 
 function collectExportCurves() {
+  const calibrated = isCalibrated();
   const withWidth = !document.getElementById('expWidth') || document.getElementById('expWidth').checked;
   const withPx = !document.getElementById('expPx') || document.getElementById('expPx').checked;
   const curves = [];
@@ -1934,8 +4817,8 @@ function collectExportCurves() {
         const u = slice.length > 1 ? i / (slice.length - 1) : 0;
         const pt = {
           index: i,
-          x_mm: +m.x_mm.toFixed(4),
-          y_mm: +m.y_mm.toFixed(4),
+          x_mm: calibrated && m.x_mm != null ? +m.x_mm.toFixed(4) : null,
+          y_mm: calibrated && m.y_mm != null ? +m.y_mm.toFixed(4) : null,
           z_mm: p.z_mm != null ? +p.z_mm : 0,
         };
         if (withWidth) pt.width_mm = +widthAlongStyle(w.style, u).toFixed(4);
@@ -1961,7 +4844,7 @@ function collectExportCurves() {
           material: w.style.material,
         },
         pointCount: points.length,
-        length_mm: +polylineLengthMm(points).toFixed(3),
+        length_mm: calibrated ? +polylineLengthMm(points).toFixed(3) : null,
         points,
       });
     });
@@ -1971,16 +4854,22 @@ function collectExportCurves() {
 
 function exportMetaBlock() {
   const v = state.video;
+  const calibrated = isCalibrated();
   return {
     generator: 'silkworm-trajectory-editor',
-    schema: 'curves3d/v1',
+    schema: SCHEMA_CURVES3D,
+    schemaLegacy: 'curves3d/v1',
     axis: (document.getElementById('expAxis') && document.getElementById('expAxis').value) || 'rhino',
-    unit: 'mm',
+    unit: calibrated ? 'mm' : 'px',
+    coordinateNote: calibrated
+      ? 'x_mm/y_mm are physical after calibration'
+      : 'Not calibrated: use x_px/y_px; do not treat x_mm as millimeters',
     note: 'Top-view silk curves; Z=0 unless z_mm set. width_mm for sweep/tube in DCC.',
     video: v && v.videoWidth ? { width_px: v.videoWidth, height_px: v.videoHeight, fps: state.videoFps } : null,
-    calibration: state.cal.scale ? {
+    calibration: calibrated ? {
       originPx: [state.cal.ox, state.cal.oy],
       scalePxPerMm: state.cal.scale,
+      cell_mm: parseFloat(document.getElementById('scaleDist').value) || 10,
     } : null,
   };
 }
@@ -1990,21 +4879,18 @@ function exportSVG() {
   const W = v ? v.videoWidth : 1920, H = v ? v.videoHeight : 1080;
   let paths = '';
   const curves = collectExportCurves();
+  const ribbon = document.getElementById('expSvgRibbon') && document.getElementById('expSvgRibbon').checked;
   for (const c of curves) {
     const w = state.worms[c.wormId];
-    const d = c.points.map((p, i) => {
-      const px = state.cal.scale
-        ? state.cal.ox + p.x_mm * state.cal.scale
-        : p.x_px || 0;
-      const py = state.cal.scale
-        ? state.cal.oy - p.y_mm * state.cal.scale
-        : p.y_px || 0;
-      return (i ? 'L' : 'M') + px.toFixed(2) + ' ' + py.toFixed(2);
-    }).join(' ');
+    const d = svgPathFromPointsMm(c.points, ribbon, w.style);
     const meta = JSON.stringify({
-      name: c.name, wormId: c.wormId, style: c.style, length_mm: c.length_mm
+      name: c.name, wormId: c.wormId, style: c.style, length_mm: c.length_mm, ribbon,
     });
-    paths += `<path id="${c.name}" d="${d}" fill="none" stroke="${w.color}" stroke-width="${w.style.midWidth}" opacity="${w.style.opacity}" stroke-linecap="round" stroke-linejoin="round"><desc>${meta.replace(/</g,'&lt;')}</desc></path>\n`;
+    if (ribbon) {
+      paths += `<path id="${c.name}" d="${d}" fill="${w.color}" fill-opacity="${w.style.opacity}" stroke="none"><desc>${meta.replace(/</g,'&lt;')}</desc></path>\n`;
+    } else {
+      paths += `<path id="${c.name}" d="${d}" fill="none" stroke="${w.color}" stroke-width="${w.style.midWidth}" opacity="${w.style.opacity}" stroke-linecap="round" stroke-linejoin="round"><desc>${meta.replace(/</g,'&lt;')}</desc></path>\n`;
+    }
   }
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
@@ -2014,6 +4900,7 @@ ${paths}</svg>`;
 }
 
 function exportCurves3D() {
+  if (!requireCalibration('3D 曲线 JSON')) return;
   const data = {
     ...exportMetaBlock(),
     curveType: 'polyline',
@@ -2046,6 +4933,7 @@ function exportCurves3D() {
 }
 
 function exportMotionModel() {
+  if (!requireCalibration('运动模型 JSON')) return;
   const trajs = buildAllTrajectories();
   if (!trajs.length) {
     alert('请先描好至少一条轨迹（每笔至少 2 个点）。');
@@ -2058,7 +4946,8 @@ function exportMotionModel() {
   }));
   const data = {
     ...exportMetaBlock(),
-    schema: 'silkworm-motion-model/v1',
+    schema: SCHEMA_MOTION,
+    schemaLegacy: 'silkworm-motion-model/v1',
     bridge: bridgeSettings(),
     unifiedTrajectories: trajs.map(t => ({
       wormId: t.wormId,
@@ -2081,6 +4970,7 @@ function exportMotionModel() {
 }
 
 function exportJSON() {
+  const calibrated = isCalibrated();
   const data = {
     fps: state.videoFps || 30,
     ...exportMetaBlock(),
@@ -2094,11 +4984,12 @@ function exportJSON() {
           const m = toMM(p);
           const out = {
             index: i,
-            x_mm: +m.x_mm.toFixed(3),
-            y_mm: +m.y_mm.toFixed(3),
+            x_mm: calibrated && m.x_mm != null ? +m.x_mm.toFixed(3) : null,
+            y_mm: calibrated && m.y_mm != null ? +m.y_mm.toFixed(3) : null,
             z_mm: null,
             x_px: +p.x.toFixed(2),
             y_px: +p.y.toFixed(2),
+            unit: m.unit,
           };
           if (p.t != null) out.t_video = +p.t.toFixed(3);
           return out;
@@ -2111,6 +5002,7 @@ function exportJSON() {
 }
 
 function exportCSV() {
+  if (!requireCalibration('CSV')) return;
   let rows = 'curve_name,worm_id,stroke_index,point_index,x_mm,y_mm,z_mm,width_mm,x_px,y_px,t_video\n';
   for (const c of collectExportCurves()) {
     c.points.forEach((p, i) => {
@@ -2129,6 +5021,7 @@ function dxfEsc(s) {
 }
 
 function exportDXF() {
+  if (!requireCalibration('DXF')) return;
   const curves = collectExportCurves();
   if (!curves.length) { alert('没有可导出的曲线'); return; }
   let dxf = `0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n`;
@@ -2146,6 +5039,7 @@ function exportDXF() {
 }
 
 function exportOBJ() {
+  if (!requireCalibration('OBJ')) return;
   const curves = collectExportCurves();
   if (!curves.length) { alert('没有可导出的曲线'); return; }
   const axis = (document.getElementById('expAxis') && document.getElementById('expAxis').value) || 'rhino';
@@ -2170,6 +5064,7 @@ function exportOBJ() {
 }
 
 function exportGLTF() {
+  if (!requireCalibration('glTF')) return;
   const curves = collectExportCurves();
   if (!curves.length) { alert('没有可导出的曲线'); return; }
   const buffers = [];
@@ -2177,37 +5072,42 @@ function exportGLTF() {
   const accessors = [];
   const meshes = [];
   const nodes = [];
-  let byteOffset = 0;
   curves.forEach((c, ci) => {
     const floats = [];
     for (const p of c.points) {
       const [x, y, z] = axisPointMm(p, p.z_mm);
+      if (![x, y, z].every(Number.isFinite)) continue;
       floats.push(x, y, z);
     }
+    if (floats.length < 3) return;
     const bin = new Float32Array(floats);
     const bytes = new Uint8Array(bin.buffer);
     let binStr = '';
     for (let i = 0; i < bytes.length; i++) binStr += String.fromCharCode(bytes[i]);
     const b64 = btoa(binStr);
     const byteLength = bytes.length;
+    const xs = [], ys = [], zs = [];
+    for (let i = 0; i < floats.length; i += 3) { xs.push(floats[i]); ys.push(floats[i + 1]); zs.push(floats[i + 2]); }
     buffers.push({ uri: `data:application/octet-stream;base64,${b64}`, byteLength });
-    bufferViews.push({ buffer: ci, byteOffset: 0, byteLength });
+    bufferViews.push({ buffer: buffers.length - 1, byteOffset: 0, byteLength });
     accessors.push({
-      bufferView: ci,
+      bufferView: buffers.length - 1,
       componentType: 5126,
-      count: c.points.length,
+      count: floats.length / 3,
       type: 'VEC3',
-      min: [Math.min(...c.points.map(p => p.x_mm)), Math.min(...c.points.map(p => p.y_mm)), 0],
-      max: [Math.max(...c.points.map(p => p.x_mm)), Math.max(...c.points.map(p => p.y_mm)), 0],
+      min: [Math.min(...xs), Math.min(...ys), Math.min(...zs)],
+      max: [Math.max(...xs), Math.max(...ys), Math.max(...zs)],
     });
+    const accIdx = accessors.length - 1;
+    const meshIdx = meshes.length;
     meshes.push({
       name: c.name,
-      primitives: [{ attributes: { POSITION: ci }, mode: 3 }],
+      primitives: [{ attributes: { POSITION: accIdx }, mode: 1 }],
     });
-    nodes.push({ name: c.name, mesh: ci });
+    nodes.push({ name: c.name, mesh: meshIdx });
   });
   const gltf = {
-    asset: { version: '2.0', generator: 'silkworm-trajectory-editor' },
+    asset: { version: '2.0', generator: 'silkworm-trajectory-editor', unitHint: 'mm top-view' },
     scene: 0,
     scenes: [{ nodes: nodes.map((_, i) => i) }],
     nodes,
@@ -2220,6 +5120,7 @@ function exportGLTF() {
 }
 
 function exportRhinoPy() {
+  if (!requireCalibration('Rhino Python')) return;
   const curves = collectExportCurves();
   if (!curves.length) { alert('没有可导出的曲线'); return; }
   let py = `# -*- coding: utf-8 -*-\n# Run in Rhino Python (EditPythonScript). Creates one interpolated curve per stroke.\nimport rhinoscriptsyntax as rs\n\n`;
@@ -2237,6 +5138,7 @@ function exportRhinoPy() {
 }
 
 function exportBlenderPy() {
+  if (!requireCalibration('Blender Python')) return;
   const curves = collectExportCurves();
   if (!curves.length) { alert('没有可导出的曲线'); return; }
   let py = `import bpy\n\n# Run in Blender Scripting tab. Units: mm (set scene if needed).\n`;
@@ -2260,14 +5162,272 @@ function exportBlenderPy() {
 function download(name, content, type) {
   const blob = new Blob([content], {type: type+';charset=utf-8'});
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(blob);
+  a.href = url;
   a.download = name;
   a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+// ==================== 点序播放 / 吐丝预览 / 追踪导入 ====================
+function refreshUPlayTrajectory() {
+  const w = state.worms[state.activeId];
+  if (!w || w.points.length < 2) {
+    state.uPlay.traj = null;
+    return;
+  }
+  const built = buildWormTrajectory(w);
+  state.uPlay.traj = built.points.map(p => ({ x: p.x, y: p.y, u: p.u }));
+  state.uPlay.frame = Math.min(state.uPlay.frame, state.uPlay.traj.length - 1);
+  const el = document.getElementById('uPlayStat');
+  if (el) el.textContent = `统一轨迹 ${state.uPlay.traj.length} 点（当前帧 ${state.uPlay.frame}）`;
+}
+
+function uPlayTick(ts) {
+  const up = state.uPlay;
+  if (!up.playing) return;
+  if (!up.lastT) up.lastT = ts;
+  const dt = (ts - up.lastT) / 1000;
+  up.lastT = ts;
+  const pps = parseFloat(document.getElementById('uPlayPps').value) || 40;
+  up.frame += Math.max(1, Math.round(dt * pps));
+  if (up.traj && up.frame >= up.traj.length - 1) {
+    up.frame = up.traj.length - 1;
+    up.playing = false;
+    document.getElementById('uPlayBtn').textContent = '点序播放';
+  }
+  const u = up.traj && up.traj[up.frame] ? up.traj[up.frame].u : 0;
+  document.getElementById('uPlaySlider').value = Math.round((u || 0) * 1000);
+  refreshUPlayTrajectory();
+  scheduleDraw({ traj: true });
+  if (up.playing) requestAnimationFrame(uPlayTick);
+}
+
+function toggleUPointPlay() {
+  refreshUPlayTrajectory();
+  const up = state.uPlay;
+  if (!up.traj || up.traj.length < 2) {
+    alert('请先描好至少 2 个点的轨迹。');
+    return;
+  }
+  up.playing = !up.playing;
+  up.lastT = 0;
+  document.getElementById('uPlayBtn').textContent = up.playing ? '暂停点序' : '点序播放';
+  if (up.playing) requestAnimationFrame(uPlayTick);
+}
+
+function resetUPointPlay() {
+  state.uPlay.playing = false;
+  state.uPlay.frame = 0;
+  state.uPlay.lastT = 0;
+  document.getElementById('uPlayBtn').textContent = '点序播放';
+  document.getElementById('uPlaySlider').value = 0;
+  scheduleDraw({ traj: true });
+  refreshUPlayTrajectory();
+}
+
+function scrubUPointPlay(v) {
+  refreshUPlayTrajectory();
+  const u = parseInt(v, 10) / 1000;
+  const up = state.uPlay;
+  if (!up.traj) return;
+  let best = 0, bestD = 1e9;
+  for (let i = 0; i < up.traj.length; i++) {
+    const d = Math.abs((up.traj[i].u || 0) - u);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  up.frame = best;
+  up.playing = false;
+  document.getElementById('uPlayBtn').textContent = '点序播放';
+  scheduleDraw({ traj: true });
+  refreshUPlayTrajectory();
+}
+
+function buildPreviewPayload() {
+  const trajs = [];
+  for (const id of Object.keys(state.worms).map(Number).sort((a, b) => a - b)) {
+    const w = state.worms[id];
+    if (w.points.length < 2) continue;
+    let points;
+    let synth = null;
+    try {
+      const built = buildWormTrajectory(w);
+      points = built.points.map(p => ({
+        x: p.x, y: p.y,
+        x_mm: p.x_mm, y_mm: p.y_mm,
+        u: p.u, width_mm: p.width_mm, kind: p.kind,
+      }));
+    } catch (_) {
+      points = w.points.map((p, i, arr) => ({
+        x: p.x, y: p.y, u: arr.length > 1 ? i / (arr.length - 1) : 0,
+      }));
+    }
+    trajs.push({ wormId: id, color: w.color, style: { ...w.style }, points });
+  }
+  let synthesis = null;
+  try {
+    const models = trajs.map(t => ({ wormId: t.wormId, ...computeMotionFeatures({ points: t.points.map(p => ({ x_mm: p.x_mm || p.x, y_mm: p.y_mm || p.y, width_mm: p.width_mm || 1 })), segments: [] }) }));
+    synthesis = buildSynthesisRecipe(models);
+  } catch (_) { /* */ }
+  return {
+    type: 'silkworm-preview/v1',
+    unit: isCalibrated() ? 'mm' : 'px',
+    calibration: isCalibrated() ? {
+      scalePxPerMm: state.cal.scale,
+      originPx: [state.cal.ox, state.cal.oy],
+      cell_mm: parseFloat(document.getElementById('scaleDist').value) || 10,
+    } : null,
+    behaviorBoxes: exportBehaviorUnits(),
+    provenance: 'measured',
+    synthesis,
+    trajectories: trajs,
+  };
+}
+
+function pushPreviewToPane(silent) {
+  const payload = buildPreviewPayload();
+  if (!payload.trajectories.length) {
+    if (!silent) alert('请先描好至少一条轨迹（≥2 点）。');
+    return false;
+  }
+  try { sessionStorage.setItem(PREVIEW_STORAGE_KEY, JSON.stringify(payload)); } catch (_) { /* */ }
+  const frame = document.getElementById('previewFrame');
+  if (frame && frame.contentWindow) {
+    frame.contentWindow.postMessage({ type: 'silkworm-preview-push', payload }, '*');
+  }
+  return true;
+}
+
+function showSplitPreview() {
+  const frame = document.getElementById('previewFrame');
+  frame.style.display = 'block';
+  document.body.classList.add('split-preview');
+  const btn = document.querySelector('[onclick="toggleSplitPreview()"]');
+  if (btn) btn.textContent = '收起预览';
+  window.addEventListener('message', onPreviewFrameReady);
+  pushPreviewToPane(true);
+}
+
+function toggleSplitPreview() {
+  const frame = document.getElementById('previewFrame');
+  if (!document.body.classList.contains('split-preview')) showSplitPreview();
+  else {
+    document.body.classList.remove('split-preview');
+    frame.style.display = 'none';
+    const btn = document.querySelector('[onclick="toggleSplitPreview()"]');
+    if (btn) btn.textContent = '并排吐丝预览';
+  }
+}
+
+function onPreviewFrameReady(ev) {
+  if (ev.data && ev.data.type === 'silkworm-preview-ready') pushPreviewToPane(true);
+}
+
+function importTrackingJson(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try { data = JSON.parse(reader.result); } catch (err) {
+      alert('JSON 解析失败'); e.target.value = ''; return;
+    }
+    const list = data.silkworms || data.worms;
+    if (!list || !list.length) {
+      alert('未找到 silkworms / worms 数组');
+      e.target.value = '';
+      return;
+    }
+  const mode = confirm('确定覆盖当前工程全部蚕？\n取消 = 导入为新蚕编号（推荐）') ? 'replace' : 'new';
+  if (mode === 'replace') {
+    state.worms = {};
+    list.forEach(sw => {
+      const id = sw.id || 1;
+      state.worms[id] = {
+        color: sw.color || COLORS[(id - 1) % COLORS.length],
+        points: (sw.points || []).map(pt => ({
+          x: pt.x, y: pt.y, t: pt.t != null ? pt.t : pt.t_video,
+        })),
+        strokes: sw.strokes || [{ start: 0, end: (sw.points || []).length - 1 }],
+        style: sw.style || { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.9, material: 'ribbon' },
+        behaviorBox: sw.behaviorBox || null,
+        motionPattern: 'figure8',
+      };
+    });
+    state.activeId = list[0].id || 1;
+  } else {
+    let next = Math.max(1, ...Object.keys(state.worms).map(Number)) + 1;
+    for (const sw of list) {
+      const id = next++;
+      const pts = (sw.points || []).map(pt => ({
+        x: pt.x, y: pt.y, t: pt.t != null ? pt.t : pt.t_video,
+      }));
+      state.worms[id] = {
+        color: sw.color || COLORS[(id - 1) % COLORS.length],
+        points: pts,
+        strokes: [{ start: 0, end: Math.max(0, pts.length - 1) }],
+        style: sw.style || { headWidth: 0.5, midWidth: 2.5, tailWidth: 0.35, opacity: 0.9, material: 'ribbon' },
+        behaviorBox: null,
+        motionPattern: 'figure8',
+      };
+    }
+    state.activeId = next - 1;
+    if (state.activeId > state.maxWormTab) state.maxWormTab = state.activeId;
+  }
+    resetEditHistory(true);
+    invalidateTrajCache();
+    alert('已导入追踪 JSON（坐标：像素）。可手修后继续描线。');
+    renderTabs(); syncStyleUI(); updateStat(); scheduleDraw({ traj: true });
+    e.target.value = '';
+  };
+  reader.readAsText(f);
+}
+
+function svgPathFromPointsMm(points, ribbon, style) {
+  if (!ribbon) {
+    return points.map((p, i) => {
+      const px = state.cal.scale ? state.cal.ox + p.x_mm * state.cal.scale : (p.x_px || 0);
+      const py = state.cal.scale ? state.cal.oy - p.y_mm * state.cal.scale : (p.y_px || 0);
+      return (i ? 'L' : 'M') + px.toFixed(2) + ' ' + py.toFixed(2);
+    }).join(' ');
+  }
+  const pts = points.map(p => ({
+    x: state.cal.scale ? state.cal.ox + p.x_mm * state.cal.scale : p.x_px,
+    y: state.cal.scale ? state.cal.oy - p.y_mm * state.cal.scale : p.y_px,
+  }));
+  const { lens, total } = pathLengths(pts);
+  const rib = ribbonPolygon(pts, lens, total, style, 1);
+  let d = `M ${rib.left[0].x.toFixed(2)} ${rib.left[0].y.toFixed(2)} `;
+  for (let i = 1; i < rib.left.length; i++) d += `L ${rib.left[i].x.toFixed(2)} ${rib.left[i].y.toFixed(2)} `;
+  for (let i = rib.right.length - 1; i >= 0; i--) d += `L ${rib.right[i].x.toFixed(2)} ${rib.right[i].y.toFixed(2)} `;
+  return d + 'Z';
+}
+
+function exportCanvasImage() {
+  const base = state.canvas;
+  if (!base || !base.width) { alert('请先载入视频'); return; }
+  const out = document.createElement('canvas');
+  out.width = base.width;
+  out.height = base.height;
+  const c = out.getContext('2d');
+  c.drawImage(base, 0, 0);
+  const traj = document.getElementById('canvasTraj');
+  if (traj && traj.width) c.drawImage(traj, 0, 0);
+  out.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'silk-frame-' + Date.now() + '.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }, 'image/png');
 }
 
 // ==================== 工程保存/打开 ====================
 function saveProject() {
   const data = {
+    projectVersion: PROJECT_FILE_VERSION,
     calibration: state.cal,
     worms: state.worms,
     activeId: state.activeId,
@@ -2278,17 +5438,35 @@ function saveProject() {
     maxWormTab: state.maxWormTab,
     videoFps: state.videoFps,
   };
+  const err = validateProjectData(data);
+  if (err) { alert('工程校验失败：' + err); return; }
   download('project-'+Date.now()+'.json', JSON.stringify(data, null, 2), 'application/json');
 }
 function loadProject(e) {
   const f = e.target.files[0]; if (!f) return;
   const reader = new FileReader();
   reader.onload = () => {
-    const data = JSON.parse(reader.result);
-    state.cal = data.calibration;
+    let data;
+    try {
+      data = JSON.parse(reader.result);
+    } catch (err) {
+      alert('工程 JSON 解析失败：' + err.message);
+      e.target.value = '';
+      return;
+    }
+    data = normalizeLoadedProject(data);
+    const vErr = validateProjectData(data);
+    if (vErr) {
+      alert('工程校验未通过，未加载：' + vErr);
+      e.target.value = '';
+      return;
+    }
+    state.cal = data.calibration || state.cal;
     state.worms = data.worms;
     state.activeId = data.activeId || 1;
     for (const id in state.worms) ensureWorm(+id);
+    resetEditHistory(true);
+    invalidateTrajCache();
     if (data.strokeOpts) {
       const o = data.strokeOpts;
       const uEl = document.getElementById('strokeUniform');
@@ -2309,10 +5487,14 @@ function loadProject(e) {
       state.bridge = { ...state.bridge, ...data.bridge };
       syncBridgeUI();
     }
-    renderTabs(); syncStyleUI(); updateCalStat(); updateSegStat(); draw();
+    renderTabs(); syncStyleUI(); updateCalStat(); updateSegStat(); updateStat();
+    scheduleDraw({ traj: true });
+    e.target.value = '';
   };
+  reader.onerror = () => { alert('无法读取工程文件'); e.target.value = ''; };
   reader.readAsText(f);
 }
+showSplitPreview();
 </script>
 </body>
 </html>

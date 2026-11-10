@@ -162,6 +162,11 @@ state = {
 
 ---
 
+## 6b. Cursor 实施（2026-03）
+
+详见 `CURSOR_IMPLEMENTATION_HANDOFF.md`、`CHANGELOG_OPTIMIZATION.md`、`TEST_REPORT.md`。  
+主程序已增：标定门控导出、Redo、工程校验、轨迹缓存、`curves3d/v2`。
+
 ## 7. 已知问题与坑
 
 1. **`sample*.preview.mp4`** 为 OpenCV **mp4v**，浏览器可能黑屏；主素材用 **H.264**（家蚕视频 / 微信原片）。
