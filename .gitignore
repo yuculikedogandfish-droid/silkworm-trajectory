@@ -1,5 +1,6 @@
 # 大体积素材（本地保留；GPT 包见仓库内说明）
 *.mp4
+!docs/demo/*.mp4
 *.mov
 *.zip
 dist-gpt-pack/
