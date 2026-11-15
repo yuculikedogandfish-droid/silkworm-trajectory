@@ -18,7 +18,8 @@ param(
   [string]$OutDir   = "G:\led-render\frames",
   [string]$Chrome   = "C:\Program Files\Google\Chrome\Application\chrome.exe",
   [switch]$Encode,
-  [switch]$KeepProfile
+  [switch]$KeepProfile,
+  [switch]$Resume
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,8 +68,13 @@ $cfgEncoded = ""
 if ($Cfg -ne "") { $cfgEncoded = [uri]::EscapeDataString($Cfg) }
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
+$skipped = 0
 for ($i = 0; $i -lt $Frames; $i++) {
   $frameFile = Join-Path $OutDir ("frame_{0:D4}.png" -f $i)
+  if ($Resume -and (Test-Path -LiteralPath $frameFile) -and (Get-Item -LiteralPath $frameFile).Length -gt 0) {
+    $skipped++
+    continue
+  }
   $query = "native=1&frame=$i&total=$Frames&w=$pxW&h=$pxH"
   if ($cfgEncoded -ne "") { $query += "&cfg=$cfgEncoded" }
   $url = "$fileUrl`?$query"
@@ -98,7 +104,19 @@ for ($i = 0; $i -lt $Frames; $i++) {
   }
 }
 
+if ($skipped -gt 0) { Write-Host "续渲：跳过已存在帧 $skipped 张" }
 if (-not $KeepProfile) { Remove-Item -LiteralPath $profileDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# 缺帧检查：不完整就拒绝编码，避免母版时间轴错位
+$missing = @()
+for ($i = 0; $i -lt $Frames; $i++) {
+  $f = Join-Path $OutDir ("frame_{0:D4}.png" -f $i)
+  if (-not (Test-Path -LiteralPath $f)) { $missing += $i }
+}
+if ($missing.Count -gt 0) {
+  Write-Host "缺帧 $($missing.Count) 张（首个：$($missing[0])），先重跑 -Resume 补齐，已跳过编码。"
+  exit 2
+}
 Write-Host "帧序列完成：$OutDir"
 
 # ---- 编码 ----

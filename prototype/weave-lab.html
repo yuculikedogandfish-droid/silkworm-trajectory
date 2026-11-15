@@ -358,6 +358,20 @@ function growInCell(cell, profile, rng, stratum, wormIdx) {
   const pts = [{ x, y }];
   mark(x, y, markR);
 
+  /* 转角从实测直方图采样（markov-turn），oscillator 只做兜底 */
+  const hist = Array.isArray(profile.turnHist) && profile.turnHist.length === 36 ? profile.turnHist : null;
+  const sampleTurn = () => {
+    if (!hist) return 0;
+    let r = rng(), acc = 0;
+    for (let i = 0; i < 36; i++) {
+      acc += hist[i];
+      if (r <= acc) return ((i + 0.5) / 36) * Math.PI;
+    }
+    return Math.PI * 0.5;
+  };
+  let turnSign = rng() < 0.5 ? 1 : -1;
+  let runLeft = Math.max(2, Math.round((profile.turnSignPersistence || 3) * 0.7));
+
   const maxSteps = Math.round((cell.target * g.count * res * res) / (stepLen * markR * 2) * 1.8) + 400;
   const targetN = Math.min(g.count, Math.round(cell.target * g.count));
 
@@ -365,7 +379,17 @@ function growInCell(cell, profile, rng, stratum, wormIdx) {
     steps++;
     phase += (profile.phaseStep || 0.02);
 
-    let desired = heading + amp * Math.cos(phase) + (profile.noise || 0.04) * gauss(rng);
+    runLeft -= 1;
+    if (runLeft <= 0) {
+      turnSign = -turnSign;
+      runLeft = Math.max(2, Math.round((profile.turnSignPersistence || 3) * (0.6 + rng() * 0.8)));
+    }
+
+    const histTurn = hist ? sampleTurn() : 0;
+    let desired = heading
+      + (hist ? turnSign * histTurn * 0.55 : 0)
+      + amp * Math.cos(phase) * (hist ? 0.45 : 1)
+      + (profile.noise || 0.04) * gauss(rng);
 
     // 贴壁：靠近壁时叠加切向
     const d0 = cellSDF(cell, x, y);
@@ -541,7 +565,19 @@ function chainSegs(segs) {
       const s = segs[j];
       line.unshift(key(s[0]) === startK ? s[1] : s[0]);
     }
-    if (line.length > 1) out.push(simplify(line, 0.3));
+    if (line.length > 1) {
+      const closed = key(line[0]) === key(line[line.length - 1]);
+      if (closed && line.length > 4) {
+        /* 闭合轮廓：先去掉重复的收尾点再简化，最后显式补回闭合点，
+           否则首尾同点会让 DP 退化成 2 个重合点，画出来是空的 */
+        const open = line.slice(0, -1);
+        const simp = simplify(open, 0.3);
+        simp.push({ x: simp[0].x, y: simp[0].y });
+        out.push(simp);
+      } else {
+        out.push(simplify(line, 0.3));
+      }
+    }
   }
   return out;
 }
@@ -604,8 +640,8 @@ function render() {
   ctx.fillRect(0, 0, cv.width, cv.height);
 
   if (S.showWalls) {
-    ctx.strokeStyle = 'rgba(158,176,168,0.10)';
-    ctx.lineWidth = Math.max(0.4, 0.4 * scale);
+    ctx.strokeStyle = 'rgba(196,214,204,0.50)';
+    ctx.lineWidth = Math.max(1.0, 1.6 * scale);
     scene.cells.forEach(cell => {
       cell.contour.forEach(line => {
         ctx.beginPath();
@@ -726,39 +762,174 @@ function updateStats() {
 }
 
 /* ================= 指纹：从实测轨迹统计 ================= */
-function profileFromPoints(points, label, calibrated) {
+/* ================= 运动指纹（按 silkworm-motion-profile/v1 统计） ================= */
+function statsMedian(arr) {
+  if (!arr.length) return 0;
+  const s = arr.slice().sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+}
+function statsPct(arr, p) {
+  if (!arr.length) return 0;
+  const s = arr.slice().sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.max(0, Math.floor(s.length * p)))];
+}
+/* 简化折线的自交次数：用来估「一次包络里绕了几圈」 */
+function countCrossings(pts) {
+  const n = Math.min(pts.length, 260);
+  if (n < 4) return 0;
+  const stride = Math.max(1, Math.floor(pts.length / n));
+  const P = [];
+  for (let i = 0; i < pts.length; i += stride) P.push(pts[i]);
+  const orient = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const segHit = (a, b, c, d) => {
+    const o1 = orient(a, b, c), o2 = orient(a, b, d);
+    const o3 = orient(c, d, a), o4 = orient(c, d, b);
+    return o1 * o2 < 0 && o3 * o4 < 0;
+  };
+  let hits = 0;
+  for (let i = 0; i < P.length - 1; i++) {
+    for (let j = i + 2; j < P.length - 1; j++) {
+      if (i === 0 && j === P.length - 2) continue;
+      if (segHit(P[i], P[i + 1], P[j], P[j + 1])) hits++;
+    }
+  }
+  return hits;
+}
+
+function profileFromPoints(points, label, calibrated, wormId) {
   const pts = points.filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
   if (pts.length < 8) return null;
-  const steps = [], turns = [];
+
+  const steps = [], turns = [], signed = [];
   for (let i = 1; i < pts.length; i++) {
-    steps.push(Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    const ds = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    steps.push(ds);
     if (i > 1) {
       const a1 = Math.atan2(pts[i - 1].y - pts[i - 2].y, pts[i - 1].x - pts[i - 2].x);
       const a2 = Math.atan2(pts[i].y - pts[i - 1].y, pts[i].x - pts[i - 1].x);
-      turns.push(Math.abs(angDiff(a2, a1)));
+      const d = angDiff(a2, a1);
+      turns.push(Math.abs(d));
+      signed.push(d);
     }
   }
-  const med = arr => {
-    const s = arr.slice().sort((a, b) => a - b);
-    return s[Math.floor(s.length / 2)] || 0;
+
+  const moving = steps.filter(v => v > 1e-6);
+  const stepMean = statsMedian(moving) || 1.8;
+  const stepSD = statsPct(moving, 0.25) || 0;
+  const pauseThr = stepMean * 0.25;
+  const pauseRate = steps.length ? steps.filter(v => v < pauseThr).length / steps.length : 0;
+
+  /* 36 桶转角直方图，覆盖 [0, π]，归一化为概率 */
+  const hist = new Array(36).fill(0);
+  turns.forEach(t => {
+    const b = Math.min(35, Math.max(0, Math.floor((t / Math.PI) * 36)));
+    hist[b] += 1;
+  });
+  const hSum = hist.reduce((a, b) => a + b, 0) || 1;
+  for (let i = 0; i < 36; i++) hist[i] = +(hist[i] / hSum).toFixed(5);
+
+  /* 转向持续性：连续同向转角的平均游程 */
+  let runs = 0, runLen = 0, lastSign = 0, acc = 0;
+  signed.forEach(d => {
+    if (Math.abs(d) < 0.02) return;
+    const s = d > 0 ? 1 : -1;
+    if (s === lastSign) runLen += 1;
+    else {
+      if (runLen > 0) { acc += runLen; runs += 1; }
+      runLen = 1; lastSign = s;
+    }
+  });
+  if (runLen > 0) { acc += runLen; runs += 1; }
+  const turnSignPersistence = runs ? +(acc / runs).toFixed(2) : 1;
+
+  /* 曲率半径：R = ds / dθ，极短段与极小转角丢弃 */
+  const radii = [];
+  for (let i = 2; i < pts.length; i++) {
+    const ds = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    const th = Math.abs(turns[i - 2] || 0);
+    if (ds > stepMean * 0.3 && th > 1e-3) radii.push(ds / th);
+  }
+  const radiusTyp = +(statsMedian(radii) || 0).toFixed(2);
+  const radiusMin = +(statsPct(radii, 0.05) || 0).toFixed(2);
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  pts.forEach(p => {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+  });
+  const bbox = [maxX - minX, maxY - minY];
+
+  const simp = simplify(pts, Math.max(0.4, stepMean * 0.7));
+  const loopsPerEnvelope = countCrossings(simp);
+
+  const curveAmp = clamp(statsMedian(turns) || 0.22, 0.06, 0.5);
+  const maxTurn = clamp(statsPct(turns, 0.95) || 0.6, 0.2, 1.2);
+  const tag = (calibrated ? '实测指纹 · ' : '未标定（px）· ') + label;
+
+  const profile = {
+    schema: 'silkworm-motion-profile/v1',
+    wormId: Number.isFinite(wormId) ? Math.max(1, Math.round(wormId)) : 1,
+    label: tag,
+    source: {
+      kind: 'measured',
+      project: label,
+      calibrated: !!calibrated,
+      assumed: ['wallAffinity'],
+      note: calibrated ? '长度单位 mm' : '长度单位 px（未标定，只能联调）',
+    },
+    fingerprint: {
+      stepMean: +stepMean.toFixed(3),
+      stepSD: +stepSD.toFixed(3),
+      turnHist: hist,
+      turnSignPersistence,
+      maxTurn: +maxTurn.toFixed(3),
+      curveAmp: +curveAmp.toFixed(3),
+      radiusTyp,
+      radiusMin,
+      pauseRate: +pauseRate.toFixed(3),
+      wallAffinity: 0.5,
+      loopsPerEnvelope,
+      bbox: [+bbox[0].toFixed(2), +bbox[1].toFixed(2)],
+    },
+    sampler: { type: 'histogram', seed: S.seed, temperature: 0.35 },
   };
-  const pct = (arr, p) => {
-    const s = arr.slice().sort((a, b) => a - b);
-    return s[Math.min(s.length - 1, Math.floor(s.length * p))] || 0;
-  };
-  const stepMean = med(steps) || 1.8;
-  const turnMed = med(turns) || 0.22;
-  return {
-    id: 'profile-' + Date.now(),
-    label: (calibrated ? '实测指纹 · ' : '未标定（px）· ') + label,
-    stepMean: +clamp(stepMean, 0.4, 12).toFixed(3),
-    stepSD: +(pct(steps, 0.2) || 0).toFixed(3),
-    curveAmp: +clamp(turnMed, 0.06, 0.5).toFixed(3),
-    maxTurn: +clamp(pct(turns, 0.95), 0.2, 1.2).toFixed(3),
+
+  /* 兼容生成器使用的扁平字段 */
+  Object.assign(profile, {
+    id: 'profile-' + profile.wormId + '-' + Date.now(),
+    stepMean: profile.fingerprint.stepMean,
+    stepSD: profile.fingerprint.stepSD,
+    curveAmp: profile.fingerprint.curveAmp,
+    maxTurn: profile.fingerprint.maxTurn,
+    turnHist: profile.fingerprint.turnHist,
+    turnSignPersistence: profile.fingerprint.turnSignPersistence,
+    radiusTyp: profile.fingerprint.radiusTyp,
+    loopsPerEnvelope: profile.fingerprint.loopsPerEnvelope,
     phaseStep: 0.020,
     noise: 0.045,
-    loopsHint: +(TAU / Math.max(0.3, turnMed * 30)).toFixed(2),
-  };
+    loopsHint: +(TAU / Math.max(0.3, curveAmp * 30)).toFixed(2),
+  });
+  return profile;
+}
+
+function adoptProfile(prof, calibrated, seriesCount, srcLabel) {
+  S.profile = prof;
+  S.loopAmp = prof.curveAmp;
+  document.getElementById('loopAmp').value = String(prof.curveAmp);
+  document.getElementById('loopAmpVal').textContent = prof.curveAmp.toFixed(2);
+  regenerate();
+
+  const f = prof.fingerprint || prof;
+  const kind = (prof.source && prof.source.kind) || 'measured';
+  const assumed = (prof.source && prof.source.assumed) || [];
+  document.getElementById('profileStat').textContent =
+    `${kind === 'measured' ? '实测指纹' : '假设指纹'} · 步长 ${f.stepMean}${calibrated ? 'mm' : 'px'} ± ${f.stepSD || 0}` +
+    ` · 典型半径 ${f.radiusTyp ?? '—'} · 环数 ${f.loopsPerEnvelope ?? '—'}` +
+    ` · 转向持续 ${f.turnSignPersistence ?? '—'} · 停顿率 ${f.pauseRate ?? '—'}` +
+    (assumed.length ? ` · 假设项：${assumed.join('/')}` : '');
+  document.getElementById('profileNote').textContent = calibrated
+    ? `已载入 ${seriesCount} 条曲线，指纹来自最长一条，单位为 mm，可用于论文与展陈。`
+    : `已载入 ${seriesCount} 条曲线，未标定：数值仍为像素，只能联调，不能进论文。来源：${srcLabel}`;
 }
 
 function loadProfileFile(file) {
@@ -766,6 +937,28 @@ function loadProfileFile(file) {
   reader.onload = () => {
     let data = null;
     try { data = JSON.parse(reader.result); } catch (e) { alert('JSON 解析失败'); return; }
+
+    /* 已经是 profile 契约：直接用 */
+    if (data && data.schema === 'silkworm-motion-profile/v1' && data.fingerprint) {
+      const f = data.fingerprint;
+      const prof = Object.assign({}, data, {
+        id: data.id || ('profile-' + (data.wormId || 1) + '-' + Date.now()),
+        label: data.label || ('蚕 ' + (data.wormId || 1)),
+        stepMean: f.stepMean,
+        stepSD: f.stepSD,
+        curveAmp: f.curveAmp,
+        maxTurn: f.maxTurn,
+        turnHist: f.turnHist,
+        turnSignPersistence: f.turnSignPersistence,
+        radiusTyp: f.radiusTyp,
+        loopsPerEnvelope: f.loopsPerEnvelope,
+        phaseStep: 0.020,
+        noise: 0.045,
+      });
+      adoptProfile(prof, !!(data.source && data.source.calibrated), 1, data.source && data.source.project || data.label || 'profile.json');
+      return;
+    }
+
     const series = [];
     let calibrated = false;
 
@@ -792,19 +985,17 @@ function loadProfileFile(file) {
         if (pts.length) { series.push({ pts, id: t.wormId || i + 1 }); calibrated = true; }
       });
     }
-    if (!series.length) { alert('未找到 silkworms / curves / unifiedTrajectories 轨迹'); return; }
+    if (!series.length) { alert('未找到 silkworms / curves / unifiedTrajectories / profile 契约'); return; }
 
     series.sort((a, b) => b.pts.length - a.pts.length);
-    const prof = profileFromPoints(series[0].pts, `蚕 ${series[0].id}（${series[0].pts.length} 点）`, calibrated);
+    const prof = profileFromPoints(
+      series[0].pts,
+      `蚕 ${series[0].id}（${series[0].pts.length} 点）`,
+      calibrated,
+      Number(series[0].id)
+    );
     if (!prof) { alert('轨迹点太少（<8），无法统计指纹'); return; }
-    S.profile = prof;
-    S.loopAmp = prof.curveAmp;
-    document.getElementById('loopAmp').value = String(prof.curveAmp);
-    document.getElementById('loopAmpVal').textContent = prof.curveAmp.toFixed(2);
-    regenerate();
-    document.getElementById('profileNote').textContent = calibrated
-      ? `已载入 ${series.length} 条曲线，指纹来自最长一条。可继续换文件对比。`
-      : `已载入 ${series.length} 条曲线，但没有标定：数值仍是像素，只能联调，不能进论文。`;
+    adoptProfile(prof, calibrated, series.length, file.name);
   };
   reader.readAsText(file, 'utf-8');
 }
@@ -847,8 +1038,7 @@ ${silkGroups}
   download('weave-curves.svg', svg, 'image/svg+xml');
 }
 
-function exportCurves() {
-  if (!scene) return;
+function curvesPayload() {
   const curves = [];
   scene.strata.forEach(st => st.paths.forEach(p => {
     curves.push({
@@ -860,22 +1050,28 @@ function exportCurves() {
       points: p.pts,
     });
   }));
-  download('weave-curves.json', JSON.stringify({
+  return {
     schema: 'silkworm-weave-curves/v1',
     generator: 'weave-lab',
     profile: {
       id: S.profile.id, label: S.profile.label, stepMean: S.profile.stepMean,
       curveAmp: S.profile.curveAmp, maxTurn: S.profile.maxTurn,
+      source: S.profile.source || null, sampler: S.profile.sampler || null,
+      fingerprint: S.profile.fingerprint || null,
     },
     screen: screenBlock(),
     seed: S.seed, strata: S.strata,
     note: 'x/y 为 mm；u 为弧长参数 0→1；width_mm 仅供 sweep/tube。',
     curves,
-  }, null, 2), 'application/json');
+  };
 }
 
-function exportScene() {
+function exportCurves() {
   if (!scene) return;
+  download('weave-curves.json', JSON.stringify(curvesPayload(), null, 2), 'application/json');
+}
+
+function scenePayload() {
   const cells = scene.cells.map(c => ({
     id: c.id, x: +c.x.toFixed(2), y: +c.y.toFixed(2),
     w: +c.w.toFixed(2), h: +c.h.toFixed(2), type: c.type,
@@ -883,7 +1079,7 @@ function exportScene() {
     targetCoverage: +c.target.toFixed(3), seed: c.seed,
     contourPoints: c.contour.reduce((n, l) => n + l.length, 0),
   }));
-  download('weave-scene.json', JSON.stringify({
+  return {
     schema: 'silkworm-weave-scene/v1',
     generator: 'weave-lab',
     config: {
@@ -894,10 +1090,17 @@ function exportScene() {
       duration: S.duration,
     },
     profile: S.profile,
+    profiles: [S.profile],
+    sampler: S.profile.sampler || { type: 'histogram', seed: S.seed, temperature: 0.35 },
     screen: screenBlock(),
     cells,
     note: 'cells 为几何真源（mm）；同一 config+seed 可像素级复现；SDF 由 cells 派生。',
-  }, null, 2), 'application/json');
+  };
+}
+
+function exportScene() {
+  if (!scene) return;
+  download('weave-scene.json', JSON.stringify(scenePayload(), null, 2), 'application/json');
 }
 
 function exportPng() {
@@ -942,6 +1145,25 @@ function nativeMode(query) {
       });
     } catch (e) { /* 配置坏了就用默认 */ }
   }
+
+  /* 便于确定性测试与批量对比：?seed=&cov=&worms=&strata=&cols=&rows=&area= */
+  const num = (k, target, lo, hi) => {
+    const v = parseFloat(query.get(k));
+    if (Number.isFinite(v)) S[target] = clamp(v, lo, hi);
+  };
+  num('seed', 'seed', 1, 4294967295);
+  num('cov', 'coverage', 0.1, 0.9);
+  num('worms', 'worms', 1, 4);
+  num('strata', 'strata', 1, 8);
+  num('cols', 'cols', 2, 24);
+  num('rows', 'rows', 2, 18);
+  num('area', 'areaM2', 0.5, 60);
+  S.seed = Math.round(S.seed);
+  S.worms = Math.round(S.worms);
+  S.strata = Math.round(S.strata);
+  S.cols = Math.round(S.cols);
+  S.rows = Math.round(S.rows);
+
   const frame = Math.max(0, parseInt(query.get('frame') || '0', 10));
   const total = Math.max(1, parseInt(query.get('total') || '1', 10));
   S.progress = total > 1 ? frame / (total - 1) : 1;
@@ -955,6 +1177,18 @@ function nativeMode(query) {
   cv.width = pxW; cv.height = pxH;
   cv.style.width = pxW + 'px'; cv.style.height = pxH + 'px';
   render();
+
+  /* 供无头 Chrome --dump-dom 导出契约（无需点下载按钮） */
+  const dump = query.get('dump');
+  if (dump) {
+    const payload = dump === 'scene' ? scenePayload() : curvesPayload();
+    const pre = document.createElement('pre');
+    pre.id = 'dump';
+    pre.textContent = JSON.stringify(payload);
+    document.body.innerHTML = '';
+    document.body.appendChild(pre);
+  }
+
   window.__renderReady = true;
 }
 

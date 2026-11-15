@@ -1,0 +1,74 @@
+{
+  "schema": "silkworm-motion-profile/v1",
+  "wormId": 50,
+  "label": "未标定（px）· sample1 / 蚕 50（188 点）",
+  "source": {
+    "kind": "assumption",
+    "project": "sample1 / 蚕 50（188 点）",
+    "calibrated": false,
+    "quality": "auto-track",
+    "assumed": [
+      "wallAffinity"
+    ],
+    "note": "长度单位 px（未标定）；自动追踪，含身份跳变，仅用于引擎联调"
+  },
+  "fingerprint": {
+    "stepMean": 31.89,
+    "stepSD": 4.0,
+    "turnHist": [
+      0.17742,
+      0.03226,
+      0.03226,
+      0.02688,
+      0.04839,
+      0.05914,
+      0.04839,
+      0.01075,
+      0.01613,
+      0.03226,
+      0.02151,
+      0.01613,
+      0.01613,
+      0.0,
+      0.02688,
+      0.01075,
+      0.03226,
+      0.01613,
+      0.04839,
+      0.0,
+      0.0,
+      0.03763,
+      0.01613,
+      0.01613,
+      0.01075,
+      0.00538,
+      0.01075,
+      0.02688,
+      0.01613,
+      0.01613,
+      0.01075,
+      0.01075,
+      0.02688,
+      0.02151,
+      0.08065,
+      0.02151
+    ],
+    "turnSignPersistence": 1.68,
+    "maxTurn": 1.2,
+    "curveAmp": 0.5,
+    "radiusTyp": 114.17,
+    "radiusMin": 8.65,
+    "pauseRate": 0.588,
+    "wallAffinity": 0.5,
+    "loopsPerEnvelope": 70.84,
+    "bbox": [
+      928.0,
+      458.0
+    ]
+  },
+  "sampler": {
+    "type": "histogram",
+    "seed": 20261116,
+    "temperature": 0.35
+  }
+}
