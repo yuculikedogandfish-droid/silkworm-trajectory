@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "silkworm-motion-profile/v1",
+  "title": "Silkworm Motion Profile",
+  "description": "单只蚕的运动指纹。所有数值必须由实测轨迹统计得出；若为假设值，须在 source.kind 标 assumption。",
+  "type": "object",
+  "required": ["schema", "wormId", "source", "fingerprint", "sampler"],
+  "properties": {
+    "schema": { "const": "silkworm-motion-profile/v1" },
+    "wormId": { "type": "integer", "minimum": 1 },
+    "label": { "type": "string", "description": "显示用名称，例如「蚕 3（段02，1180 帧）」" },
+    "source": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["measured", "assumption"] },
+        "project": { "type": "string", "description": "来源工程或素材路径" },
+        "frameRange": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+        "calibrated": { "type": "boolean", "description": "false 时所有长度值仍是像素，不得进论文" }
+      }
+    },
+    "fingerprint": {
+      "type": "object",
+      "required": ["stepMean", "turnHist", "maxTurn", "curveAmp"],
+      "properties": {
+        "stepMean": { "type": "number", "minimum": 0.1, "description": "相邻采样点距的中位数（mm）" },
+        "stepSD": { "type": "number", "minimum": 0 },
+        "turnHist": {
+          "type": "array", "items": { "type": "number", "minimum": 0 },
+          "minItems": 36, "maxItems": 36,
+          "description": "相邻段夹角的绝对值直方图，36 桶覆盖 [0, π]"
+        },
+        "turnSignPersistence": { "type": "number", "minimum": 0, "description": "连续同向转角的平均游程，八字节奏的关键" },
+        "maxTurn": { "type": "number", "description": "单步最大转角（rad），取 P95" },
+        "curveAmp": { "type": "number", "description": "曲率振荡幅度（rad/步）；越大环越小" },
+        "radiusTyp": { "type": "number", "description": "典型曲率半径（mm）" },
+        "pauseRate": { "type": "number" },
+        "wallAffinity": { "type": "number", "description": "实测轨迹靠近边界的程度，0–1" },
+        "loopsPerEnvelope": { "type": "number", "description": "单次活动包络内的自交环数" },
+        "bbox": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+      }
+    },
+    "sampler": {
+      "type": "object",
+      "required": ["type", "seed"],
+      "properties": {
+        "type": { "enum": ["markov-turn", "histogram", "oscillator"] },
+        "seed": { "type": "integer" },
+        "temperature": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}
