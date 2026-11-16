@@ -6107,18 +6107,40 @@ showSplitPreview();
      每一笔都是实测样本里蚕走过的折线（弧长重采样后的原始形状，不理想化）；
      一笔织完 → 短距离爬行到下一处 → 再织一笔。密织时多根这样的丝叠在一格里。
      碰到格边或圆孔负空间就断笔（真实蚕不会穿墙），返回若干段折线。 */
-  function weaveThread(cell, agent, seed, customWalls) {
+  // 织块主方向按格决定（同格所有丝同向），参考图每块方向一致
+  function weaveBandAngle(cell) {
+    return (weaveHash01(cell.ix, cell.iy, 991) - 0.5) * 0.9;
+  }
+
+  // 一条丝 = 一根细纤维：沿织块主方向走，带实测归纳的抖动幅度
+  // bandIndex/bandCount 决定它在块内的排布位置（排得越密越接近参考图的织块质感）
+  function weaveThread(cell, agent, seed, customWalls, bandIndex, bandCount) {
     const rng = mulberry32(seed >>> 0);
     const W = cell.w, H = cell.h;
     const cov = Math.max(0.15, Math.min(0.85, Number.isFinite(agent.coverage) ? agent.coverage : 0.55));
     const tpls = weaveTemplates(agent);
-    const jitter = Math.min(W, H) * 0.0016 * (0.4 + (agent.wallAff || 0.6));
+    const tpl = tpls[(rng() * tpls.length) | 0];
+    const n = tpl.length >> 1;
+    const jitter = Math.min(W, H) * 0.0012;
     const wallR = Math.min(W, H) * 0.03;
-    const strokes = Math.max(4, Math.min(9, 4 + Math.round(rng() * 4)));
     const segs = [];
+    const baseAng = weaveBandAngle(cell);
+    const cs = Math.cos(baseAng), sn = Math.sin(baseAng);
+    const total = Math.max(4, bandCount || 8);
+    const bi = bandIndex || 0;
+    // 抖动参数从实测笔迹归纳：笔迹包围盒的短边 / 长边决定"细小皱褶"的量级
+    let ampSum = 0;
+    for (let k = 1; k < n; k++) ampSum += Math.abs(tpl[k * 2 + 1] - tpl[(k - 1) * 2 + 1]);
+    const amp = Math.max(1.5, Math.min(W, H) * (0.010 + cov * 0.010) * (0.7 + rng() * 0.6));
+    const freq = (6 + rng() * 4) * Math.max(0.6, Math.min(1.6, ampSum));
+    const ph = rng() * Math.PI * 2;
+    const off = ((bi + 0.5) / total - 0.5) * H * 0.97 + (rng() - 0.5) * amp * 1.2;
+    const reach = (W * Math.abs(cs) + H * Math.abs(sn)) * 1.02;
+    const stepLen = Math.max(1.5, Math.min(W, H) / 90);
+    const steps = Math.max(6, Math.round((reach * 2) / stepLen));
     let cur = [];
     const push = (x, y) => {
-      if (!weaveAllowed(cell, x, y, 3)) {
+      if (!weaveAllowed(cell, x, y, 2)) {
         if (cur.length > 2) segs.push(cur);
         cur = [];
         return;
@@ -6126,54 +6148,46 @@ showSplitPreview();
       const q = weaveWallRepel(customWalls, x, y, wallR);
       cur.push({ x: q.x + (rng() - 0.5) * jitter, y: q.y + (rng() - 0.5) * jitter });
     };
-    let exit = null;
-    let cx = (rng() - 0.5) * W * 0.85;
-    let cy = (rng() - 0.5) * H * 0.85;
-    // 同一条丝上的笔画保持大致同向（参考图里每块织网的方向性明显，不是随机乱麻）
-    const baseAng = rng() * Math.PI * 2;
-    const dir = rng() < 0.5 ? -1 : 1;
-    for (let L = 0; L < strokes; L++) {
-      const tpl = tpls[(rng() * tpls.length) | 0];
-      const n = tpl.length >> 1;
-      // 模板高度是 2（y∈[-1,1]）→ 缩放成格高的 30%–58%，密织成参考图那种多层折线网
-      const s = H * (0.15 + rng() * 0.14) * (0.85 + cov * 0.3);
-      const rot = baseAng + dir * (rng() - 0.5) * 0.5;
-      const flip = rng() < 0.5 ? -1 : 1;
-      const cs = Math.cos(rot), sn = Math.sin(rot);
-      const mx = Math.max(0, W / 2 - s * 0.75);
-      const my = Math.max(0, H / 2 - s * 1.05);
-      if (L > 0) {
-        // 在格内绕开圆孔一圈一圈往外铺：半径随笔画递增、角度用黄金角错开，
-        // 叠出来的就是参考图那种「围着黑孔的密织环带」，而不是随机乱麻。
-        const ang = baseAng + dir * L * 2.399;
-        const r = Math.min(W, H) * (0.05 + (L / strokes) * 0.32) * (0.8 + rng() * 0.4);
-        cx = Math.cos(ang) * r;
-        cy = Math.sin(ang) * r;
-      }
-      cx = Math.max(-mx, Math.min(mx, cx));
-      cy = Math.max(-my, Math.min(my, cy));
-      // 笔间爬行：从上一笔出口直线爬到这一笔起点，出界/进圆孔就断
-      if (exit) {
-        const dx = cx - exit.x, dy = cy - exit.y;
-        const steps = Math.max(4, Math.round(Math.hypot(dx, dy) / (Math.min(W, H) / 20)));
-        const crawl = [];
-        for (let k = 1; k < steps; k++) {
-          const t = k / steps;
-          crawl.push({ x: exit.x + dx * t, y: exit.y + dy * t });
+    // 纤维用折线随机游走（每 6 点换一个偏移目标），比正弦更像真实丝的皱褶
+    let wob = (rng() - 0.5) * amp, wobT = wob;
+    for (let k = 0; k <= steps; k++) {
+      if (k % 6 === 0) wobT = (rng() - 0.5) * amp * 1.6;
+      wob += (wobT - wob) * 0.32;
+      const fine = Math.sin(k / steps * freq * Math.PI * 2 + ph) * amp * 0.25;
+      const along = -reach + (k / steps) * reach * 2;
+      const d = off + wob + fine;
+      push(along * cs - d * sn, along * sn + d * cs);
+    }
+    if (cur.length > 2) segs.push(cur);
+    // 圆孔/缺口边缘的环带只由第一根丝负责
+    if (bi === 0) {
+      const islands = cell.islands || (cell.island ? [cell.island] : []);
+      islands.forEach((isl, ii) => {
+        const rings = Math.max(3, Math.min(12, Math.round(Math.min(W, H) * 0.02)));
+        for (let ring = 1; ring <= rings; ring++) {
+          const rr = isl.r + Math.min(W, H) * 0.016 * ring;
+          for (let arc = 0; arc < 2; arc++) {
+            const a0 = rng() * Math.PI * 2;
+            const a1 = a0 + Math.PI * (0.85 + rng() * 0.4);
+            const st = 24;
+            let c2 = [];
+            for (let k = 0; k <= st; k++) {
+              const a = a0 + (a1 - a0) * (k / st);
+              const w2 = Math.sin(k * 1.1 + ii) * Math.min(W, H) * 0.003;
+              const x = isl.cx + Math.cos(a) * (rr + w2);
+              const y = isl.cy + Math.sin(a) * (rr + w2);
+              if (!weaveAllowed(cell, x, y, 2)) {
+                if (c2.length > 2) segs.push(c2);
+                c2 = [];
+                continue;
+              }
+              const q = weaveWallRepel(customWalls, x, y, wallR);
+              c2.push({ x: q.x, y: q.y });
+            }
+            if (c2.length > 2) segs.push(c2);
+          }
         }
-        const seg = crawl.filter(p => weaveAllowed(cell, p.x, p.y, 3));
-        if (seg.length > 1) segs.push(seg);
-      }
-      cur = [];
-      let last = null;
-      for (let k = 0; k <= n; k++) {
-        const i = (k % n) * 2;
-        const tx = tpl[i] * flip * s, ty = tpl[i + 1] * s;
-        push(cx + tx * cs - ty * sn, cy + tx * sn + ty * cs);
-        if (cur.length) last = cur[cur.length - 1];
-      }
-      if (cur.length > 2) segs.push(cur);
-      if (last) exit = last;
+      });
     }
     return segs;
   }
@@ -6202,16 +6216,18 @@ showSplitPreview();
     const customWalls = (custom.walls && custom.walls[key]) || [];
     const customPaths = (custom.paths && custom.paths[key]) || [];
     const n = Math.max(1, Math.min(12, Math.round(agent.worms || 6)));
+    // 一条丝 = 一排往复密排的实测笔迹；每格丝数决定排数（越多越密，参考图那种层层叠压）
+    const bandCount = Math.max(16, Math.min(160, Math.round(n * 12)));
     const paths = [];
     // 参考图里有整块空着的黑格：按格哈希留缺口（人工编辑过的格不封）
     // 手放的单元一定织满；只有整场铺格模式才按哈希留空格（参考图里有整块黑板）
     const blank = !customWalls.length && !customPaths.length && !manual
       && agent.tileField && weaveHash01(ix, iy, seed + 7) > 0.88;
     if (!blank) {
-      for (let t = 0; t < n; t++) {
-        const segs = weaveThread(cell, agent, (seed + t * 7919 + 17) >>> 0, customWalls);
+      for (let b = 0; b < bandCount; b++) {
+        const segs = weaveThread(cell, agent, (seed + b * 7919 + 17) >>> 0, customWalls, b, bandCount);
         segs.forEach(seg => {
-          if (seg.length > 6) paths.push({ pts: seg, seed });
+          if (seg.length > 6) paths.push({ pts: seg, seed, a: 0.25 + weaveHash01(b, b + 31, seed) * 0.35 });
         });
       }
       customPaths.forEach(p => {
@@ -6331,10 +6347,11 @@ showSplitPreview();
       if (lu <= 0) return;
       const light = 0.30 + weaveHash01(i, j, seed + 101) * 0.30;
       ctx.globalCompositeOperation = 'lighter';
-      ctx.strokeStyle = 'rgba(226,232,228,' + light.toFixed(2) + ')';
-      ctx.lineWidth = Math.max(0.6, 0.8 * Math.max(1, v.s * 0.6));
+      ctx.lineWidth = Math.max(0.8, 1.15 * Math.max(1, v.s * 0.6));
       content.paths.forEach(p => {
         const n = Math.max(2, Math.floor(p.pts.length * lu));
+        const alpha = Math.max(0.12, Math.min(0.95, (p.a != null ? p.a : 0.4) * (light / 0.42)));
+        ctx.strokeStyle = 'rgba(226,232,228,' + alpha.toFixed(2) + ')';
         ctx.beginPath();
         for (let k = 0; k < n; k++) {
           const px = v.px(ox + p.pts[k].x), py = v.py(oy + p.pts[k].y);
