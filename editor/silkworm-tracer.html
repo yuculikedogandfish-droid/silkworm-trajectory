@@ -9362,14 +9362,19 @@ showSplitPreview();
     const loop = isLoop;
     const nUnits = Math.max(1, scene.units.length);
     const growFrac = 0.42, holdFrac = 0.88;
+    // 收丝不回落到 0：块永远保留 62% 的丝量，否则循环里会出现"整块纯黑"的空洞，
+    // 远看就是墙上少了几块砖。0.62 仍能看出"这一块刚被重新织过"的稀密变化。
+    const uFloor = 0.62;
     const loopU = (i) => {
       // 相位用黄金比散开（0.618…），而不是 order/N —— 否则整行块会同时起落，看起来像"整排闪"
       const ord = scene.units[i].order != null ? scene.units[i].order : i;
       const ph = ((ord + 0.5) * 0.61803398875) % 1;
       const p = (T + ph) % 1;
-      if (p < growFrac) return p / growFrac;
-      if (p < holdFrac) return 1;
-      return Math.max(0, 1 - (p - holdFrac) / (1 - holdFrac));
+      let lvl;
+      if (p < growFrac) lvl = p / growFrac;
+      else if (p < holdFrac) lvl = 1;
+      else lvl = Math.max(0, 1 - (p - holdFrac) / (1 - holdFrac));
+      return uFloor + (1 - uFloor) * lvl;
     };
 
     scene.units.forEach((u, i) => {

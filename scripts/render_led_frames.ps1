@@ -21,7 +21,11 @@ param(
   [string]$Chrome   = "C:\Program Files\Google\Chrome\Application\chrome.exe",
   [switch]$Encode,
   [switch]$KeepProfile,
-  [switch]$Resume
+  [switch]$Resume,
+  # 单帧超时 + 自动重试：无头 Chrome 偶尔会整帧挂死（长跑 900 帧必踩），
+  # 以前遇到就直接 throw 中断整条渲染，现在改成杀掉重来。
+  [int]$FrameTimeoutSec = 90,
+  [int]$FrameRetries = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -126,10 +130,26 @@ for ($i = 0; $i -lt $Frames; $i++) {
   )
   $logErr = Join-Path $env:TEMP ("chrome-frame-" + $i + ".err.txt")
   $logOut = Join-Path $env:TEMP ("chrome-frame-" + $i + ".out.txt")
-  $proc = Start-Process -FilePath $Chrome -ArgumentList $args -Wait -PassThru -WindowStyle Hidden -RedirectStandardError $logErr -RedirectStandardOutput $logOut
-  if (-not (Test-Path -LiteralPath $frameFile)) {
-    throw "第 $i 帧渲染失败：$frameFile"
+  $ok = $false
+  for ($try = 0; $try -le $FrameRetries -and -not $ok; $try++) {
+    if ($try -gt 0) {
+      # 上一轮留下的半截文件先删掉，否则截图会被误判为成功
+      if (Test-Path -LiteralPath $frameFile) { Remove-Item -LiteralPath $frameFile -Force -ErrorAction SilentlyContinue }
+      Write-Host ("  第 {0} 帧超时/失败，重试 {1}/{2}" -f $i, $try, $FrameRetries)
+    }
+    $proc = Start-Process -FilePath $Chrome -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardError $logErr -RedirectStandardOutput $logOut
+    try {
+      $proc | Wait-Process -Timeout $FrameTimeoutSec -ErrorAction Stop
+    } catch {
+      Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+      Get-Process chrome -ErrorAction SilentlyContinue |
+        Where-Object { $_.StartTime -gt (Get-Date).AddSeconds(-$FrameTimeoutSec - 10) } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+      continue
+    }
+    if ((Test-Path -LiteralPath $frameFile) -and (Get-Item -LiteralPath $frameFile).Length -gt 0) { $ok = $true }
   }
+  if (-not $ok) { throw "第 $i 帧渲染失败（已重试 $FrameRetries 次）：$frameFile" }
   if (($i + 1) % 25 -eq 0 -or $i -eq $Frames - 1) {
     $el = [math]::Round($sw.Elapsed.TotalSeconds, 1)
     Write-Host ("已渲染 {0}/{1} 帧，用时 {2}s" -f ($i + 1), $Frames, $el)
