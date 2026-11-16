@@ -6493,6 +6493,14 @@ showSplitPreview();
         if (pts.length > 2) paths.push({ pts, seed, custom: true });
       });
     }
+    // 丝迹一律夹在格内：生成完就收口，任何情况下都不许越过单元边界
+    const cwHalf = Math.max(8, cell.w / 2 - 1.2), chHalf = Math.max(8, cell.h / 2 - 1.2);
+    paths.forEach(p => {
+      p.pts = p.pts.map(q => ({
+        x: Math.max(-cwHalf, Math.min(cwHalf, q.x)),
+        y: Math.max(-chHalf, Math.min(chHalf, q.y)),
+      }));
+    });
     const content = { cell, paths, walls: weaveContour(cell), customWalls, seed, blank };
     agent.cache.set(key, content);
     if (agent.cache.size > 360) agent.cache.delete(agent.cache.keys().next().value);
@@ -7042,6 +7050,12 @@ showSplitPreview();
     const pts = transformRoute(agent);
     agent.routeWorld = pts;
     agent.silk = pts.slice().reverse();
+    if (!pts.length) {
+      // 这只蚕还没有轨迹（例如刚建格、还没导入实测数据）：先停在落点上，不报错
+      agent.x = agent.offX || 0;
+      agent.y = agent.offY || 0;
+      return;
+    }
     const h = pts[0];
     agent.x = h.x;
     agent.y = h.y;
@@ -7935,8 +7949,10 @@ showSplitPreview();
     if (!a) return 0;
     pushUndo();
     a.wormParty = val === 'all';
-    const wid = (val === '' || val == null || val === 'all') ? null : Number(val);
-    a.measuredWorm = wid;
+    const widRaw = (val === '' || val == null || val === 'all') ? null : String(val).replace(/[^0-9.-]/g, '');
+    const wid = widRaw == null ? null : Number(widRaw);
+    const widOk = Number.isFinite(wid) ? wid : null;
+    a.measuredWorm = widOk;
     if (val === 'all') {
       const types = [];
       habitat.agents.forEach(x => {
@@ -7945,7 +7961,7 @@ showSplitPreview();
       types.forEach(t => spawnCellWorm(a, t));
       return types.length;
     }
-    if (wid == null) {
+    if (widOk == null) {
       habitat.agents.forEach(x => {
         if (x.kind === 'route' && x.homeUnitId === a.id && x.id.indexOf('@') > 0) {
           x.homeUnitId = null;
@@ -7954,7 +7970,7 @@ showSplitPreview();
       });
       return 0;
     }
-    spawnCellWorm(a, wid);
+    spawnCellWorm(a, widOk);
     return 1;
   }
 
