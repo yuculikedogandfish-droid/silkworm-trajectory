@@ -7089,15 +7089,17 @@ showSplitPreview();
 
   // 场地巡游轨迹：让蚕把实测笔迹一遍遍铺到整个场地上（方向是合成的，局部形态是实测的）
   function roamPoint(agent, t) {
-    const ph = (agent.wormId || 1) * 1.7;
+    const ph = (agent.wormId || 1) * 1.7 + (agent.homePhase || agent.phase || 0);
     // 单个单元格内活动：把巡游中心绑到所属的织网单元，半径收在格内
     if (agent.scope === 'cell') {
       const unit = weaveUnitFor(agent);
       if (unit) {
-        const r = Math.min(unit.w, unit.h) * 0.16;
+        const r = Math.min(unit.w, unit.h) * 0.15;
+        // 两条频率不整除的正弦叠一点慢漂移：同一格里也不会踩出规则的一排
+        const drift = Math.sin(t * 0.27 + ph * 1.7) * r * 0.45;
         return {
-          x: unit.x + Math.cos(t * 1.7 + ph) * r,
-          y: unit.y + Math.sin(t * 1.35 + ph * 1.1) * r * 0.9,
+          x: unit.x + Math.cos(t * 1.55 + ph) * r + drift,
+          y: unit.y + Math.sin(t * 1.22 + ph * 1.3) * r * 0.9 + Math.cos(t * 0.19 + ph) * r * 0.35,
         };
       }
       // 还没放织网单元就先按整场跑，放了再自动收进格内
@@ -7110,6 +7112,46 @@ showSplitPreview();
       x: Math.cos(ang) * rr * 0.92,
       y: Math.sin(ang * 0.87 + 0.4) * rr * 0.86,
     };
+  }
+
+  /* 一只"蚕衣"是一种蚕：同一只蚕的数据可以同时用在很多格里，各自生成一个实例，
+     互不抢占；实例从格子里的随机点位（或你拖放的点位）起步。 */
+  function spawnCellWorm(unit, wid, x, y) {
+    const primary = habitat.agents.find(a => a.kind === 'route' && a.wormId === wid && a.id === 'rt-' + wid)
+      || habitat.agents.find(a => a.kind === 'route' && a.wormId === wid);
+    const id = 'rt-' + wid + '@' + unit.id;
+    let a = habitat.agents.find(z => z.id === id);
+    if (!a) {
+      a = {
+        id: id, kind: 'route', wormId: wid,
+        color: primary ? primary.color : '#d4c8b0',
+        mode: 'idle', bodyVisible: true,
+        route: primary && primary.route ? primary.route.slice() : [],
+        offX: 0, offY: 0, rot: 0, scale: 1, follow: false, u: 0, phase: 0,
+        turnSign: 1, pauseUntil: 0, speedScale: 1, silk: [],
+        scope: 'cell', homeUnitId: unit.id, x: 0, y: 0, heading: 0,
+      };
+      habitat.agents.push(a);
+    } else {
+      if (primary && primary.route && primary.route.length) a.route = primary.route.slice();
+      a.homeUnitId = unit.id;
+      a.scope = 'cell';
+    }
+    // 起点：优先用你拖放的点位，否则在格子里随机落一处（不排队、不横排）
+    const mx = unit.w * 0.34, my = unit.h * 0.34;
+    a.offX = Number.isFinite(x) ? x : unit.x + (Math.random() * 2 - 1) * mx;
+    a.offY = Number.isFinite(y) ? y : unit.y + (Math.random() * 2 - 1) * my;
+    // 每只实例的朝向/大小/巡游相位都随机：不会排成一行一样的八字
+    a.rot = (Math.random() * 2 - 1) * 0.85;
+    a.scale = 0.78 + Math.random() * 0.28;
+    a.phase = Math.random() * Math.PI * 2;
+    a.turnSign = Math.random() < 0.5 ? 1 : -1;
+    a.homePhase = Math.random() * Math.PI * 2;
+    a.travel = 0;
+    a.mode = 'idle';
+    applyRouteTransform(a);
+    a.silk = [];
+    return a;
   }
 
   function measuredSource() {
@@ -7133,11 +7175,13 @@ showSplitPreview();
       const wid = t.wormId != null ? t.wormId : i + 1;
       seen.add(wid);
       const route = normalizeRoute(raw);
-      const existing = habitat.agents.find(a => a.kind === 'route' && a.wormId === wid);
+      const existing = habitat.agents.find(a => a.kind === 'route' && a.wormId === wid && a.id === 'rt-' + wid);
       if (existing) {
         existing.route = route;
         existing.color = t.color || existing.color;
+        const wasCell = existing.homeUnitId;
         applyRouteTransform(existing);
+        if (wasCell) existing.silk = [];
         if (existing.mode === 'bench' || existing.mode === 'drag') existing.mode = 'idle';
       } else {
         const agent = {
@@ -7167,8 +7211,18 @@ showSplitPreview();
         applyRouteTransform(agent);
         habitat.agents.push(agent);
       }
+      // 各格里"同一种蚕"的实例也跟着换新数据（它们共用同一份实测点）
+      habitat.agents.forEach(a => {
+        if (a.kind === 'route' && a.wormId === wid && a.id !== 'rt-' + wid) {
+          a.route = route;
+          applyRouteTransform(a);
+          if (a.homeUnitId) a.silk = [];
+        }
+      });
     });
-    habitat.agents = habitat.agents.filter(a => a.kind !== 'route' || seen.has(a.wormId));
+    // 只清理没有数据的"源头蚕"，格内实例（id 带 @）一律留着
+    habitat.agents = habitat.agents.filter(a =>
+      a.kind !== 'route' || seen.has(a.wormId) || a.id.indexOf('@') > 0);
     renderList();
     syncRoutePanel();
     return valid.length;
@@ -7450,6 +7504,16 @@ showSplitPreview();
     for (let i = 1; i < pts.length; i++) ctx.lineTo(v.px(pts[i].x), v.py(pts[i].y));
     ctx.stroke();
     ctx.restore();
+  }
+
+  function drawSilkInRect(ctx, pts, v, alpha, unit) {
+    if (!unit || !pts || pts.length < 2) { drawSilk(ctx, pts, v, alpha); return; }
+    const hw = unit.w / 2 * 0.98, hh = unit.h / 2 * 0.98;
+    const clamped = pts.map(p => ({
+      x: Math.max(unit.x - hw, Math.min(unit.x + hw, p.x)),
+      y: Math.max(unit.y - hh, Math.min(unit.y + hh, p.y)),
+    }));
+    drawSilk(ctx, clamped, v, alpha);
   }
 
   function drawHabitatWorm(ctx, agent, v) {
@@ -7828,20 +7892,11 @@ showSplitPreview();
         if (editAgent && editAgent.id === agent.id) drawEditLivePreview(ctx, agent, v);
         return;
       }
-      if (agent.kind === 'route' && agent.route && agent.route.length > 1) {
-        ctx.save();
+      if (agent.kind === 'route') {
         const unit = agent.scope === 'cell' ? weaveUnitFor(agent) : null;
-        if (unit) {
-          // 收进格子的蚕：丝迹裁在格内，不许越出单元边界
-          const gap = Math.max(0, Number.isFinite(unit.gap) ? unit.gap : 6);
-          ctx.beginPath();
-          ctx.rect(v.px(unit.x - unit.w / 2 + gap / 2), v.py(unit.y - unit.h / 2 + gap / 2),
-            Math.max(1, (unit.w - gap) * v.s), Math.max(1, (unit.h - gap) * v.s));
-          ctx.clip();
-        }
-        drawSilk(ctx, agent.route, v, 0.06);
-        drawSilk(ctx, agent.silk, v, env.silkAlpha);
-        ctx.restore();
+        // 收进格子的蚕：丝迹逐点夹在格内（不依赖 canvas clip，边界一定干净）
+        if (unit) drawSilkInRect(ctx, agent.silk, v, env.silkAlpha, unit);
+        else drawSilk(ctx, agent.silk, v, env.silkAlpha);
         drawHabitatWorm(ctx, agent, v);
       } else {
         drawSilk(ctx, agent.silk, v, env.silkAlpha);
@@ -7860,15 +7915,47 @@ showSplitPreview();
     const sel = document.getElementById('habWeaveWorm');
     if (!sel) return;
     const a = habitat.agents.find(x => x.id === habitat.selected && x.kind === 'weave');
-    const routes = habitat.agents.filter(x => x.kind === 'route' && x.wormId != null);
+    const routes = habitat.agents.filter(x => x.kind === 'route' && x.wormId != null && x.id === 'rt-' + x.wormId);
     if (!a) { sel.innerHTML = '<option value="">先选一块织网单元</option>'; sel.disabled = true; return; }
     sel.disabled = false;
+    const types = [];
+    routes.forEach(r => { if (types.indexOf(r.wormId) < 0) types.push(r.wormId); });
     sel.innerHTML = '<option value="">合并丝路（默认）</option>' +
-      (routes.length > 1 ? '<option value="all">全部蚕（' + routes.length + ' 只一起）</option>' : '') +
-      routes.map(r =>
-        '<option value="' + r.wormId + '">蚕 ' + r.wormId +
-        (r.homeUnitId === a.id ? '（已在这格）' : '') + '</option>').join('');
+      (types.length > 1 ? '<option value="all">全部蚕（每种一只）</option>' : '') +
+      types.map(wid => {
+        const has = habitat.agents.some(x => x.kind === 'route' && x.wormId === wid && x.homeUnitId === a.id);
+        return '<option value="' + wid + '">蚕 ' + wid + (has ? '（已在这格）' : '') + '</option>';
+      }).join('');
     sel.value = a.measuredWorm != null ? String(a.measuredWorm) : (a.wormParty ? 'all' : '');
+  }
+
+  /* 把某一种蚕指定给某一块单元（可重复调用；同种蚕可同时服务多格） */
+  function assignWormToUnit(unitId, val) {
+    const a = habitat.agents.find(x => x.id === unitId && x.kind === 'weave');
+    if (!a) return 0;
+    pushUndo();
+    a.wormParty = val === 'all';
+    const wid = (val === '' || val == null || val === 'all') ? null : Number(val);
+    a.measuredWorm = wid;
+    if (val === 'all') {
+      const types = [];
+      habitat.agents.forEach(x => {
+        if (x.kind === 'route' && x.wormId != null && types.indexOf(x.wormId) < 0) types.push(x.wormId);
+      });
+      types.forEach(t => spawnCellWorm(a, t));
+      return types.length;
+    }
+    if (wid == null) {
+      habitat.agents.forEach(x => {
+        if (x.kind === 'route' && x.homeUnitId === a.id && x.id.indexOf('@') > 0) {
+          x.homeUnitId = null;
+          x.scope = 'field';
+        }
+      });
+      return 0;
+    }
+    spawnCellWorm(a, wid);
+    return 1;
   }
 
   function renderList() {
@@ -8172,41 +8259,11 @@ showSplitPreview();
     const wormSel = document.getElementById('habWeaveWorm');
     if (wormSel) wormSel.addEventListener('change', () => {
       const a = chosen(); if (!a || a.kind !== 'weave') return;
-      pushUndo();
       const val = wormSel.value;
-      a.wormParty = val === 'all';
-      const wid = (val === '' || val === 'all') ? null : Number(val);
-      a.measuredWorm = wid;
-      if (val === 'all') {
-        const routes = habitat.agents.filter(x => x.kind === 'route' && x.wormId != null);
-        routes.forEach((w, i) => {
-          w.scope = 'cell';
-          w.homeUnitId = a.id;
-          w.silk = [];
-          w.travel = 0;
-          w.x = a.x + (i - (routes.length - 1) / 2) * Math.min(a.w, a.h) * 0.2;
-          w.y = a.y;
-          applyRouteTransform(w);
-        });
-        hint('这一格现在让 ' + routes.length + ' 只蚕一起织：都只在格内爬，丝迹裁在格内。');
-      } else if (wid == null) {
-        hint('这一格用合并后的实测丝路（所有蚕的数据并成一条）。');
-      } else {
-        const w = habitat.agents.find(x => x.kind === 'route' && Number(x.wormId) === wid);
-        if (w) {
-          habitat.agents.forEach(x => {
-            if (x.kind === 'route' && x !== w && x.homeUnitId === a.id) x.homeUnitId = null;
-          });
-          w.scope = 'cell';
-          w.homeUnitId = a.id;
-          w.silk = [];
-          w.travel = 0;
-          w.x = a.x;
-          w.y = a.y;
-          applyRouteTransform(w);
-          hint('这一格现在用「蚕 ' + wid + '」：只在这格里爬，丝迹裁在格内。');
-        }
-      }
+      const n = assignWormToUnit(a.id, val);
+      if (val === 'all') hint('这一格现在让 ' + n + ' 种蚕一起织：每种一个实例，起点随机落在格内。');
+      else if (val === '') hint('这一格用合并后的实测丝路（所有蚕的数据并成一条）。');
+      else hint('这一格现在用「蚕 ' + val + '」。同一种蚕可以同时用在很多格，互不影响。');
       renderList();
     });
     const weaveEditBtn = document.getElementById('habWeaveEdit');
@@ -8711,10 +8768,11 @@ showSplitPreview();
         agent.scope = 'cell';
         agent.homeUnitId = hitUnit.id;
         hitUnit.measuredWorm = agent.wormId != null ? agent.wormId : hitUnit.measuredWorm;
+        hitUnit.wormParty = false;
         agent.travel = 0;
-        agent.silk = [];
-        toast('「' + label + '」已放进「' + hitUnit.id + '」：只在这一格里爬。', 'ok');
-        hint('拖进格子的蚕会按格子大小收住笔迹、丝迹裁在格内；也可以在这块的面板里换蚕。');
+        agent.silk = [];      // 从你放下它的这一点重新开始留丝
+        toast('「' + label + '」已放进「' + hitUnit.id + '」：从你放下的位置开始爬，只在这一格里。', 'ok');
+        hint('拖进格子的蚕按格子大小收住笔迹、丝迹裁在格内；同一种蚕还能用在别的格。');
       } else {
         toast('「' + label + '」已放到该处。', 'ok');
         hint('已放置实测个体；右侧滑杆可继续微调位置、旋转与缩放。');
@@ -10188,6 +10246,7 @@ showSplitPreview();
     undoStep: undoStep,
     redoStep: redoStep,
     importPointCloudDoc: importPointCloudDoc,
+    assignWormToUnit: assignWormToUnit,
   };
 
   bindRoutePanel();
