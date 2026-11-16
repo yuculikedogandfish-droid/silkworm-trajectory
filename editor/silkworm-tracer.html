@@ -6025,12 +6025,7 @@ showSplitPreview();
     if (cell.notch && Math.hypot(x - cell.notch.cx, y - cell.notch.cy) < cell.notch.r + m) return false;
     const islands = cell.islands || (cell.island ? [cell.island] : []);
     for (let k = 0; k < islands.length; k++) {
-      const isl = islands[k];
-      // 孔口不是完美圆：半径带低频起伏，让丝收口的地方有自然的“毛边”
-      const ang = Math.atan2(y - isl.cy, x - isl.cx);
-      const ph = isl.ph || 0;
-      const wob = 1 + 0.045 * Math.sin(ang * 3 + ph) + 0.022 * Math.sin(ang * 7 + ph * 2.3);
-      if (Math.hypot(x - isl.cx, y - isl.cy) < isl.r * wob + m) return false;
+      if (Math.hypot(x - islands[k].cx, y - islands[k].cy) < islands[k].r + m) return false;
     }
     return true;
   }
@@ -6071,7 +6066,6 @@ showSplitPreview();
           cx: (rng() - 0.5) * agent.w * 0.40,
           cy: (rng() - 0.5) * agent.h * 0.40,
           r: base * (0.22 + rng() * 0.13),
-          ph: rng() * Math.PI * 2,
         });
       }
     }
@@ -6269,61 +6263,58 @@ showSplitPreview();
     const cxx = gx * W * 0.94 + (rng() - 0.5) * (W / tileN) * 0.35;
     const cyy = gy * H * 0.94 + (rng() - 0.5) * (H / tileN) * 0.35;
     const wob = Math.max(0.6, Math.min(W, H) * 0.004);
-    const cs = Math.cos(baseAng), sn = Math.sin(baseAng);
+    // 丝迹在块里的变换：world = O + R * kernel（R 是 2×2，撞壁时按壁的法线做镜面反射）
+    let R = [Math.cos(baseAng), -Math.sin(baseAng), Math.sin(baseAng), Math.cos(baseAng)];
+    let O = { x: cxx, y: cyy };
     let cur = [];
-    const push = (x, y) => {
-      if (!weaveAllowed(cell, x, y, 2)) {
-        if (cur.length > 2) segs.push(cur);
-        cur = [];
-        return;
-      }
-      const q = weaveWallRepel(customWalls, x, y, wallR);
-      cur.push({ x: q.x + (rng() - 0.5) * jitter, y: q.y + (rng() - 0.5) * jitter });
-    };
+    let bounce = 0;
+    const flush = () => { if (cur.length > 2) segs.push(cur); cur = []; };
     for (let k = 0; k < sn2; k++) {
-      const px = stroke[k * 2] * fit + cxx;
-      const py = stroke[k * 2 + 1] * fit + cyy;
-      push(px * cs - py * sn + (rng() - 0.5) * wob, px * sn + py * cs + (rng() - 0.5) * wob);
-    }
-    if (cur.length > 2) segs.push(cur);
-    // 圆孔/缺口边缘：贴壁丝 + 渐隐过渡（只由第一根丝负责）
-    // 不做同心等亮圆环——那会读成「画出来的圆圈」。改为大量短弧，半径、弧长、亮度都随机，
-    // 越贴孔边越密越亮，向外逐渐变稀变暗，与块内丝网自然咬合。
-    if (bi === 0) {
-      const islands = cell.islands || (cell.island ? [cell.island] : []);
-      const minWH = Math.min(W, H);
-      islands.forEach((isl, ii) => {
-        const fringe = minWH * 0.12;
-        const arcs = Math.max(50, Math.min(240, Math.round(minWH * 0.62)));
-        for (let a = 0; a < arcs; a++) {
-          const t = arcs > 1 ? a / (arcs - 1) : 0;
-          const spread = Math.pow(t, 0.62) * (0.62 + rng() * 0.6);
-          const rr = isl.r * (1 + 0.03 * (rng() - 0.5)) + fringe * spread;
-          const a0 = rng() * Math.PI * 2;
-          const span = 0.10 + rng() * 0.32;
-          const st = Math.max(9, Math.round(26 * span));
-          const mul = (0.95 - 0.78 * t) * (0.45 + rng() * 0.55);
-          const wob2 = minWH * 0.006;
-          let c2 = [];
-          for (let k = 0; k <= st; k++) {
-            const a1 = a0 + span * (k / st);
-            const rg = rr + Math.sin(k * 1.3 + a) * wob2 * (0.4 + rng() * 0.9);
-            const x = isl.cx + Math.cos(a1) * rg;
-            const y = isl.cy + Math.sin(a1) * rg;
-            if (!weaveAllowed(cell, x, y, 2)) {
-              if (c2.length > 2) segs.push({ pts: c2, mul });
-              c2 = [];
-              continue;
-            }
-            const q = weaveWallRepel(customWalls, x, y, wallR);
-            c2.push({ x: q.x, y: q.y });
+      const kx = stroke[k * 2] * fit, ky = stroke[k * 2 + 1] * fit;
+      let px = O.x + R[0] * kx + R[1] * ky + (rng() - 0.5) * wob;
+      let py = O.y + R[2] * kx + R[3] * ky + (rng() - 0.5) * wob;
+      if (!weaveAllowed(cell, px, py, 2)) {
+        // 撞壁：真丝的走法是在壁上换方向继续，不是断掉。
+        // 这里把同一条实测丝迹按壁的镜面反射"弹"一下，最多弹 3 次；
+        // 于是丝会沿着壁来回擦过去，孔口附近自然变稠——不是另画一圈环。
+        const N = weaveWallNormal(cell, px, py);
+        if (N && bounce < 3) {
+          // 接触点 c：壁面上离越界点最近的位置
+          const cx = N.cx, cy = N.cy;
+          const n2 = 2 * (cx * N.x + cy * N.y);
+          const A = [1 - 2 * N.x * N.x, -2 * N.x * N.y, -2 * N.x * N.y, 1 - 2 * N.y * N.y];
+          const bx = n2 * N.x, by = n2 * N.y;
+          O = { x: A[0] * O.x + A[1] * O.y + bx, y: A[2] * O.x + A[3] * O.y + by };
+          R = [A[0] * R[0] + A[1] * R[2], A[0] * R[1] + A[1] * R[3],
+               A[2] * R[0] + A[3] * R[2], A[2] * R[1] + A[3] * R[3]];
+          bounce++;
+          k--; // 用新的变换重算同一个核点
+          const np = { x: O.x + R[0] * kx + R[1] * ky, y: O.y + R[2] * kx + R[3] * ky };
+          if (weaveAllowed(cell, np.x, np.y, 2)) {
+            const q = weaveWallRepel(customWalls, np.x, np.y, wallR);
+            cur.push({ x: q.x, y: q.y });
           }
-          if (c2.length > 2) segs.push({ pts: c2, mul });
+          continue;
         }
-      });
+        // 弹不动了（或碰到块的外框/缺口）：这条丝的尽头落在壁上
+        const e = weaveWallProject(cell, px, py, 1.6);
+        if (e && cur.length > 0) {
+          const q = weaveWallRepel(customWalls, e.x, e.y, wallR);
+          cur.push({ x: q.x, y: q.y });
+        }
+        flush();
+        bounce = 0;
+        continue;
+      }
+      const q = weaveWallRepel(customWalls, px, py, wallR);
+      cur.push({ x: q.x + (rng() - 0.5) * jitter, y: q.y + (rng() - 0.5) * jitter });
     }
+    flush();
+    // 孔口不另做环形装饰：没有等亮环、没有羽化、没有毛边。
+    // 孔缘看到的密度，是丝一次次碰到壁、贴着壁换方向堆出来的。
     return segs;
   }
+
 
   function weaveHash01(ix, iy, seed) {
     let h = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ (seed >>> 0);
@@ -6631,8 +6622,6 @@ showSplitPreview();
           if (L === strata - 1) headPt = p.pts[Math.min(p.pts.length - 1, Math.max(0, n - 1))];
         });
       }
-      // 孔口羽化：孔内清空、孔缘 2–3 px 渐隐，让丝网与黑洞之间是过渡而不是硬切边
-      weaveFeatherHoles(ctx, content.cell, ox, oy, v);
       // 吐丝头：沿已织出的丝往前跑，让"蚕正在爬"看得见
       if (headPt) {
         const sx = v.px(ox + headPt.x), sy = v.py(oy + headPt.y);
@@ -6647,27 +6636,55 @@ showSplitPreview();
     ctx.restore();
   }
 
-  // 孔口羽化：孔内清空、孔缘若干像素渐隐（destination-out 径向渐变），
-  // 让丝网收在孔口时是「越贴边越亮、再往里淡出」，而不是一条硬切边
-  function weaveFeatherHoles(g, cell, ox, oy, v) {
-    const islands = (cell && cell.islands) || [];
-    if (!islands.length) return;
-    const prev = g.globalCompositeOperation;
-    g.globalCompositeOperation = 'destination-out';
+  // 撞壁收口：把越界的点沿最短方向贴到壁上（丝碰到壁就停在这里），
+  // 让每一条丝的"尽头"落在壁面上，孔口附近的密度就是这样一点点堆出来的
+  function weaveWallProject(cell, x, y, pad) {
+    const p = pad || 1.6;
+    let best = null;
+    const keep = (nx, ny, d) => {
+      if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+      if (!best || d < best.d) best = { x: nx, y: ny, d };
+    };
+    const islands = cell.islands || (cell.island ? [cell.island] : []);
     islands.forEach(isl => {
-      const cx = v.px(ox + isl.cx), cy = v.py(oy + isl.cy);
-      const r = isl.r * v.s;
-      const feather = Math.max(1.5, r * 0.16);
-      const grd = g.createRadialGradient(cx, cy, Math.max(0.5, r * 0.45), cx, cy, r + feather);
-      grd.addColorStop(0, 'rgba(0,0,0,1)');
-      grd.addColorStop(0.66, 'rgba(0,0,0,1)');
-      grd.addColorStop(1, 'rgba(0,0,0,0)');
-      g.fillStyle = grd;
-      g.beginPath();
-      g.arc(cx, cy, r + feather, 0, Math.PI * 2);
-      g.fill();
+      const dx = x - isl.cx, dy = y - isl.cy;
+      const d = Math.hypot(dx, dy) || 1e-6;
+      if (d < isl.r + p) {
+        const rr = isl.r + p + 0.6;
+        keep(isl.cx + dx / d * rr, isl.cy + dy / d * rr, Math.abs(isl.r + p - d));
+      }
     });
-    g.globalCompositeOperation = prev;
+    if (cell.notch) {
+      const dx = x - cell.notch.cx, dy = y - cell.notch.cy;
+      const d = Math.hypot(dx, dy) || 1e-6;
+      if (d < cell.notch.r + p) {
+        const rr = cell.notch.r + p + 0.6;
+        keep(cell.notch.cx + dx / d * rr, cell.notch.cy + dy / d * rr, Math.abs(cell.notch.r + p - d));
+      }
+    }
+    const hw = cell.w / 2 - p, hh = cell.h / 2 - p;
+    if (Math.abs(x) > hw) keep(Math.sign(x) * hw, y, Math.abs(x) - hw);
+    if (Math.abs(y) > hh) keep(x, Math.sign(y) * hh, Math.abs(y) - hh);
+    return best ? { x: best.x, y: best.y } : null;
+  }
+
+  // 撞壁法线：越界点若是掉进圆孔/缺口，返回孔心指向该点的单位法线 + 壁面接触点
+  function weaveWallNormal(cell, x, y) {
+    let best = null;
+    const test = (cx0, cy0, r) => {
+      const dx = x - cx0, dy = y - cy0;
+      const d = Math.hypot(dx, dy) || 1e-6;
+      if (d >= r + 2) return;
+      const gap = r + 2 - d;
+      if (!best || gap > best.gap) {
+        best = { nx: dx / d, ny: dy / d, cx: cx0 + (dx / d) * (r + 2), cy: cy0 + (dy / d) * (r + 2), gap };
+      }
+    };
+    const islands = cell.islands || (cell.island ? [cell.island] : []);
+    islands.forEach(isl => test(isl.cx, isl.cy, isl.r));
+    if (cell.notch) test(cell.notch.cx, cell.notch.cy, cell.notch.r);
+    if (!best) return null;
+    return { x: best.nx, y: best.ny, cx: best.cx, cy: best.cy };
   }
 
   // 每条丝的长度与前缀和（按实际折线长度推进用）
@@ -6735,12 +6752,6 @@ showSplitPreview();
         g.stroke();
       });
     }
-    // 孔口羽化（离屏位图里同样做一遍，鼓包/硬边都不会带进缓存）
-    weaveFeatherHoles(g, content.cell, 0, 0, {
-      s: kx,
-      px: x => (x + cw / 2) * kx,
-      py: y => (y + ch / 2) * ky,
-    });
     content.raster = cv;
     content.rasterKey = key;
     return cv;
