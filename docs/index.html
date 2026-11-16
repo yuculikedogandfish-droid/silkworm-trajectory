@@ -6225,14 +6225,19 @@ showSplitPreview();
     const total = Math.max(4, bandCount || 8);
     const bi = bandIndex || 0;
     // 实测丝迹回放：把 sample 的真实折线（WEAVE_MEASURED_PATHS / 指纹 pathTemplate）
-    // 缩小、旋转、散布到格内多处，复现蚕实际吐丝的那种小圈叠压形态；
-    // 每一条线都直接来自实测折线，形状不做正弦/随机合成。
-    const baseAng = weaveBandAngle(cell) + (rng() - 0.5) * 1.0;
-    const stroke = tpls[(bi * 5 + ((seed >>> 0) % tpls.length)) % tpls.length];
+    // 按 4×4 小块位阵铺满整格，每个位置再叠几份不同转角/缩放的副本。
+    // 这样块内密度均匀、形态是真实丝迹的循环小圈，而不是随机散点或合成正弦。
+    const tileN = 4;
+    const ti = bi % (tileN * tileN);
+    const vi = Math.floor(bi / (tileN * tileN));
+    const gx = (ti % tileN + 0.5) / tileN - 0.5;
+    const gy = (Math.floor(ti / tileN) + 0.5) / tileN - 0.5;
+    const baseAng = weaveBandAngle(cell) + (rng() - 0.5) * 0.9 + vi * 0.5;
+    const stroke = tpls[(bi + ((seed >>> 0) % tpls.length)) % tpls.length];
     const sn2 = stroke.length >> 1;
-    const fit = Math.min(W, H) * (0.15 + rng() * 0.04);
-    const cxx = (rng() - 0.5) * (W * 0.9);
-    const cyy = (rng() - 0.5) * (H * 0.9);
+    const fit = Math.min(W, H) * (0.17 + rng() * 0.05);
+    const cxx = gx * W * 0.94 + (rng() - 0.5) * (W / tileN) * 0.35;
+    const cyy = gy * H * 0.94 + (rng() - 0.5) * (H / tileN) * 0.35;
     const wob = Math.max(0.6, Math.min(W, H) * 0.004);
     const cs = Math.cos(baseAng), sn = Math.sin(baseAng);
     let cur = [];
@@ -6310,7 +6315,7 @@ showSplitPreview();
     const customPaths = (custom.paths && custom.paths[key]) || [];
     const n = Math.max(1, Math.min(12, Math.round(agent.worms || 6)));
     // 一条丝 = 一排实测笔迹；每格丝数决定排数（越多越密，参考图那种层层叠压）
-    const bandCount = Math.max(16, Math.min(160, Math.round(n * 8)));
+    const bandCount = Math.max(16, Math.min(160, Math.round(n * 12)));
     const paths = [];
     // 参考图里有整块空着的黑格：按格哈希留缺口（人工编辑过的格不封）
     // 手放的单元一定织满；只有整场铺格模式才按哈希留空格（参考图里有整块黑板）
@@ -6320,7 +6325,7 @@ showSplitPreview();
       for (let b = 0; b < bandCount; b++) {
         const segs = weaveThread(cell, agent, (seed + b * 7919 + 17) >>> 0, customWalls, b, bandCount);
         segs.forEach(seg => {
-          if (seg.length > 6) paths.push({ pts: seg, seed, a: 0.10 + weaveHash01(b, b + 31, seed) * 0.16 });
+          if (seg.length > 6) paths.push({ pts: seg, seed, b, a: 0.13 + weaveHash01(b, b + 31, seed) * 0.22 });
         });
       }
       customPaths.forEach(p => {
@@ -6455,8 +6460,12 @@ showSplitPreview();
     }
     const want = Math.min(cap - existing, Math.max(9, Math.round(cand.length * 0.62)));
     cand.slice(0, want).forEach(pos => {
-      const agent = makeWeaveAgent(pos.x, pos.y);
-      agent.w = agent.h = tile;
+      // 块群不规则化：位置 ±4%、尺寸 ±5%、亮度随机（参考图里块边缘是轻微错位的）
+      const jx = (Math.random() - 0.5) * tile * 0.08;
+      const jy = (Math.random() - 0.5) * tile * 0.08;
+      const sz = tile * (0.95 + Math.random() * 0.10);
+      const agent = makeWeaveAgent(pos.x + jx, pos.y + jy);
+      agent.w = agent.h = Math.round(sz);
       agent.gap = 8;
       agent.strata = 2;
       agent.worms = 6;
@@ -6552,28 +6561,27 @@ showSplitPreview();
       const cum = weavePathCum(content);
       const target = lu * cum.total;
       let headPt = null;
-      for (let L = 0; L < strata; L++) {
-        const off = (L - (strata - 1) / 2) * cw * 0.012;
-        const lTone = 1 - L * 0.10;
-        // 分层：后层先铺一层柔雾（粗线低透明度），模拟丝层的空气感
-        if (L === 0) {
-          ctx.lineWidth = baseW * 3.4;
-          content.paths.forEach((p, idx) => {
-            const start = cum.acc[idx];
-            if (start >= target) return;
-            const frac = Math.min(1, (target - start) / (cum.seg[idx] || 1));
-            const n = Math.max(2, Math.floor(p.pts.length * frac));
-            ctx.strokeStyle = 'rgba(226,232,228,' + Math.max(0.04, Math.min(0.14, light * 0.10 * lTone)).toFixed(2) + ')';
-            ctx.beginPath();
-            for (let k = 0; k < n; k++) {
-              const px = v.px(ox + p.pts[k].x + off), py = v.py(oy + p.pts[k].y + off);
-              if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-            }
-            ctx.stroke();
-          });
+      // 柔雾只铺一遍（全量，不做位移），负责丝层的空气感
+      ctx.lineWidth = baseW * 3.2;
+      content.paths.forEach((p, idx) => {
+        const start = cum.acc[idx];
+        if (start >= target) return;
+        ctx.strokeStyle = 'rgba(226,232,228,' + Math.max(0.03, Math.min(0.09, light * 0.07)).toFixed(2) + ')';
+        ctx.beginPath();
+        for (let k = 0; k < p.pts.length; k++) {
+          const px = v.px(ox + p.pts[k].x), py = v.py(oy + p.pts[k].y);
+          if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
-        ctx.lineWidth = baseW;
+        ctx.stroke();
+      });
+      // 分层：按带序号分给不同层，每层丝线集合不同、只有亚像素级错位
+      // （不再把同一套线整层平移复制，避免"两层一样的图叠在一起"的鬼影）
+      for (let L = 0; L < strata; L++) {
+        const off = (L - (strata - 1) / 2) * cw * 0.006;
+        const lTone = 1 - L * 0.12;
+        ctx.lineWidth = baseW * (1 - L * 0.08);
         content.paths.forEach((p, idx) => {
+          if ((p.b != null ? p.b : idx) % strata !== L) return;
           const start = cum.acc[idx];
           if (start >= target) return;
           const frac = Math.min(1, (target - start) / (cum.seg[idx] || 1));
@@ -6639,24 +6647,25 @@ showSplitPreview();
     g.globalCompositeOperation = 'lighter';
     const kx = W / cw, ky = H / ch;
     const baseW = Math.max(0.9, 1.15 * Math.max(1, kx * 0.34));
-    for (let L = 0; L < layers; L++) {
-      const off = (L - (layers - 1) / 2) * cw * 0.012;
-      const lTone = 1 - L * 0.10;
-      if (L === 0) {
-        g.lineWidth = baseW * 3.4;
-        content.paths.forEach(p => {
-          g.strokeStyle = 'rgba(226,232,228,' + Math.max(0.04, Math.min(0.14, light * 0.10)).toFixed(2) + ')';
-          g.beginPath();
-          for (let k = 0; k < p.pts.length; k++) {
-            const q = p.pts[k];
-            const X = (q.x + off + cw / 2) * kx, Y = (q.y + off + ch / 2) * ky;
-            if (k === 0) g.moveTo(X, Y); else g.lineTo(X, Y);
-          }
-          g.stroke();
-        });
+    // 柔雾一遍（全量，不位移）
+    g.lineWidth = baseW * 3.2;
+    content.paths.forEach(p => {
+      g.strokeStyle = 'rgba(226,232,228,' + Math.max(0.03, Math.min(0.09, light * 0.07)).toFixed(2) + ')';
+      g.beginPath();
+      for (let k = 0; k < p.pts.length; k++) {
+        const q = p.pts[k];
+        const X = (q.x + cw / 2) * kx, Y = (q.y + ch / 2) * ky;
+        if (k === 0) g.moveTo(X, Y); else g.lineTo(X, Y);
       }
-      g.lineWidth = baseW;
-      content.paths.forEach(p => {
+      g.stroke();
+    });
+    // 分层按带序号分集合，亚像素错位（不做整层复制）
+    for (let L = 0; L < layers; L++) {
+      const off = (L - (layers - 1) / 2) * cw * 0.006;
+      const lTone = 1 - L * 0.12;
+      g.lineWidth = baseW * (1 - L * 0.08);
+      content.paths.forEach((p, idx) => {
+        if ((p.b != null ? p.b : idx) % layers !== L) return;
         const alpha = Math.max(0.12, Math.min(0.95, (p.a != null ? p.a : 0.4) * (light / 0.42) * lTone * 0.82));
         g.strokeStyle = 'rgba(226,232,228,' + alpha.toFixed(2) + ')';
         g.beginPath();
