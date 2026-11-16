@@ -2936,7 +2936,7 @@ if (window.parent !== window) {
       </div>
       <label class="row"><input type="checkbox" id="habGridToggle" checked> 显示场地格线</label>
       <h3>实测轨迹入室</h3>
-      <p class="hab-note">描图/预览里有数据的蚕会自动同步进蚕室，可拖动、旋转缩放；「铺入只读预览轨迹」只是变淡的底图，不可操作。</p>
+      <p class="hab-note">描图器里描好的蚕会自动进场地；拖进某一格，它就只在这一格里爬。</p>
       <button type="button" id="habImportTraj">重新同步实测轨迹</button>
       <h3>记录</h3>
       <button type="button" id="habSave">保存场景 JSON</button>
@@ -3025,7 +3025,8 @@ if (window.parent !== window) {
         </select></div>
         <div class="row"><button type="button" id="habWeaveRebuild">重新织</button></div>
         <div class="row"><button type="button" id="habWeaveLoadProfile">载入点列 / 指纹 JSON</button><input type="file" id="habWeaveProfileFile" accept=".json" hidden></div>
-        <p class="hab-note">点列 .json：上方描图器顶栏「导出 JSON」（curves3d）或 <code>trajectories.json</code>（x_mm / y_mm）——载入后直接变成场地里那只蚕。运动指纹：P0 脚本产物（schema=silkworm-motion-profile/v1），<b>目前界面里没有导出这个格式的按钮</b>，所以别从界面找它。</p>
+        <p class="hab-note">点列 .json 来自上方描图器顶栏「导出 JSON」，或 <code>trajectories.json</code>；载入后直接变成场地里的蚕。</p>
+        <div class="row"><label>这一格用哪只蚕</label><select id="habWeaveWorm"><option value="">合并丝路（默认）</option></select></div>
         <h3>形状编辑</h3>
         <p class="hab-note">先选一块织网单元，点「编辑这一格」，画布上就会出现可以拖的点。拖完点「完成编辑」即可。</p>
         <div class="row">
@@ -3049,12 +3050,11 @@ if (window.parent !== window) {
           <li><i class="lg-pt"></i>白色小方：壁 / 丝路 / 外框的顶点（Alt + 点删除）</li>
         </ul>
         <div class="hab-legend-terms">
-          <p><b>孔洞</b>：格子里空出来的一块，蚕绕开它织，孔里不会有丝。</p>
-          <p><b>缺口</b>：从边缘缺进去的一块，效果同上，但缺口贴着格子边。</p>
-          <p><b>壁</b>：一道看不见的挡墙。蚕碰到墙就停下来、在墙前收口，然后从墙的另一侧另起一段丝——用来把丝挡在一条线上，织出块与块之间的缝。</p>
-          <p><b>丝路</b>：一条引导线。蚕会顺着它走，丝贴着这条线铺开——用来让某一片区域的丝有固定走向（比如一条斜纹）。</p>
-          <p><b>外框</b>：这一格的边界。蚕出不了外框，丝会被压在框上。</p>
-          <p>画法都一样：点「加壁」/「加丝路」/「外框」→ 在格子里一格一格点顶点 → <b>双击</b>收尾（或按「这一笔收尾」）。画的时候是虚线预览，<b>不会进成品</b>。</p>
+          <p><b>孔洞</b>：空出来的一块，孔里没有丝。<b>缺口</b>：贴边缺进去，同样没有丝。</p>
+          <p><b>壁</b>：挡墙。蚕碰到就停、在墙前收口，再从另一侧另起——用来把丝挡成一条线。</p>
+          <p><b>丝路</b>：引导线。蚕顺着它走，丝贴线铺——用来定一片区域的走向。</p>
+          <p><b>外框</b>：这一格的边界，蚕出不去。</p>
+          <p>画法：点工具 → 在格子里逐点 → 双击收尾。虚线只是预览，不进成品。</p>
         </div>
         <div class="row">
           <button type="button" id="habWeaveEditEnd">这一笔收尾</button>
@@ -7829,10 +7829,24 @@ showSplitPreview();
         return;
       }
       if (agent.kind === 'route' && agent.route && agent.route.length > 1) {
+        ctx.save();
+        const unit = agent.scope === 'cell' ? weaveUnitFor(agent) : null;
+        if (unit) {
+          // 收进格子的蚕：丝迹裁在格内，不许越出单元边界
+          const gap = Math.max(0, Number.isFinite(unit.gap) ? unit.gap : 6);
+          ctx.beginPath();
+          ctx.rect(v.px(unit.x - unit.w / 2 + gap / 2), v.py(unit.y - unit.h / 2 + gap / 2),
+            Math.max(1, (unit.w - gap) * v.s), Math.max(1, (unit.h - gap) * v.s));
+          ctx.clip();
+        }
         drawSilk(ctx, agent.route, v, 0.06);
+        drawSilk(ctx, agent.silk, v, env.silkAlpha);
+        ctx.restore();
+        drawHabitatWorm(ctx, agent, v);
+      } else {
+        drawSilk(ctx, agent.silk, v, env.silkAlpha);
+        drawHabitatWorm(ctx, agent, v);
       }
-      drawSilk(ctx, agent.silk, v, env.silkAlpha);
-      drawHabitatWorm(ctx, agent, v);
       if (agent.id === habitat.selected) {
         ctx.strokeStyle = 'rgba(230,236,233,0.35)';
         ctx.strokeRect(v.px(agent.x) - 16, v.py(agent.y) - 16, 32, 32);
@@ -7841,7 +7855,24 @@ showSplitPreview();
     ctx.restore();
   }
 
+  /* 这一格用哪只蚕：下拉里列出场地里所有实测蚕 */
+  function refreshWeaveWormSelect() {
+    const sel = document.getElementById('habWeaveWorm');
+    if (!sel) return;
+    const a = habitat.agents.find(x => x.id === habitat.selected && x.kind === 'weave');
+    const routes = habitat.agents.filter(x => x.kind === 'route' && x.wormId != null);
+    if (!a) { sel.innerHTML = '<option value="">先选一块织网单元</option>'; sel.disabled = true; return; }
+    sel.disabled = false;
+    sel.innerHTML = '<option value="">合并丝路（默认）</option>' +
+      (routes.length > 1 ? '<option value="all">全部蚕（' + routes.length + ' 只一起）</option>' : '') +
+      routes.map(r =>
+        '<option value="' + r.wormId + '">蚕 ' + r.wormId +
+        (r.homeUnitId === a.id ? '（已在这格）' : '') + '</option>').join('');
+    sel.value = a.measuredWorm != null ? String(a.measuredWorm) : (a.wormParty ? 'all' : '');
+  }
+
   function renderList() {
+    refreshWeaveWormSelect();
     const box = document.getElementById('habAgents');
     const syncStat = document.getElementById('habSyncStat');
     const routeN = habitat.agents.filter(a => a.kind === 'route').length;
@@ -8138,6 +8169,46 @@ showSplitPreview();
       a.strata = Math.max(1, Math.min(3, parseInt(document.getElementById('habWeaveStrata').value, 10) || 2));
       panelVal('habWeaveStrataVal', String(a.strata));
     });
+    const wormSel = document.getElementById('habWeaveWorm');
+    if (wormSel) wormSel.addEventListener('change', () => {
+      const a = chosen(); if (!a || a.kind !== 'weave') return;
+      pushUndo();
+      const val = wormSel.value;
+      a.wormParty = val === 'all';
+      const wid = (val === '' || val === 'all') ? null : Number(val);
+      a.measuredWorm = wid;
+      if (val === 'all') {
+        const routes = habitat.agents.filter(x => x.kind === 'route' && x.wormId != null);
+        routes.forEach((w, i) => {
+          w.scope = 'cell';
+          w.homeUnitId = a.id;
+          w.silk = [];
+          w.travel = 0;
+          w.x = a.x + (i - (routes.length - 1) / 2) * Math.min(a.w, a.h) * 0.2;
+          w.y = a.y;
+          applyRouteTransform(w);
+        });
+        hint('这一格现在让 ' + routes.length + ' 只蚕一起织：都只在格内爬，丝迹裁在格内。');
+      } else if (wid == null) {
+        hint('这一格用合并后的实测丝路（所有蚕的数据并成一条）。');
+      } else {
+        const w = habitat.agents.find(x => x.kind === 'route' && Number(x.wormId) === wid);
+        if (w) {
+          habitat.agents.forEach(x => {
+            if (x.kind === 'route' && x !== w && x.homeUnitId === a.id) x.homeUnitId = null;
+          });
+          w.scope = 'cell';
+          w.homeUnitId = a.id;
+          w.silk = [];
+          w.travel = 0;
+          w.x = a.x;
+          w.y = a.y;
+          applyRouteTransform(w);
+          hint('这一格现在用「蚕 ' + wid + '」：只在这格里爬，丝迹裁在格内。');
+        }
+      }
+      renderList();
+    });
     const weaveEditBtn = document.getElementById('habWeaveEdit');
     const weaveEditDone = document.getElementById('habWeaveEditDone');
     const weaveToolsEl = document.getElementById('habWeaveTools');
@@ -8322,14 +8393,22 @@ showSplitPreview();
           const l = sampleRouteCentered(agent, agent.u);
           // 格内活动时，这一笔的尺寸跟着格子走（≈1/3 格宽），不会画成一整个场地的巨型八字
           let sc = (agent.scale || 1) * 0.6;
+          let unit = null;
           if (agent.scope === 'cell') {
-            const unit = weaveUnitFor(agent);
-            if (unit) sc = Math.min(unit.w, unit.h) * 0.32 / 55 * (agent.scale || 1);
+            unit = weaveUnitFor(agent);
+            // 一格里的这一趟吐丝：单次实测笔迹约占格子短边的七成（真实样本 bbox≈0.95×1.16 格），留出巡游余量
+            if (unit) sc = Math.min(unit.w, unit.h) * 0.72 / 110 * (agent.scale || 1);
           }
           const cs = Math.cos(agent.rot || 0), sn = Math.sin(agent.rot || 0);
           const lx = l.x * sc, ly = l.y * sc;
-          const x = g.x + lx * cs - ly * sn;
-          const y = g.y + lx * sn + ly * cs;
+          let x = g.x + lx * cs - ly * sn;
+          let y = g.y + lx * sn + ly * cs;
+          if (unit) {
+            // 再兜一层：不管笔迹怎么摆，落点都压在格子里（留 6% 边距）
+            const mx = unit.w * 0.47, my = unit.h * 0.47;
+            x = Math.max(unit.x - mx, Math.min(unit.x + mx, x));
+            y = Math.max(unit.y - my, Math.min(unit.y + my, y));
+          }
           const px = agent.x, py = agent.y;
           agent.x = x;
           agent.y = y;
@@ -8624,8 +8703,22 @@ showSplitPreview();
       agent.offY = p.y;
       applyRouteTransform(agent);
       agent.mode = 'idle';
-      toast('「' + label + '」已放到该处。', 'ok');
-      hint('已放置实测个体；右侧滑杆可继续微调位置、旋转与缩放。');
+      // 拖进某一格里：直接归这一格（只在格内爬、丝迹裁在格内）
+      const hitUnit = habitat.agents.find(u => u.kind === 'weave'
+        && p.x > u.x - u.w / 2 && p.x < u.x + u.w / 2
+        && p.y > u.y - u.h / 2 && p.y < u.y + u.h / 2);
+      if (hitUnit) {
+        agent.scope = 'cell';
+        agent.homeUnitId = hitUnit.id;
+        hitUnit.measuredWorm = agent.wormId != null ? agent.wormId : hitUnit.measuredWorm;
+        agent.travel = 0;
+        agent.silk = [];
+        toast('「' + label + '」已放进「' + hitUnit.id + '」：只在这一格里爬。', 'ok');
+        hint('拖进格子的蚕会按格子大小收住笔迹、丝迹裁在格内；也可以在这块的面板里换蚕。');
+      } else {
+        toast('「' + label + '」已放到该处。', 'ok');
+        hint('已放置实测个体；右侧滑杆可继续微调位置、旋转与缩放。');
+      }
     } else {
       placeAgent(agent, p.x, p.y);
       toast('「' + label + '」已放入场地。', 'ok');
