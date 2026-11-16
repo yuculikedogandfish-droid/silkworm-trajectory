@@ -312,6 +312,41 @@ python scripts\render_led_frames.ps1 ... -Resume                                
 - 分层 strata 进主程序；跨格丝线衔接；「一蚕一格 / 一格多蚕」共织模式。
 - 屏体长宽比（2419×1360 / 2565×1282）与母版输出盘位待定。
 
+## 12. 顶部 JSON 往返 / 残留场地边框 / 手柄式编辑（2026-11-16 续）
+
+### 12.1 用户报的三个问题与根因
+
+1. 顶栏「JSON」导出后再「载入 JSON」，弹窗「未识别到可用轨迹点列」。
+   - 根因：`exportJSON()` 写的是 `curves3d` + `silkworms` 两种结构；`normalizeIncoming()` 只认 `type=silkworm-preview/v1`、`schema` 含 motion-model、`unifiedTrajectories`、`curves`、`worms`（对象），**没有 `curves3d` 与 `silkworms` 数组**两条分支，未标定的数据（`x_mm: null`，只有 `x_px`）也没兜底。
+2. 背景仍有一个大方框。
+   - 根因：`paintWorld()` 里还画着场地边界（`arenaSpec()` 的矩形/圆，`rgba(230,236,233,0.45)`、1.2px）；`paintDepth()` 仍有前景叶片 + 环境光 + 暗角，`paintMist()` 还有两团绿色柔光，`.hab-world` CSS 还带径向渐变。
+3. 织网单元与单元内壁/路径只能靠滑条，不能像建模软件那样拖。
+
+### 12.2 实现
+
+- **导入兼容**：`normalizeIncoming()` 新增两条分支——`curves3d` / `curves` 数组（点坐标 `x_mm` 优先，`null` 时回落 `x_px`，再回落 `p.x`）与 `silkworms` 数组（同规则）；同时带回 `unit/calibration/provenance/behaviorBoxes`。导出→导入往返不再丢点。
+- **黑场到底**：删掉 `paintWorld` 的场地边框绘制；`paintDepth` 只清屏（删叶片/环境光/暗角）；`paintMist` 只清屏；`.hab-world` 背景改 `#000`。场地范围仍由 `insideArena()` 判定，只是不再画出来。
+- **手柄式编辑**（选中织网单元 → 「开始编辑形状」后出现）：
+  - 橙色角点：拖角改单元宽高（对角固定）；橙色十字：拖动画布移动整个单元。
+  - 青色实心点：拖圆孔/缺口中心；青色空心圈：拖半径改孔洞大小。
+  - 自定义壁/丝路顶点：白色小方块，可直接拖动；`Alt+点` 删顶点；点空白继续加点、双击结束当前线。
+  - 手柄命中优先于加点，命中半径 10px（按当前缩放换算世界距离）。
+  - 手改动写入 `agent.custom.shapes["ix,iy"] = {notch, islands}` 与 `custom.walls/paths`，`weaveCellContent()` 优先用人工覆盖，随场景 JSON 保存。
+- **交互提示**：底部 hint 与面板说明改成手柄语义（拖角/拖十字/拖青点/拖青圈/Alt 删点）。
+
+### 12.3 验收
+
+- 手柄拖拽探针：圆孔中心 `(-26.28,-10.49)` → `(-2.01,7.71)`（屏幕 +40/+30 对应世界位移一致）；随后画壁三点写入 `custom.walls["0,0"]`，`sample.custom` +1。
+- 无头截图 1500×1000：纯黑底、无场地边框、无叶片/柔光；选中单元出现橙/青/白三类手柄；`node --check` 三块全绿。
+- JSON 导入：新增分支对照 `exportJSON()` 的输出结构逐字段核对（`curves3d.points[x_mm|x_px]`、`silkworms.points[x_mm|x_px]`）；本条待真实文件再点一次确认。
+
+### 12.4 下一步
+
+- 「新建织网单元」也走多边形：直接点轮廓顶点生成自定义外框（当前先用矩形 + 角点缩放）。
+- 壁做成可弯的折线/曲线（拖控制点加平滑），丝路支持闭合。
+- 参考图还原继续：孔洞与块缝比例、亮度分层。
+
+
 
 
 
