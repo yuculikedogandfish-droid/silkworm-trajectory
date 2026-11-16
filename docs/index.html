@@ -253,7 +253,7 @@
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     padding: 10px 16px; background: #0C1113; border-color: rgba(230,236,233,0.08); border-style: solid;
   }
-  .hab-top { border-width: 1px 0; }
+  .hab-top { border-width: 1px 0; flex-wrap: wrap; }
   .hab-time { border-width: 1px 0 0; }
   .hab-top h2 { font-size: 15px; font-weight: 560; letter-spacing: 0.04em; }
   .hab-note { color: #84918D; font-size: 11px; line-height: 1.45; max-width: 640px; }
@@ -269,11 +269,38 @@
 .hab-legend .lg-hole { background: #79cbb6; border-radius: 50%; }
 .hab-legend .lg-ring { background: transparent; border: 1px solid #79cbb6; border-radius: 50%; }
 .hab-legend .lg-pt { background: #e8eee9; }
-  .hab-stage { flex: 1; min-height: var(--hab-stage-height, 780px); position: relative; display: grid; grid-template-columns: 250px 1fr 270px; }
+  /* 编辑态浮条：直接告诉人「在改哪一块、改的是什么、这个预览不会进成品」 */
+  .hab-edit-hud {
+    position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 6;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 7px 10px; background: rgba(8,12,11,0.9);
+    border: 1px solid rgba(240,180,90,0.35); border-radius: 3px;
+    font-size: 12px; line-height: 1.5; color: #E6ECE9; pointer-events: none;
+  }
+  .hab-edit-hud[hidden] { display: none; }
+  .hab-edit-hud .hud-tag { color: #F0B45A; font-weight: 600; }
+  .hab-edit-hud .hud-mono { color: #B9E6DA; font-variant-numeric: tabular-nums; }
+  .hab-edit-hud .hud-note { color: #84918D; }
+  .hab-vid-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .hab-vid-row select, .hab-vid-row input { flex: 1 1 auto; min-width: 0; }
+  /* 舞台高度由 JS 按窗口算：两侧栏各自上下滚，中间画布一屏看全，不用滚整个页面 */
+  .hab-stage {
+    flex: 1; position: relative; display: grid; grid-template-columns: 250px minmax(0, 1fr) 270px;
+    height: var(--hab-stage-height, 720px); min-height: 0; overflow: hidden;
+    max-width: 100%;
+  }
   .hab-side {
-    background: #0C1113; padding: 14px; overflow: auto;
+    background: #0C1113; padding: 14px 12px 24px; min-width: 0;
+    /* 全局 aside{width:300px} 会把侧栏撑出网格列，这里按列宽铺满 */
+    width: auto;
+    overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
     border-color: rgba(230,236,233,0.08); border-style: solid;
   }
+  /* 侧栏里的控件不许把面板撑宽：滑条可压缩，长标签换行 */
+  .hab-side .row { flex-wrap: wrap; }
+  .hab-side .row input[type="range"] { flex: 1 1 70px; min-width: 0; }
+  .hab-side .row select, .hab-side .row input[type="number"] { min-width: 0; max-width: 100%; }
+  .hab-side .hab-note { overflow-wrap: anywhere; }
   .hab-side.left { border-width: 0 1px 0 0; }
   .hab-side.right { border-width: 0 0 0 1px; }
   .hab-side h3 {
@@ -287,8 +314,9 @@
   #habitat button.active { border-color: #9BB0A4; color: #E6ECE9; }
   .hab-world {
     position: relative;
-    min-height: var(--hab-stage-height, 780px);
+    min-height: 0;
     background: #000;
+    overflow: hidden;
   }
   .hab-world canvas {
     position: absolute; inset: 0; width: 100%; height: 100%;
@@ -2881,9 +2909,9 @@ if (window.parent !== window) {
     <p class="hab-note">温湿度到速度、摆动和停顿的换算是演示模型（habitat-demo-0.1），不是本项目测得的生理规律。左侧「环境」与右侧「个体」面板可随时收起或展开。</p>
     <span class="hab-note" id="habSyncStat">实测 0 只 · 演示 0 只</span>
     <label class="hab-canvas-size">
-      场地高度
-      <input type="range" id="habCanvasHeight" min="640" max="1400" step="20" value="780">
-      <span id="habCanvasHeightVal">780px</span>
+      场地高度上限
+      <input type="range" id="habCanvasHeight" min="460" max="1400" step="20" value="1400">
+      <span id="habCanvasHeightVal">1400px</span>
     </label>
     <span class="spacer"></span>
     <button type="button" id="habOpenLeft" aria-pressed="false">收起环境</button>
@@ -2927,6 +2955,26 @@ if (window.parent !== window) {
       <button type="button" id="habLedGeom">导出单元几何 SVG</button>
       <button type="button" id="habLedDxf">导出单元几何 DXF</button>
       <button type="button" id="habLedCmd">复制母版渲染命令</button>
+      <h3>网页端导出视频</h3>
+      <p class="hab-note">直接在这里录一段循环片（WebM），不用回本地跑渲染脚本。录制是实时的，10 秒片大概要 10 秒。</p>
+      <div class="hab-vid-row">
+        <select id="habVidRes">
+          <option value="1280x720">1280×720</option>
+          <option value="1920x1080">1920×1080（更慢）</option>
+          <option value="2419x1360">2419×1360（最慢）</option>
+        </select>
+        <select id="habVidSec">
+          <option value="5">5 秒</option>
+          <option value="10" selected>10 秒</option>
+          <option value="30">30 秒</option>
+        </select>
+        <select id="habVidFps">
+          <option value="24">24 fps</option>
+          <option value="30" selected>30 fps</option>
+        </select>
+      </div>
+      <button type="button" id="habVidRecord">录制并下载视频（WebM）</button>
+      <p class="hab-note" id="habVidStatus">还没录制。画面越密、分辨率越高，录制越容易掉帧。</p>
     </aside>
     <div class="hab-world" id="habWorldWrap">
       <canvas id="habBg"></canvas>
@@ -2934,6 +2982,7 @@ if (window.parent !== window) {
       <canvas id="habMist" class="mist"></canvas>
       <canvas id="habWorld"></canvas>
       <canvas id="habDepth" class="depth" aria-hidden="true"></canvas>
+      <div class="hab-edit-hud" id="habEditHud" hidden></div>
       <div class="hab-viewport-tools">
         <button type="button" id="habZoomOut" title="缩小">−</button>
         <span id="habZoomLabel">100%</span>
@@ -7596,10 +7645,16 @@ showSplitPreview();
       drawSilk(ctx, habitat.reference, v, 0.09);
     }
     habitat.orphans.forEach(line => drawSilk(ctx, line, v, env.silkAlpha));
+    const editAgent = habitat.weaveEdit ? weaveEditAgent() : null;
     habitat.agents.forEach(agent => {
       if (agent.mode === 'bench') return;
       if (agent.kind === 'weave') {
+        // 编辑某一块时，其余块压暗到 42%，一眼就知道"现在在改哪一块"
+        const dimOther = editAgent && editAgent.id !== agent.id;
+        if (dimOther) ctx.save();
+        if (dimOther) ctx.globalAlpha = 0.42;
         drawWeave(ctx, agent, v);
+        if (dimOther) ctx.restore();
         if (agent.id === habitat.selected) {
           ctx.strokeStyle = 'rgba(230,236,233,0.35)';
           ctx.strokeRect(
@@ -7621,6 +7676,7 @@ showSplitPreview();
           ctx.restore();
         }
         drawWeaveHandles(ctx, agent, v);
+        if (editAgent && editAgent.id === agent.id) drawEditLivePreview(ctx, agent, v);
         return;
       }
       if (agent.kind === 'route' && agent.route && agent.route.length > 1) {
@@ -8401,7 +8457,7 @@ showSplitPreview();
     return e.drafts[key];
   }
 
-  function syncEditNote() {
+  function syncEditNoteText() {
     const el = document.getElementById('habWeaveEditNote');
     if (!el) return;
     const e = habitat.weaveEdit;
@@ -8419,6 +8475,63 @@ showSplitPreview();
     if (tool === 'hole') { el.textContent = '正在改孔洞 · 拖青色实点挪位置、拖青色圈改大小；直接点格内空白也能把孔挪过去。'; return; }
     if (tool === 'notch') { el.textContent = '正在改缺口 · 拖青色实点挪位置、拖青色圈改大小；点格边附近可把缺口挪到那边。'; return; }
     el.textContent = '正在改形状 · 拖橙色方点改整块大小、橙色十字挪整块；青色点挪孔、青色圈改孔径。';
+  }
+
+  function syncEditNote() { syncEditNoteText(); syncEditHud(); }
+
+  const WT_HINT = {
+    shape: '拖橙方点＝改整块大小 · 拖橙十字＝挪整块 · 拖青点/青圈＝挪孔/改孔径',
+    hole: '拖青点＝挪孔 · 拖青圈＝改孔径 · 点格内空白＝把孔挪到那里 · 没有孔时点一下会新建一个孔',
+    notch: '拖青点＝挪缺口 · 拖青圈＝改大小 · 点格子边缘附近＝把缺口挪到那边',
+    wall: '在格内连点几下画一条壁，双击收尾 · 白点可拖 · Alt+点删顶点',
+    path: '在格内连点几下画一条丝路（蚕会沿它走），双击收尾 · 白点可拖 · Alt+点删顶点',
+    outline: '连点画出单元外框，双击封闭 · 白点可拖 · Alt+点删顶点',
+  };
+  const WT_NAME = { shape: '整体形状', hole: '孔洞', notch: '缺口', wall: '壁', path: '丝路', outline: '外框' };
+
+  function weaveEditLiveInfo() {
+    const a = weaveEditAgent();
+    const e = habitat.weaveEdit;
+    if (!a || !e) return '';
+    const key = e.ix + ',' + e.iy;
+    const sh = (a.custom && a.custom.shapes && a.custom.shapes[key]) || null;
+    const islands = (sh && sh.islands) || [];
+    const d = habitat.drag;
+    if (d && d.kind === 'weaveHandle') {
+      const k = d.handle.kind;
+      if ((k === 'islandR' || k === 'islandMove') && islands[d.handle.i]) {
+        const isl = islands[d.handle.i];
+        const rr = Math.round(isl.r * 2);
+        return '孔心 (' + Math.round(isl.cx) + ', ' + Math.round(isl.cy) + ') · 直径 ' + rr + ' px';
+      }
+      if (k === 'notchR' || k === 'notchMove') {
+        return '缺口 直径 ' + Math.round((sh && sh.notch ? sh.notch.r : 0) * 2) + ' px';
+      }
+      if (k === 'unitCorner') return '整块 ' + Math.round(a.w) + ' × ' + Math.round(a.h) + ' px';
+      if (k === 'unitMove') return '整块中心 (' + Math.round(a.x) + ', ' + Math.round(a.y) + ')';
+      if (k === 'wallV' || k === 'pathV') return '拖动' + (k === 'wallV' ? '壁' : '丝路') + '顶点';
+      if (k === 'outlineV') return '拖动外框顶点';
+    }
+    if (islands.length) return '本格 ' + islands.length + ' 个孔 · 最大 Ø ' + Math.round(Math.max(...islands.map(o => o.r)) * 2) + ' px';
+    return '';
+  }
+
+  function syncEditHud() {
+    const el = document.getElementById('habEditHud');
+    if (!el) return;
+    const e = habitat.weaveEdit;
+    const a = weaveEditAgent();
+    if (!e || !a) { el.hidden = true; el.innerHTML = ''; return; }
+    const tool = e.tool || 'shape';
+    const idx = habitat.agents.filter(x => x.kind === 'weave').findIndex(x => x.id === a.id) + 1;
+    const live = weaveEditLiveInfo();
+    el.hidden = false;
+    el.innerHTML =
+      '<span class="hud-tag">编辑中 · 第 ' + idx + ' 块</span>' +
+      '<span>工具：' + (WT_NAME[tool] || tool) + '</span>' +
+      (live ? '<span class="hud-mono">' + live + '</span>' : '') +
+      '<span>' + (WT_HINT[tool] || '') + '</span>' +
+      '<span class="hud-note">虚线框和手柄只是编辑辅助，不会出现在成品图或导出的视频里</span>';
   }
 
   function finishWeaveEditLine() {
@@ -8708,6 +8821,141 @@ showSplitPreview();
     ctx.fillText(h.label, bx + 6, by + bh / 2);
     ctx.restore();
   }
+  // 画布上的小标签（深底 + 描边），用于半径、尺寸这类"直接读数"
+  function drawChip(ctx, px, py, text, color) {
+    ctx.save();
+    ctx.font = '11px "Microsoft YaHei", system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(text).width, bw = tw + 10, bh = 17;
+    let bx = px + 10, by = py - bh - 6;
+    bx = Math.min(bx, ctx.canvas.width - bw - 6);
+    by = Math.max(6, Math.min(by, ctx.canvas.height - bh - 6));
+    ctx.fillStyle = 'rgba(8,12,11,0.92)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
+    ctx.fillStyle = color;
+    ctx.fillText(text, bx + 5, by + bh / 2);
+    ctx.restore();
+  }
+
+  // 编辑中的"实时预览"：虚线框、孔的圆和半径读数、正在拖的那条壁/丝路。
+  // 这些只画在蚕室画布上，从不写进 agent 数据，所以导出（场景 / 曲线 / 视频）里不会出现。
+  function drawEditLivePreview(ctx, a, v) {
+    const e = habitat.weaveEdit;
+    if (!e || e.agentId !== a.id) return;
+    const ox = a.x + e.ix * a.w, oy = a.y + e.iy * a.h;
+    const c = weaveCellContent(a, e.ix, e.iy);
+    const key = e.ix + ',' + e.iy;
+    const sh = (a.custom && a.custom.shapes && a.custom.shapes[key]) || null;
+    const islands = (sh && sh.islands) || (c.cell && c.cell.islands) || [];
+    const notch = (sh && sh.notch) || (c.cell && c.cell.notch) || null;
+    ctx.save();
+    ctx.lineCap = 'butt';
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = 'rgba(240,180,90,0.85)';
+    ctx.lineWidth = 1.5;
+    // 正在编辑的这一格
+    ctx.strokeRect(v.px(ox - a.w / 2), v.py(oy - a.h / 2), a.w * v.s, a.h * v.s);
+    ctx.setLineDash([]);
+    drawChip(ctx, v.px(ox - a.w / 2), v.py(oy - a.h / 2), '编辑：第 ' +
+      (habitat.agents.filter(x => x.kind === 'weave').findIndex(x => x.id === a.id) + 1) + ' 块', '#F0B45A');
+    // 孔：虚线圆 + 圆心十字 + 半径读数（拖哪个孔就高亮哪个）
+    islands.forEach((isl, i) => {
+      const cx = v.px(ox + isl.cx), cy = v.py(oy + isl.cy), rr = Math.max(1, isl.r * v.s);
+      const dragging = habitat.drag && habitat.drag.kind === 'weaveHandle' && habitat.drag.handle.i === i;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = dragging ? 'rgba(185,230,218,0.95)' : 'rgba(121,203,182,0.55)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(121,203,182,0.75)';
+      ctx.beginPath();
+      ctx.moveTo(cx - 5, cy); ctx.lineTo(cx + 5, cy);
+      ctx.moveTo(cx, cy - 5); ctx.lineTo(cx, cy + 5);
+      ctx.stroke();
+      if (dragging || i === 0) {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy); ctx.lineTo(cx + rr, cy);
+        ctx.stroke();
+        drawChip(ctx, cx, cy - rr, 'Ø ' + Math.round(isl.r * 2) + ' px', '#79CBB6');
+      }
+    });
+    if (notch) {
+      const cx = v.px(ox + notch.cx), cy = v.py(oy + notch.cy), rr = Math.max(1, notch.r * v.s);
+      ctx.setLineDash([4, 5]);
+      ctx.strokeStyle = 'rgba(240,180,90,0.6)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // 壁 / 丝路：正在拖的那条整体点亮，让人知道"正在改的是这条"
+    const d = habitat.drag;
+    const hk = d && d.kind === 'weaveHandle' ? d.handle.kind : '';
+    const bucketW = (a.custom && a.custom.walls && a.custom.walls[key]) || [];
+    const bucketP = (a.custom && a.custom.paths && a.custom.paths[key]) || [];
+    const hlW = (hk === 'wallV') ? d.handle.wi : null;
+    const hlP = (hk === 'pathV') ? d.handle.pi : null;
+    bucketW.forEach((line, wi) => {
+      const src = line.pts || line;
+      const pts = weaveSmooth(src, line.closed, Math.max(2, Math.min(a.w, a.h) / 42));
+      ctx.strokeStyle = wi === hlW ? 'rgba(120,210,255,0.9)' : 'rgba(232,238,233,0.75)';
+      ctx.lineWidth = wi === hlW ? 2 : 1.2;
+      ctx.beginPath();
+      pts.forEach((q, k) => {
+        const px = v.px(ox + q.x), py = v.py(oy + q.y);
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+    });
+    bucketP.forEach((line, pi) => {
+      const src = line.pts || line;
+      const pts = weaveSmooth(src, line.closed, Math.max(2, Math.min(a.w, a.h) / 42));
+      ctx.strokeStyle = pi === hlP ? 'rgba(120,255,180,0.9)' : 'rgba(140,220,170,0.55)';
+      ctx.lineWidth = pi === hlP ? 2 : 1.2;
+      ctx.setLineDash([7, 4]);
+      ctx.beginPath();
+      pts.forEach((q, k) => {
+        const px = v.px(ox + q.x), py = v.py(oy + q.y);
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+    // 正在画、还没收尾的点（加壁/加丝路/外框）
+    const draft = (e.drafts && e.drafts[key]) || [];
+    if (draft.length) {
+      ctx.strokeStyle = 'rgba(120,210,255,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      draft.forEach((q, k) => {
+        const px = v.px(ox + q.x), py = v.py(oy + q.y);
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      draft.forEach((q) => {
+        ctx.fillStyle = 'rgba(120,210,255,0.85)';
+        ctx.fillRect(v.px(ox + q.x) - 2.5, v.py(oy + q.y) - 2.5, 5, 5);
+      });
+      ctx.setLineDash([]);
+    }
+    if (Array.isArray(e.outlinePts) && e.outlinePts.length && e.mode === 'outline') {
+      ctx.strokeStyle = 'rgba(120,210,255,0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      e.outlinePts.forEach((q, k) => {
+        const px = v.px(q.x), py = v.py(q.y);
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  }
+
   document.getElementById('habAddWeave').addEventListener('click', addWeaveAgent);
   const addOutlineBtn = document.getElementById('habAddOutline');
   if (addOutlineBtn) addOutlineBtn.addEventListener('click', startOutlineUnit);
@@ -8920,18 +9168,31 @@ showSplitPreview();
   });
   updateHabZoomLabel();
 
-  /* ===== 场地高度 ===== */
+  /* ===== 场地高度：按窗口自适应 =====
+     目标：两侧栏各自上下滚，中间画布一屏看全，不需要滚整个页面。
+     滑条现在是"高度上限"——默认放到最大，实际高度取窗口剩余高度。 */
   const canvasHeightInput = document.getElementById('habCanvasHeight');
   if (canvasHeightInput) {
-    const applyCanvasHeight = () => {
-      const h = Math.max(640, Math.min(1400, parseInt(canvasHeightInput.value, 10) || 780));
+    const fitStageHeight = () => {
+      const cap = Math.max(460, Math.min(1400, parseInt(canvasHeightInput.value, 10) || 1400));
+      const bar = document.querySelector('.hab-top');
+      const barH = bar ? bar.getBoundingClientRect().height : 56;
+      const avail = Math.max(460, window.innerHeight - barH - 12);
+      const h = Math.round(Math.min(cap, avail));
       document.getElementById('habitat').style.setProperty('--hab-stage-height', h + 'px');
       const valEl = document.getElementById('habCanvasHeightVal');
       if (valEl) valEl.textContent = h + 'px';
       repaintStaticLayers();
     };
-    canvasHeightInput.addEventListener('input', applyCanvasHeight);
-    applyCanvasHeight();
+    canvasHeightInput.addEventListener('input', fitStageHeight);
+    window.addEventListener('resize', fitStageHeight);
+    fitStageHeight();
+    // 上下滚的是两侧栏，不是整个页面：滚轮落在侧栏里就不要再传给页面
+    ['habLeft', 'habRight'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('wheel', (ev) => ev.stopPropagation(), { passive: true });
+    });
   }
   if (window.ResizeObserver) {
     const ro = new ResizeObserver(() => repaintStaticLayers());
@@ -9278,6 +9539,7 @@ showSplitPreview();
         navigator.clipboard.writeText(cmd).then(done, () => { hint(cmd); toast('复制被浏览器拒绝，命令已显示在下方提示条。', 'err'); });
       } else { hint(cmd); toast('命令已显示在提示条，手动复制。', 'err'); }
     });
+    on('habVidRecord', () => { ledRecordWebVideo(); });
   }
 
   /* ============ 母版 native 渲染模式（?native=1） ============ */
@@ -9311,6 +9573,69 @@ showSplitPreview();
     };
   }
 
+  // 母版/网页录制共用的取景：把块群外接框按 94% 装进屏体，换分辨率构图不变形
+  function ledFrameView(scene, W, H) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    scene.units.forEach(u => {
+      minX = Math.min(minX, u.x - u.w / 2);
+      maxX = Math.max(maxX, u.x + u.w / 2);
+      minY = Math.min(minY, u.y - u.h / 2);
+      maxY = Math.max(maxY, u.y + u.h / 2);
+    });
+    const bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY);
+    const s = Math.min(W * 0.94 / bw, H * 0.94 / bh);
+    const cxp = (minX + maxX) / 2;
+    const cyp = (minY + maxY) / 2;
+    return {
+      w: W, h: H, s: s,
+      cx: W / 2 - cxp * s,
+      cy: H / 2 - cyp * s,
+      px: x => W / 2 - cxp * s + x * s,
+      py: y => H / 2 - cyp * s + y * s,
+    };
+  }
+
+  // 合成一帧（离屏逐帧渲染和网页端录制都走这一条路径，避免两套画法不一致）
+  // cache：可选的数组，按单元序号缓存建好的 agent；录制时复用，省掉每帧重建
+  function ledComposeFrame(g, scene, T, isLoop, W, H, cache) {
+    g.save();
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, W, H);
+    const v = ledFrameView(scene, W, H);
+    const nUnits = Math.max(1, scene.units.length);
+    const growFrac = 0.42, holdFrac = 0.88;
+    // 收丝不回落到 0：块永远保留 62% 的丝量，否则循环里会出现"整块纯黑"的空洞，
+    // 远看就是墙上少了几块砖。0.62 仍能看出"这一块刚被重新织过"的稀密变化。
+    const uFloor = 0.62;
+    scene.units.forEach((u, i) => {
+      let agent = cache && cache[i];
+      if (!agent) {
+        agent = ledAgentFromUnit(u);
+        buildWeave(agent);
+        if (cache) cache[i] = agent;
+      }
+      if (isLoop) {
+        // 相位用黄金比散开（0.618…），而不是 order/N —— 否则整行块会同时起落，看起来像"整排闪"
+        const ord = u.order != null ? u.order : i;
+        const ph = ((ord + 0.5) * 0.61803398875) % 1;
+        const p = (T + ph) % 1;
+        let lvl;
+        if (p < growFrac) lvl = p / growFrac;
+        else if (p < holdFrac) lvl = 1;
+        else lvl = Math.max(0, 1 - (p - holdFrac) / (1 - holdFrac));
+        agent.u = uFloor + (1 - uFloor) * lvl;
+      } else {
+        // 每块错开起织，避免整片同时亮起；顺序由 order 决定
+        const delay = ((u.order != null ? u.order : i) % 7) * 0.045;
+        agent.u = Math.max(0, Math.min(1, (T - delay) / (1 - delay || 1)));
+      }
+      drawWeave(g, agent, v);
+    });
+    g.restore();
+  }
+
   function ledRenderNative() {
     const params = new URLSearchParams(location.search);
     const scene = window.__LED_SCENE || (params.get('scene') ? ledB64Json(params.get('scene')) : null);
@@ -9333,63 +9658,95 @@ showSplitPreview();
     cv.style.cssText = 'display:block;width:' + W + 'px;height:' + H + 'px;';
     document.body.appendChild(cv);
     const g = cv.getContext('2d');
-    g.fillStyle = '#000';
-    g.fillRect(0, 0, W, H);
-
-    // 缩放：把整个块群按外接框装进屏体（留 3% 安全边），换分辨率时构图不变形、不缩在一角
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    scene.units.forEach(u => {
-      minX = Math.min(minX, u.x - u.w / 2);
-      maxX = Math.max(maxX, u.x + u.w / 2);
-      minY = Math.min(minY, u.y - u.h / 2);
-      maxY = Math.max(maxY, u.y + u.h / 2);
-    });
-    const bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY);
-    const s = Math.min(W * 0.94 / bw, H * 0.94 / bh);
-    const cxp = (minX + maxX) / 2;
-    const cyp = (minY + maxY) / 2;
-    const v = {
-      w: W, h: H, s: s,
-      cx: W / 2 - cxp * s,
-      cy: H / 2 - cyp * s,
-      px: x => W / 2 - cxp * s + x * s,
-      py: y => H / 2 - cyp * s + y * s,
-    };
-
-    // 循环模式：每块有自己的相位，沿锯齿周期"起针→织满→收丝"；相位在 0..1 均布，
-    // 所以任意时刻整屏总丝量基本恒定，且 t=1 与 t=0 完全重合（首尾帧可无缝接）。
-    // 非循环模式保持"从空长到满"（出静帧/论文图用）。
-    const loop = isLoop;
-    const nUnits = Math.max(1, scene.units.length);
-    const growFrac = 0.42, holdFrac = 0.88;
-    // 收丝不回落到 0：块永远保留 62% 的丝量，否则循环里会出现"整块纯黑"的空洞，
-    // 远看就是墙上少了几块砖。0.62 仍能看出"这一块刚被重新织过"的稀密变化。
-    const uFloor = 0.62;
-    const loopU = (i) => {
-      // 相位用黄金比散开（0.618…），而不是 order/N —— 否则整行块会同时起落，看起来像"整排闪"
-      const ord = scene.units[i].order != null ? scene.units[i].order : i;
-      const ph = ((ord + 0.5) * 0.61803398875) % 1;
-      const p = (T + ph) % 1;
-      let lvl;
-      if (p < growFrac) lvl = p / growFrac;
-      else if (p < holdFrac) lvl = 1;
-      else lvl = Math.max(0, 1 - (p - holdFrac) / (1 - holdFrac));
-      return uFloor + (1 - uFloor) * lvl;
-    };
-
-    scene.units.forEach((u, i) => {
-      const agent = ledAgentFromUnit(u);
-      buildWeave(agent);
-      if (loop) {
-        agent.u = loopU(i);
-      } else {
-        // 每块错开起织，避免整片同时亮起；顺序由 order 决定
-        const delay = (u.order % 7) * 0.045;
-        agent.u = Math.max(0, Math.min(1, (T - delay) / (1 - delay || 1)));
-      }
-      drawWeave(g, agent, v);
-    });
+    ledComposeFrame(g, scene, T, isLoop, W, H, null);
     return true;
+  }
+
+  // ===== 网页端直接出片：把同一套合成逻辑录成 WebM，不用回本地跑脚本 =====
+  function ledVideoStatus(text) {
+    const el = document.getElementById('habVidStatus');
+    if (el) el.textContent = text;
+  }
+
+  async function ledRecordWebVideo() {
+    const btn = document.getElementById('habVidRecord');
+    if (!habitat.agents.some(a => a.kind === 'weave')) {
+      toast('还没有织网单元，先放一块再录。', 'err');
+      return;
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      toast('这个浏览器不支持网页端录制（MediaRecorder 不可用）。', 'err');
+      return;
+    }
+    const resSel = document.getElementById('habVidRes');
+    const secSel = document.getElementById('habVidSec');
+    const fpsSel = document.getElementById('habVidFps');
+    const spec = (resSel ? resSel.value : '1280x720').split('x');
+    const W = Math.max(320, parseInt(spec[0], 10) || 1280);
+    const H = Math.max(240, parseInt(spec[1], 10) || 720);
+    const secs = Math.max(2, parseInt(secSel ? secSel.value : '10', 10) || 10);
+    const fps = Math.max(12, parseInt(fpsSel ? fpsSel.value : '30', 10) || 30);
+    const total = Math.round(secs * fps);
+
+    if (btn) { btn.disabled = true; btn.textContent = '录制中…'; }
+    let rec = null;
+    try {
+      const scene = ledScene();
+      scene.loop = true;               // 网页导出默认出循环片
+      scene.frames = total;
+      const cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      const g = cv.getContext('2d', { alpha: false });
+      const cache = [];
+      ledComposeFrame(g, scene, 0, true, W, H, cache);   // 先把 42 块建好，后面每帧只重画
+      const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+        .find(m => { try { return MediaRecorder.isTypeSupported(m); } catch (_) { return false; } }) || '';
+      const stream = cv.captureStream(fps);
+      rec = new MediaRecorder(stream, { mimeType: mime || undefined, videoBitsPerSecond: 14e6 });
+      const chunks = [];
+      rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+      const stopped = new Promise(resolve => { rec.onstop = resolve; });
+      rec.start();
+
+      const t0 = performance.now();
+      let lastFrame = -1;
+      await new Promise(resolve => {
+        const step = () => {
+          const el = (performance.now() - t0) / 1000;
+          const f = Math.min(total, Math.floor(el * fps));
+          if (f !== lastFrame) {
+            ledComposeFrame(g, scene, f / total, true, W, H, cache);
+            lastFrame = f;
+          }
+          ledVideoStatus('录制中 ' + Math.min(100, Math.round(el / secs * 100)) + '% · 第 ' +
+            Math.max(0, lastFrame) + '/' + total + ' 帧' + (W * H > 2.2e6 ? '（高分辨率，可能掉帧）' : ''));
+          if (el >= secs) { resolve(); return; }
+          requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+      await new Promise(r => setTimeout(r, 120));   // 让最后一帧进流
+      rec.stop();
+      await stopped;
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      if (!blob.size) { toast('录制没有产出数据，换个分辨率再试。', 'err'); ledVideoStatus('录制失败：没有数据。'); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'weave_web_' + W + 'x' + H + '_' + secs + 's.webm';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 6000);
+      ledVideoStatus('已导出 ' + a.download + '（' + (blob.size / 1048576).toFixed(1) + ' MB，' +
+        W + '×' + H + ' / ' + fps + ' fps / ' + secs + ' 秒）。WebM 播放器都能放；要 ProRes 母版还是走本地渲染脚本。');
+      toast('网页端视频已导出：' + a.download, 'ok');
+    } catch (err) {
+      ledVideoStatus('录制失败：' + (err && err.message ? err.message : String(err)));
+      toast('网页端录制失败：' + (err && err.message ? err.message : String(err)), 'err');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '录制并下载视频（WebM）'; }
+    }
   }
 
   function importHabitat(data) {
@@ -9501,6 +9858,8 @@ showSplitPreview();
     ledSvg: ledSvg,
     ledDxf: ledDxf,
     ledRenderCommand: ledRenderCommand,
+    ledComposeFrame: ledComposeFrame,
+    ledRecordWebVideo: ledRecordWebVideo,
   };
 
   bindRoutePanel();
