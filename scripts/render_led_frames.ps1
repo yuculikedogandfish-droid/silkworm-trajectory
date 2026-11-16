@@ -1,19 +1,21 @@
 ﻿# 离线逐帧渲染 + 编码（LED 母版）
 # 用法示例（在仓库根目录执行）：
 #   powershell -ExecutionPolicy Bypass -File scripts\render_led_frames.ps1 `
-#     -Native "2419x1360" -Frames 900 -Fps 30 -Cfg "<从 weave-lab 复制的 cfg>"
+#     -Html docs\index.html -Scene led-scene.json -Native "2419x1360" -Frames 900 -Fps 30 -Encode
 #
-# 原理：weave-lab.html 支持 ?native=1&frame=N&total=M&cfg=...，
-#       该模式下隐藏全部 UI、画布固定为原生像素、按 frame 确定性重绘。
-#       本脚本用无头 Chrome 逐帧截图，再用 ffmpeg 合成母版。
+# 两种输入：
+#   1) -Scene <led-scene.json>（主程序「母版导出」产出）：脚本把场景 JSON 注入页面副本，
+#      逐帧以 ?native=1&frame=N&total=M 渲染，确定性、可续渲。
+#   2) -Cfg "<weave-lab 的 cfg>"：老路径，走 prototype\weave-lab.html。
 #
 # 注意：单帧 PNG 约 4–10 MB（取决于内容），900 帧约 4–9 GB，先确认目标盘剩余空间。
 
 param(
   [string]$Html     = "prototype\weave-lab.html",
-  [string]$Native   = "2419x1360",
-  [int]$Frames      = 300,
-  [int]$Fps         = 30,
+  [string]$Native   = "",
+  [int]$Frames      = 0,
+  [int]$Fps         = 0,
+  [string]$Scene    = "",
   [string]$Cfg      = "",
   [string]$OutDir   = "G:\led-render\frames",
   [string]$Chrome   = "C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -23,6 +25,23 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# ---- 读场景（可选）----
+$sceneJson = ""
+if ($Scene -ne "") {
+  $scenePath = [IO.Path]::GetFullPath($Scene)
+  if (-not (Test-Path -LiteralPath $scenePath)) { throw "找不到场景文件：$scenePath" }
+  $sceneJson = [IO.File]::ReadAllText($scenePath, [Text.Encoding]::UTF8)
+  if ($sceneJson -notmatch '"units"') { throw "场景文件里没有 units 字段，不是母版场景 JSON" }
+  $sceneObj = $sceneJson | ConvertFrom-Json
+  if ($Native -eq "" -and $sceneObj.px) { $Native = "$($sceneObj.px.w)x$($sceneObj.px.h)" }
+  if ($Frames -le 0 -and $sceneObj.frames) { $Frames = [int]$sceneObj.frames }
+  if ($Fps -le 0 -and $sceneObj.fps) { $Fps = [int]$sceneObj.fps }
+  Write-Host "场景文件   : $scenePath（$($sceneObj.units.Count) 个织网单元）"
+}
+if ($Native -eq "") { $Native = "2419x1360" }
+if ($Frames -le 0) { $Frames = 300 }
+if ($Fps -le 0) { $Fps = 30 }
 
 # ---- 解析分辨率 ----
 if ($Native -notmatch '^\s*(\d+)\s*[xX×]\s*(\d+)\s*$') {
@@ -43,6 +62,19 @@ if ([IO.Path]::IsPathRooted($Html)) {
 }
 if (-not (Test-Path -LiteralPath $htmlPath)) { throw "找不到页面：$htmlPath" }
 $fileUrl = "file:///" + ($htmlPath -replace '\\', '/')
+
+# ---- 场景模式：把 led-scene.json 注入页面副本，避免超长 URL ----
+$tmpHtml = ""
+if ($sceneJson -ne "") {
+  $tmpHtml = Join-Path $env:TEMP ("led-scene-" + [guid]::NewGuid().ToString("N").Substring(0, 8) + ".html")
+  $src = [IO.File]::ReadAllText($htmlPath, [Text.Encoding]::UTF8)
+  $inject = "<script>window.__LED_SCENE=" + $sceneJson + ";</script>"
+  $headEnd = $src.IndexOf("</head>")
+  if ($headEnd -lt 0) { throw "页面里找不到 </head>，无法注入场景" }
+  $src = $src.Insert($headEnd, $inject)
+  [IO.File]::WriteAllText($tmpHtml, $src, (New-Object Text.UTF8Encoding($false)))
+  $fileUrl = "file:///" + ($tmpHtml -replace '\\', '/')
+}
 
 # ---- 输出目录与空间检查 ----
 if (-not (Test-Path -LiteralPath $OutDir)) {

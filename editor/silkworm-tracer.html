@@ -2897,6 +2897,24 @@ if (window.parent !== window) {
       <button type="button" id="habSave">保存场景 JSON</button>
       <button type="button" id="habRef">铺入只读预览轨迹</button>
       <button type="button" id="habClearRef">去掉底图</button>
+      <h3>母版导出</h3>
+      <p class="hab-note">场景 JSON 是母版渲染的输入；曲线 / 单元几何给 Rhino、Blender 用。</p>
+      <div class="row"><label>屏体分辨率</label>
+        <select id="habLedRes">
+          <option value="2419x1360">2419×1360（16:9）</option>
+          <option value="2565x1282">2565×1282（2:1）</option>
+          <option value="2466x1333">2466×1333（1.85:1）</option>
+        </select>
+      </div>
+      <div class="row"><label>帧数 / 帧率</label>
+        <input type="number" id="habLedFrames" value="900" min="1" max="3600" style="width:72px">
+        <input type="number" id="habLedFps" value="30" min="12" max="60" style="width:56px">
+      </div>
+      <button type="button" id="habLedScene">导出母版场景 JSON</button>
+      <button type="button" id="habLedCurves">导出曲线 JSON</button>
+      <button type="button" id="habLedGeom">导出单元几何 SVG</button>
+      <button type="button" id="habLedDxf">导出单元几何 DXF</button>
+      <button type="button" id="habLedCmd">复制母版渲染命令</button>
     </aside>
     <div class="hab-world" id="habWorldWrap">
       <canvas id="habBg"></canvas>
@@ -8714,6 +8732,302 @@ showSplitPreview();
     };
   }
 
+  /* ============ 母版导出（P3） ============ */
+
+  function ledResolve() {
+    const res = (document.getElementById('habLedRes') || {}).value || '2419x1360';
+    const m = /^(\d+)\s*[xX×]\s*(\d+)$/.exec(res) || [0, 2419, 1360];
+    const frames = Math.max(1, Math.min(3600, parseInt((document.getElementById('habLedFrames') || {}).value, 10) || 900));
+    const fps = Math.max(12, Math.min(60, parseInt((document.getElementById('habLedFps') || {}).value, 10) || 30));
+    return { w: +m[1], h: +m[2], frames, fps };
+  }
+
+  // 场景 = 母版渲染的输入：所有织网单元参数 + 取景 + 时间轴
+  function ledScene() {
+    const r = ledResolve();
+    const b = ledBounds();
+    const bw = Math.max(1, b.x1 - b.x0), bh = Math.max(1, b.y1 - b.y0);
+    // 母版取景按目标像素算：整片块群占画面 92%，四周留安全边（LED 柜体拼缝）
+    const s = Math.min(r.w * 0.92 / bw, r.h * 0.92 / bh);
+    const units = habitat.agents.filter(a => a.kind === 'weave').map((a, i) => ({
+      order: i,
+      x: +a.x.toFixed(2), y: +a.y.toFixed(2),
+      w: +a.w.toFixed(2), h: +a.h.toFixed(2),
+      coverage: Number.isFinite(a.coverage) ? a.coverage : 0.55,
+      shape: a.shape || 'island',
+      worms: a.worms || 6,
+      seed: a.seed >>> 0,
+      tone: Number.isFinite(a.tone) ? a.tone : 0.85,
+      gap: Number.isFinite(a.gap) ? a.gap : 6,
+      strata: Math.max(1, Math.min(3, a.strata || 2)),
+      outline: (Array.isArray(a.outline) && a.outline.length >= 3)
+        ? a.outline.map(p => ({ x: +p.x.toFixed(2), y: +p.y.toFixed(2) })) : null,
+      custom: a.custom || { walls: {}, paths: {}, shapes: {} },
+    }));
+    return {
+      schema: 'silkworm-led-scene/v1',
+      createdAt: new Date().toISOString(),
+      px: { w: r.w, h: r.h },
+      fps: r.fps,
+      frames: r.frames,
+      // 取景：预览画布里 1 世界单位 = scale 像素，画布中心对准 center（世界坐标）
+      scale: +s.toFixed(6),
+      center: { x: +((b.x0 + b.x1) / 2).toFixed(3), y: +((b.y0 + b.y1) / 2).toFixed(3) },
+      source: {
+        silkPaths: 'measured',
+        note: '丝迹形状来自实测样本回放；块位置/孔位/亮度梯度为假设（assumption），不进论文图为实测',
+      },
+      units,
+    };
+  }
+
+  function ledBounds() {
+    const units = habitat.agents.filter(a => a.kind === 'weave');
+    if (!units.length) return { x0: -200, y0: -200, x1: 200, y1: 200 };
+    const xs = [], ys = [];
+    units.forEach(a => {
+      xs.push(a.x - a.w / 2, a.x + a.w / 2);
+      ys.push(a.y - a.h / 2, a.y + a.h / 2);
+    });
+    return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+  }
+
+  // 曲线 JSON：每个单元的实际丝线点列（世界坐标，属性带 seed / 覆盖 / 分层）
+  function ledCurves() {
+    const units = [];
+    habitat.agents.filter(a => a.kind === 'weave').forEach((a, i) => {
+      const content = weaveCellContent(a, 0, 0);
+      const cum = weavePathCum(content);
+      let acc = 0;
+      const curves = content.paths.map(p => {
+        const len = p.pts.reduce((s, q, k) => (k ? s + Math.hypot(q.x - p.pts[k - 1].x, q.y - p.pts[k - 1].y) : 0), 0);
+        const one = {
+          u0: +(acc / cum.total).toFixed(5),
+          length: +len.toFixed(2),
+          band: p.b != null ? p.b : null,
+          alpha: p.a != null ? +p.a.toFixed(3) : null,
+          pts: p.pts.map(q => [+(q.x + a.x).toFixed(2), +(q.y + a.y).toFixed(2)]),
+        };
+        acc += len;
+        return one;
+      });
+      units.push({
+        id: a.id, order: i, x: +a.x.toFixed(2), y: +a.y.toFixed(2),
+        w: a.w, h: a.h, seed: a.seed >>> 0,
+        coverage: a.coverage, strata: a.strata, tone: a.tone,
+        totalLength: +cum.total.toFixed(2),
+        curves,
+      });
+    });
+    return {
+      schema: 'silkworm-weave-curves/v1',
+      unit: 'world px（画布局部单位，1 单位 = 1 预览像素；需要 mm 请在描图器里按标定换算）',
+      source: { silkPaths: 'measured', note: '形状来自实测丝迹回放' },
+      units,
+    };
+  }
+
+  function ledGeometryPolys(a) {
+    const content = weaveCellContent(a, 0, 0);
+    const polys = [];
+    const cell = content.cell || {};
+    if (cell.outline && cell.outline.length >= 3) {
+      polys.push({ kind: 'outline', closed: true, pts: cell.outline.map(p => ({ x: p.x + a.x, y: p.y + a.y })) });
+    } else {
+      polys.push({
+        kind: 'outline', closed: true, pts: [
+          { x: a.x - a.w / 2, y: a.y - a.h / 2 }, { x: a.x + a.w / 2, y: a.y - a.h / 2 },
+          { x: a.x + a.w / 2, y: a.y + a.h / 2 }, { x: a.x - a.w / 2, y: a.y + a.h / 2 },
+        ],
+      });
+    }
+    (cell.islands || []).forEach(isl => {
+      const pts = [];
+      const N = 48;
+      for (let k = 0; k < N; k++) {
+        const t = Math.PI * 2 * k / N;
+        pts.push({ x: a.x + isl.cx + Math.cos(t) * isl.r, y: a.y + isl.cy + Math.sin(t) * isl.r });
+      }
+      polys.push({ kind: 'hole', closed: true, pts, r: isl.r });
+    });
+    if (cell.notch) {
+      polys.push({
+        kind: 'notch', closed: false, pts: [
+          { x: a.x + cell.notch.x, y: a.y + cell.notch.y - (cell.notch.r || 0) },
+          { x: a.x + cell.notch.x, y: a.y + cell.notch.y },
+        ],
+      });
+    }
+    content.walls.forEach(line => {
+      if (line.length > 1) polys.push({ kind: 'wall', closed: false, pts: line.map(p => ({ x: p.x + a.x, y: p.y + a.y })) });
+    });
+    content.customWalls.forEach(cw => {
+      const src = cw.pts || cw;
+      if (src.length > 1) polys.push({ kind: 'manualWall', closed: !!cw.closed, pts: src.map(p => ({ x: p.x + a.x, y: p.y + a.y })) });
+    });
+    return polys;
+  }
+
+  function ledSvg() {
+    const b = ledBounds();
+    const pad = 24;
+    const w = b.x1 - b.x0 + pad * 2, h = b.y1 - b.y0 + pad * 2;
+    const lines = [];
+    lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+    lines.push('<svg xmlns="http://www.w3.org/2000/svg" width="' + Math.round(w) + '" height="' + Math.round(h) +
+      '" viewBox="' + (b.x0 - pad).toFixed(2) + ' ' + (b.y0 - pad).toFixed(2) + ' ' + w.toFixed(2) + ' ' + h.toFixed(2) + '">');
+    lines.push('<g fill="none" stroke="#e6e8ec" stroke-width="1">');
+    habitat.agents.filter(a => a.kind === 'weave').forEach(a => {
+      ledGeometryPolys(a).forEach(p => {
+        if (p.pts.length < 2) return;
+        const d = p.pts.map((q, k) => (k ? 'L' : 'M') + q.x.toFixed(2) + ' ' + q.y.toFixed(2)).join(' ');
+        lines.push('  <path id="' + a.id + '-' + p.kind + '" d="' + d + (p.closed ? ' Z' : '') +
+          '" stroke-width="' + (p.kind === 'hole' ? 0.6 : 1.2) + '" opacity="' + (p.kind === 'wall' ? 0.5 : 0.9) + '"/>');
+      });
+    });
+    lines.push('</g>');
+    lines.push('</svg>');
+    return lines.join('\n');
+  }
+
+  function ledDxf() {
+    const out = [];
+    out.push('0', 'SECTION', '2', 'HEADER', '0', 'ENDSEC');
+    out.push('0', 'SECTION', '2', 'ENTITIES');
+    habitat.agents.filter(a => a.kind === 'weave').forEach(a => {
+      ledGeometryPolys(a).forEach(p => {
+        if (p.pts.length < 2) return;
+        out.push('0', 'LWPOLYLINE', '8', p.kind, '90', String(p.pts.length), '70', p.closed ? '1' : '0');
+        p.pts.forEach(q => {
+          out.push('10', q.x.toFixed(3), '20', (-q.y).toFixed(3));   // DXF Y 轴向上，画布 Y 向下
+        });
+      });
+    });
+    out.push('0', 'ENDSEC', '0', 'EOF');
+    return out.join('\n');
+  }
+
+  function ledDownload(name, text, mime) {
+    const blob = new Blob([text], { type: mime || 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  function ledRenderCommand() {
+    const r = ledResolve();
+    return 'powershell -ExecutionPolicy Bypass -File scripts\\render_led_frames.ps1 -Html docs\\index.html ' +
+      '-Scene led-scene.json -Native ' + r.w + 'x' + r.h + ' -Frames ' + r.frames + ' -Fps ' + r.fps +
+      ' -OutDir "G:\\led-render\\frames" -Encode';
+  }
+
+  function bindLedPanel() {
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    on('habLedScene', () => {
+      if (!habitat.agents.some(a => a.kind === 'weave')) { toast('还没有织网单元可导出。', 'err'); return; }
+      ledDownload('led-scene.json', JSON.stringify(ledScene(), null, 2));
+      toast('已导出 led-scene.json（母版渲染的输入）。', 'ok');
+      hint('把 led-scene.json 和 docs/index.html 放同一目录，然后点「复制母版渲染命令」按提示跑。');
+    });
+    on('habLedCurves', () => {
+      if (!habitat.agents.some(a => a.kind === 'weave')) { toast('还没有织网单元可导出。', 'err'); return; }
+      ledDownload('weave-curves.json', JSON.stringify(ledCurves()));
+      toast('已导出 weave-curves.json（Blender / TD 重建用）。', 'ok');
+    });
+    on('habLedGeom', () => {
+      ledDownload('weave-cells.svg', ledSvg(), 'image/svg+xml');
+      toast('已导出 weave-cells.svg（外框 / 圆孔 / 壁）。', 'ok');
+    });
+    on('habLedDxf', () => {
+      ledDownload('weave-cells.dxf', ledDxf(), 'application/dxf');
+      toast('已导出 weave-cells.dxf（Rhino / CAD 用）。', 'ok');
+    });
+    on('habLedCmd', () => {
+      const cmd = ledRenderCommand();
+      const done = () => { toast('命令已复制；先导出 led-scene.json 放在仓库根目录。', 'ok'); hint(cmd); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(cmd).then(done, () => { hint(cmd); toast('复制被浏览器拒绝，命令已显示在下方提示条。', 'err'); });
+      } else { hint(cmd); toast('命令已显示在提示条，手动复制。', 'err'); }
+    });
+  }
+
+  /* ============ 母版 native 渲染模式（?native=1） ============ */
+
+  function ledB64Json(s) {
+    const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64 + '='.repeat((4 - b64.length % 4) % 4));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+  }
+
+  function ledAgentFromUnit(u) {
+    return {
+      id: 'led-' + u.order, kind: 'weave', mode: 'idle', bodyVisible: true,
+      x: u.x, y: u.y, w: u.w, h: u.h,
+      coverage: Number.isFinite(u.coverage) ? u.coverage : 0.55,
+      shape: u.shape || 'island',
+      worms: Number.isFinite(u.worms) ? u.worms : 6,
+      wallAff: 0.6,
+      seed: (u.seed >>> 0),
+      tone: Number.isFinite(u.tone) ? u.tone : 0.85,
+      gap: Number.isFinite(u.gap) ? u.gap : 8,
+      strata: Math.max(1, Math.min(3, u.strata || 2)),
+      outline: (Array.isArray(u.outline) && u.outline.length >= 3) ? u.outline : null,
+      u: 0, duration: 30, speedScale: 1, tileField: false,
+      silk: [], heading: 0, walls: [], paths: [],
+      custom: u.custom || { walls: {}, paths: {}, shapes: {} },
+      cache: null, sample: null,
+    };
+  }
+
+  function ledRenderNative() {
+    const params = new URLSearchParams(location.search);
+    const scene = window.__LED_SCENE || (params.get('scene') ? ledB64Json(params.get('scene')) : null);
+    if (!scene || !Array.isArray(scene.units)) return false;
+    const W = scene.px && scene.px.w ? scene.px.w : 2419;
+    const H = scene.px && scene.px.h ? scene.px.h : 1360;
+    const total = Math.max(1, parseInt(params.get('total'), 10) || (scene.frames || 900));
+    const frame = Math.max(0, Math.min(total, parseInt(params.get('frame'), 10) || 0));
+    const T = total <= 1 ? 1 : frame / (total - 1);
+
+    document.body.innerHTML = '';
+    document.body.style.cssText = 'margin:0;padding:0;background:#000;overflow:hidden;';
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    cv.style.cssText = 'display:block;width:' + W + 'px;height:' + H + 'px;';
+    document.body.appendChild(cv);
+    const g = cv.getContext('2d');
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, W, H);
+
+    const s = Number.isFinite(scene.scale) ? scene.scale : Math.min(W, H) / 700;
+    const cxp = Number.isFinite(scene.center && scene.center.x) ? scene.center.x : 0;
+    const cyp = Number.isFinite(scene.center && scene.center.y) ? scene.center.y : 0;
+    const v = {
+      w: W, h: H, s: s,
+      cx: W / 2 - cxp * s,
+      cy: H / 2 - cyp * s,
+      px: x => W / 2 - cxp * s + x * s,
+      py: y => H / 2 - cyp * s + y * s,
+    };
+
+    scene.units.forEach(u => {
+      const agent = ledAgentFromUnit(u);
+      buildWeave(agent);
+      // 每块错开起织，避免整片同时亮起；顺序由 order 决定
+      const delay = (u.order % 7) * 0.045;
+      agent.u = Math.max(0, Math.min(1, (T - delay) / (1 - delay || 1)));
+      drawWeave(g, agent, v);
+    });
+    return true;
+  }
+
   function importHabitat(data) {
     if (!data) return;
     if (Number.isFinite(data.temperatureC)) {
@@ -8818,9 +9132,21 @@ showSplitPreview();
     step: step,
     sampleRouteCentered: sampleRouteCentered,
     view: () => view(),
+    ledScene: ledScene,
+    ledCurves: ledCurves,
+    ledSvg: ledSvg,
+    ledDxf: ledDxf,
+    ledRenderCommand: ledRenderCommand,
   };
 
   bindRoutePanel();
+  bindLedPanel();
+
+  // native 模式：URL 带 ?native=1 时只渲染一帧（母版出片用），不启动交互与动画
+  if (new URLSearchParams(location.search).get('native') === '1' && ledRenderNative()) {
+    return;
+  }
+
   syncMeasured();
   renderList();
   function repaintStaticLayers() {
