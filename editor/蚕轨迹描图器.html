@@ -245,7 +245,7 @@
 
   /* ===== Digital Habitat（外层全宽区块） ===== */
   #habitat {
-    min-height: 100vh; color: #E6ECE9; background: #070A0C;
+    height: 100vh; min-height: 100vh; overflow: hidden; color: #E6ECE9; background: #070A0C;
     display: flex; flex-direction: column;
     --hab-stage-height: 780px;
   }
@@ -255,6 +255,8 @@
   }
   .hab-top { border-width: 1px 0; flex-wrap: wrap; }
   .hab-time { border-width: 1px 0 0; }
+  .hab-timeline { flex: 1 1 260px; min-width: 120px; display: flex; align-items: center; }
+  .hab-timeline input[type="range"] { width: 100%; accent-color: #f0b45a; cursor: pointer; }
   .hab-top h2 { font-size: 15px; font-weight: 560; letter-spacing: 0.04em; }
   .hab-note { color: #84918D; font-size: 11px; line-height: 1.45; max-width: 640px; }
 .hab-tools { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
@@ -269,6 +271,9 @@
 .hab-legend .lg-hole { background: #79cbb6; border-radius: 50%; }
 .hab-legend .lg-ring { background: transparent; border: 1px solid #79cbb6; border-radius: 50%; }
 .hab-legend .lg-pt { background: #e8eee9; }
+  .hab-legend-terms { margin: 4px 0 8px; display: grid; gap: 4px; }
+  .hab-legend-terms p { margin: 0; color: #93a09a; font-size: 11px; line-height: 1.55; }
+  .hab-legend-terms b { color: #cfd9d3; font-weight: 600; }
   /* 编辑态浮条：直接告诉人「在改哪一块、改的是什么、这个预览不会进成品」 */
   .hab-edit-hud {
     position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 6;
@@ -3019,7 +3024,8 @@ if (window.parent !== window) {
           <option value="notchIsland">缺角 + 内岛</option>
         </select></div>
         <div class="row"><button type="button" id="habWeaveRebuild">重新织</button></div>
-        <div class="row"><button type="button" id="habWeaveLoadProfile">载入指纹 JSON</button><input type="file" id="habWeaveProfileFile" accept=".json" hidden></div>
+        <div class="row"><button type="button" id="habWeaveLoadProfile">载入点列 / 指纹 JSON</button><input type="file" id="habWeaveProfileFile" accept=".json" hidden></div>
+        <p class="hab-note">点列 .json：上方描图器顶栏「导出 JSON」（curves3d）或 <code>trajectories.json</code>（x_mm / y_mm）——载入后直接变成场地里那只蚕。运动指纹：P0 脚本产物（schema=silkworm-motion-profile/v1），<b>目前界面里没有导出这个格式的按钮</b>，所以别从界面找它。</p>
         <h3>形状编辑</h3>
         <p class="hab-note">先选一块织网单元，点「编辑这一格」，画布上就会出现可以拖的点。拖完点「完成编辑」即可。</p>
         <div class="row">
@@ -3042,6 +3048,14 @@ if (window.parent !== window) {
           <li><i class="lg-ring"></i>青色圈：拖它改孔洞大小</li>
           <li><i class="lg-pt"></i>白色小方：壁 / 丝路 / 外框的顶点（Alt + 点删除）</li>
         </ul>
+        <div class="hab-legend-terms">
+          <p><b>孔洞</b>：格子里空出来的一块，蚕绕开它织，孔里不会有丝。</p>
+          <p><b>缺口</b>：从边缘缺进去的一块，效果同上，但缺口贴着格子边。</p>
+          <p><b>壁</b>：一道看不见的挡墙。蚕碰到墙就停下来、在墙前收口，然后从墙的另一侧另起一段丝——用来把丝挡在一条线上，织出块与块之间的缝。</p>
+          <p><b>丝路</b>：一条引导线。蚕会顺着它走，丝贴着这条线铺开——用来让某一片区域的丝有固定走向（比如一条斜纹）。</p>
+          <p><b>外框</b>：这一格的边界。蚕出不了外框，丝会被压在框上。</p>
+          <p>画法都一样：点「加壁」/「加丝路」/「外框」→ 在格子里一格一格点顶点 → <b>双击</b>收尾（或按「这一笔收尾」）。画的时候是虚线预览，<b>不会进成品</b>。</p>
+        </div>
         <div class="row">
           <button type="button" id="habWeaveEditEnd">这一笔收尾</button>
           <button type="button" id="habWeaveEditClear">清掉本格自定义</button>
@@ -3069,13 +3083,17 @@ if (window.parent !== window) {
       <button type="button" id="habShow">显示蚕体</button>
       <button type="button" id="habDropSilk">移除蚕，保留丝</button>
       <button type="button" id="habDropAll">移除蚕，清除丝</button>
-      <button type="button" id="habUndo">撤销上一步破坏</button>
+      <button type="button" id="habUndo">撤销（Ctrl+Z）</button>
+      <button type="button" id="habRedo">重做（Ctrl+Shift+Z）</button>
     </aside>
   </div>
   <div class="hab-time">
     <button type="button" id="habStart">开始</button>
     <button type="button" id="habPause">暂停</button>
     <button type="button" id="habResume">继续</button>
+    <label class="hab-timeline" title="拖动滑块 = 直接跳到这个时刻并暂停">
+      <input type="range" id="habTime" min="0" max="60" step="0.1" value="0">
+    </label>
     <span class="hab-note" id="habClock">模拟 0.0 s</span>
     <span class="spacer"></span>
     <span class="hab-note" id="habHint">拖动蚕卡片到场地即可放入；选中个体后右侧可调位置与朝向。</span>
@@ -5891,6 +5909,7 @@ showSplitPreview();
     obstacles: [],
     reference: null,
     undo: [],
+    redo: [],
     drag: null,
     mistPhase: 0,
     showGrid: true,
@@ -6496,6 +6515,9 @@ showSplitPreview();
 
   function makeWeaveAgent(x, y, seed) {
     const s = (seed == null ? Math.floor(Math.random() * 1e9) : seed) >>> 0;
+    // 场地里只有一只实测蚕时，新单元默认就用这只蚕的数据（单蚕一格）
+    const worms = habitat.agents.filter(a => a.kind === 'route' && a.wormId != null);
+    const soleWorm = worms.length === 1 ? worms[0].wormId : null;
     return {
       id: 'wv-' + (habitat.agents.filter(a => a.kind === 'weave').length + 1),
       kind: 'weave',
@@ -6505,6 +6527,7 @@ showSplitPreview();
       w: 200, h: 200,
       coverage: 0.55,
       scaleK: 0.9,
+      measuredWorm: soleWorm,   // 这块单元用的是哪只蚕的实测数据（null = 用合并后的单条实测丝路）
       shape: 'island',
       worms: 8,
       wallAff: 0.6,
@@ -6917,6 +6940,60 @@ showSplitPreview();
       obstacles: habitat.obstacles,
     }));
     if (habitat.undo.length > 24) habitat.undo.shift();
+    habitat.redo = [];        // 新的改动把"重做"清掉
+    syncHistoryUI();
+  }
+
+  function snapshotNow() {
+    return JSON.stringify({
+      agents: habitat.agents,
+      orphans: habitat.orphans,
+      obstacles: habitat.obstacles,
+    });
+  }
+
+  function restoreSnapshot(json) {
+    const data = JSON.parse(json);
+    habitat.agents = data.agents || [];
+    habitat.orphans = data.orphans || [];
+    habitat.obstacles = data.obstacles || [];
+    habitat.selected = null;
+    habitat.weaveEdit = null;
+    habitat.drag = null;
+    habitat.newOutline = null;
+    habitat.agents.forEach(a => {
+      if (a.kind === 'weave') { a.cache = null; buildWeave(a); }
+      if (a.kind === 'route') applyRouteTransform(a);
+    });
+    renderList();
+    syncHistoryUI();
+  }
+
+  function undoStep() {
+    if (!habitat.undo.length) { toast('没有可撤销的改动。', 'err'); return false; }
+    habitat.redo.push(snapshotNow());
+    if (habitat.redo.length > 24) habitat.redo.shift();
+    restoreSnapshot(habitat.undo.pop());
+    toast('已撤销一步（还能重做 ' + habitat.redo.length + ' 步）。', 'ok');
+    return true;
+  }
+
+  function redoStep() {
+    if (!habitat.redo.length) { toast('没有可重做的改动。', 'err'); return false; }
+    habitat.undo.push(snapshotNow());
+    if (habitat.undo.length > 24) habitat.undo.shift();
+    restoreSnapshot(habitat.redo.pop());
+    toast('已重做一步（还能撤销 ' + habitat.undo.length + ' 步）。', 'ok');
+    return true;
+  }
+
+  function syncHistoryUI() {
+    const u = document.getElementById('habUndo');
+    const r = document.getElementById('habRedo');
+    if (u) u.textContent = '撤销（Ctrl+Z）' + (habitat.undo.length ? ' · ' + habitat.undo.length : '');
+    if (r) r.textContent = '重做（Ctrl+Shift+Z）' + (habitat.redo.length ? ' · ' + habitat.redo.length : '');
+    if (u) u.disabled = !habitat.undo.length;
+    if (r) r.disabled = !habitat.redo.length;
   }
 
   function makeRandomDemo() {
@@ -7097,11 +7174,83 @@ showSplitPreview();
     return valid.length;
   }
 
+  /* 点列文件（trajectories.json / curves3d）→ 场地里的实测蚕；返回新增/更新的蚕数 */
+  function importPointCloudDoc(doc) {
+    const strokes = [];
+    if (Array.isArray(doc.curves3d)) {
+      doc.curves3d.forEach(c => {
+        if (c && Array.isArray(c.points) && c.points.length >= 2) strokes.push({ wormId: c.wormId, pts: c.points });
+      });
+    }
+    if (!strokes.length && Array.isArray(doc.trajectories)) {
+      doc.trajectories.forEach((t, i) => {
+        if (t && Array.isArray(t.points) && t.points.length >= 2) strokes.push({ wormId: t.wormId != null ? t.wormId : i + 1, pts: t.points });
+      });
+    }
+    if (!strokes.length) return 0;
+    pushUndo();
+    const byWorm = new Map();
+    strokes.forEach(st => {
+      const pts = st.pts
+        .map(p => ({ x: Number.isFinite(p.x_mm) ? p.x_mm : p.x, y: Number.isFinite(p.y_mm) ? p.y_mm : p.y }))
+        .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+      if (pts.length < 2) return;
+      const wid = st.wormId != null ? st.wormId : 1;
+      if (!byWorm.has(wid)) byWorm.set(wid, []);
+      byWorm.get(wid).push(...pts);     // 同一只蚕的多笔按顺序接成一条丝路
+    });
+    let added = 0;
+    byWorm.forEach((pts, wid) => {
+      const route = normalizeRoute(pts);
+      const existing = habitat.agents.find(x => x.kind === 'route' && x.wormId === wid);
+      if (existing) { existing.route = route; applyRouteTransform(existing); }
+      else {
+        const agent = {
+          id: 'rt-' + wid, kind: 'route', wormId: wid, color: '#d4c8b0', mode: 'idle',
+          bodyVisible: true, route: route, offX: 0, offY: 0, rot: 0, scale: 1,
+          follow: false, u: 0, phase: 0, turnSign: 1, pauseUntil: 0, speedScale: 1,
+          silk: [], scope: 'cell', homeUnitId: null, x: 0, y: 0, heading: 0,
+        };
+        applyRouteTransform(agent);
+        habitat.agents.push(agent);
+      }
+      added++;
+    });
+    habitat.agents.forEach(a => { if (a.kind === 'weave') { a.cache = null; buildWeave(a); } });
+    renderList();
+    return added;
+  }
+
   function importMeasuredTrajectories() {
     const n = syncMeasured();
     if (!n) toast('还没描好的实测轨迹：先在上方描线，再回到这里。', 'err');
     else toast('已同步 ' + n + ' 条实测轨迹到场地。', 'ok');
   }
+
+  /* ===== 描图器 → 蚕室 自动同步 =====
+     上面描完/改完，下面的蚕不用点按钮就跟着换；用"数据指纹"轮询，避免反复重建。 */
+  let lastMeasuredSig = null;
+  function measuredSignature() {
+    const srcs = measuredSource();
+    if (!srcs.length) return '';
+    return srcs.map(t => (t.wormId != null ? t.wormId : '?') + ':' + ((t.points || []).length)).join('|');
+  }
+  function autoSyncMeasured(force) {
+    if (!document.getElementById('habWorldWrap')) return;
+    const sig = measuredSignature();
+    if (!sig || (!force && sig === lastMeasuredSig)) return;
+    const changed = lastMeasuredSig !== null && sig !== lastMeasuredSig;
+    lastMeasuredSig = sig;
+    const n = syncMeasured();
+    if (!n) return;
+    const stat = document.getElementById('habSyncStat');
+    if (stat) {
+      stat.textContent = '实测 ' + n + ' 只 · 演示 ' +
+        habitat.agents.filter(a => a.kind === 'random').length + ' 只';
+    }
+    if (changed) hint('描图器里的 ' + n + ' 条实测轨迹已自动同步到场地——下面那只蚕就是它。');
+  }
+  setInterval(() => autoSyncMeasured(false), 1200);
 
   const bg = document.getElementById('habBg');
   const far = document.getElementById('habLeaves');
@@ -7740,6 +7889,60 @@ showSplitPreview();
     document.getElementById('habDrive').textContent =
       '演示：速度 ' + d.speed.toFixed(1) + '，摆动 ' + d.sway.toFixed(2) + '，停顿倾向 ' + d.pauseChance.toFixed(2) + '。模型 ' + MODEL + '。';
     document.getElementById('habClock').textContent = '模拟 ' + habitat.simTime.toFixed(1) + ' s';
+    const timeSlider = document.getElementById('habTime');
+    if (timeSlider && !timeSlider.dataset.scrubbing) {
+      timeSlider.value = String(Math.min(parseFloat(timeSlider.max) || 60, habitat.simTime));
+    }
+  }
+
+  /* ===== 时间滑条：拖到哪就停在哪 =====
+     拖动 = 把整场"重算到这一刻"并暂停；丝绸也会重算，所以停在中间看到的就是那一刻的样子。 */
+  function seekTo(target) {
+    const want = Math.max(0, Math.min(120, Number.isFinite(target) ? target : 0));
+    const movable = habitat.agents.filter(a => a.kind === 'route' || a.kind === 'weave');
+    if (!movable.length) {
+      toast('场地里还没有可运动的个体。', 'err');
+      return;
+    }
+    movable.forEach(a => {
+      if (a.mode === 'drag' || a.mode === 'bench') return;
+      a.mode = 'run';
+      if (a.kind === 'route') { a.u = 0; a.travel = 0; a.silk = []; a.follow = true; }
+      else { a.u = 0; }
+    });
+    habitat.simTime = 0;
+    const dt = 0.05;
+    const steps = Math.min(2400, Math.round(want / dt));
+    for (let i = 0; i < steps; i++) step(dt);
+    habitat.simTime = want;
+    movable.forEach(a => { if (a.mode === 'run') a.mode = 'paused'; });
+    habitat.runningClock = false;
+    renderDrive();
+    renderList();
+    const clock = document.getElementById('habClock');
+    if (clock) clock.textContent = '停在第 ' + want.toFixed(1) + ' s';
+    hint('已停在 ' + want.toFixed(1) + ' s。点「继续」从这一刻往下走，或再拖滑条换位置。');
+  }
+
+  function bindTimeSlider() {
+    const el = document.getElementById('habTime');
+    if (!el) return;
+    let timer = 0;
+    let dragging = false;
+    el.addEventListener('pointerdown', () => { dragging = true; el.dataset.scrubbing = '1'; });
+    el.addEventListener('input', () => {
+      el.dataset.scrubbing = '1';
+      clearTimeout(timer);
+      timer = setTimeout(() => { seekTo(parseFloat(el.value)); }, 140);
+    });
+    const done = () => {
+      clearTimeout(timer);
+      dragging = false;
+      seekTo(parseFloat(el.value));
+      delete el.dataset.scrubbing;
+    };
+    el.addEventListener('change', done);
+    el.addEventListener('pointerup', () => { if (dragging) done(); });
   }
 
   function selectAgent(id) {
@@ -8041,25 +8244,39 @@ showSplitPreview();
         reader.onload = () => {
           try {
             const prof = JSON.parse(reader.result);
-            if (!prof || typeof prof !== 'object' || !/silkworm-motion-profile/.test(prof.schema || '')) {
-              throw new Error('不是 silkworm-motion-profile/v1');
+            if (!prof || typeof prof !== 'object') throw new Error('文件不是 JSON 对象');
+            // A. 运动指纹（描图器「导出指纹」产物）
+            if (/silkworm-motion-profile/.test(prof.schema || '')) {
+              pushUndo();
+              if (prof.pathTemplate && Array.isArray(prof.pathTemplate.strokes)) {
+                prof.pathTemplate.strokes = prof.pathTemplate.strokes.map(st =>
+                  Array.isArray(st[0]) ? st.reduce((acc, p) => (acc.push(p[0], p[1]), acc), []) : st
+                );
+              }
+              a.profile = prof;
+              rebuildWeave();
+              const kind = prof.source && prof.source.kind === 'measured' ? '实测' : '演示（非实测）';
+              toast('已载入指纹：' + (prof.wormId || prof.id || '未命名') + '（' + kind + '）', 'ok');
+              hint(prof.fingerprint && prof.fingerprint.strokeAspects
+                ? '指纹的实测纵横比已参与生成；每格密度由「每格蚕数」与覆盖率控制。'
+                : '指纹只影响纵横比与包络数量；密度/颜色仍由覆盖率控制。');
+              return;
             }
-            pushUndo();
-            if (prof.pathTemplate && Array.isArray(prof.pathTemplate.strokes)) {
-              prof.pathTemplate.strokes = prof.pathTemplate.strokes.map(st =>
-                Array.isArray(st[0]) ? st.reduce((acc, p) => (acc.push(p[0], p[1]), acc), []) : st
-              );
+            // B. 实测点列（trajectories.json / 描图器「导出 JSON」的 curves3d）→ 直接进场地当一只实测蚕
+            const added = importPointCloudDoc(prof);
+            if (added) {
+              toast('已从点列载入 ' + added + ' 只实测蚕（' + (prof.curves3d ? prof.curves3d.length : prof.trajectories.length) + ' 笔）。蚕已自动收进单元格。', 'ok');
+              hint('这是"实测点列"文件（x_mm / y_mm），不是运动指纹；两者都能用，指纹影响形态参数，点列直接当轨迹回放。');
+              return;
             }
-            a.profile = prof;
-            a.seed = a.seed;
-            rebuildWeave();
-            const kind = prof.source && prof.source.kind === 'measured' ? '实测' : '演示（非实测）';
-            toast('已载入指纹：' + (prof.wormId || prof.id || '未命名') + '（' + kind + '）', 'ok');
-            hint(prof.fingerprint && prof.fingerprint.strokeAspects
-              ? '指纹的实测纵横比已参与生成；每格密度由「每格蚕数」与覆盖率控制。'
-              : '指纹只影响纵横比与包络数量；密度/颜色仍由覆盖率控制。');
+            // C. 场景/工程文件：给出明确的下一步，而不是一句"格式不对"
+            if (/silkworm-habitat\/|silkworm-led-scene/.test(prof.type || '')) {
+              toast('这是场地/母版场景文件：用「打开工程」或在场地里「导入场景」来载入，不是织网单元的指纹。', 'err');
+              return;
+            }
+            throw new Error('文件里既没有 curves3d/trajectories 点列，也不是 silkworm-motion-profile/v1');
           } catch (err) {
-            toast('指纹读取失败：' + err.message, 'err');
+            toast('读取失败：' + err.message + '。可用：①描图器顶栏「导出 JSON」的 curves3d ②trajectories.json（x_mm/y_mm）③P0 脚本的运动指纹（schema=silkworm-motion-profile/v1，界面不导出）。', 'err');
           }
           profileFile.value = '';
         };
@@ -8991,14 +9208,17 @@ showSplitPreview();
     a.mode = 'bench'; a.silk = []; a.bodyVisible = true;
     renderList();
   });
-  document.getElementById('habUndo').addEventListener('click', () => {
-    const raw = habitat.undo.pop();
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    habitat.agents = data.agents;
-    habitat.orphans = data.orphans;
-    habitat.obstacles = data.obstacles;
-    renderList();
+  document.getElementById('habUndo').addEventListener('click', () => { undoStep(); });
+  const habRedoBtn = document.getElementById('habRedo');
+  if (habRedoBtn) habRedoBtn.addEventListener('click', () => { redoStep(); });
+  // 快捷键：Ctrl+Z 撤销，Ctrl+Shift+Z / Ctrl+Y 重做。输入框里不抢键。
+  window.addEventListener('keydown', (ev) => {
+    const tag = (ev.target && ev.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || ev.target.isContentEditable) return;
+    if (!(ev.ctrlKey || ev.metaKey)) return;
+    const k = (ev.key || '').toLowerCase();
+    if (k === 'z' && !ev.shiftKey) { ev.preventDefault(); undoStep(); }
+    else if ((k === 'z' && ev.shiftKey) || k === 'y') { ev.preventDefault(); redoStep(); }
   });
   document.getElementById('habStart').addEventListener('click', () => {
     const ready = habitat.agents.filter(a =>
@@ -9176,8 +9396,11 @@ showSplitPreview();
     const fitStageHeight = () => {
       const cap = Math.max(460, Math.min(1400, parseInt(canvasHeightInput.value, 10) || 1400));
       const bar = document.querySelector('.hab-top');
+      const timeBar = document.querySelector('.hab-time');
       const barH = bar ? bar.getBoundingClientRect().height : 56;
-      const avail = Math.max(460, window.innerHeight - barH - 12);
+      const timeH = timeBar ? timeBar.getBoundingClientRect().height : 44;
+      // 顶部条 + 时间条 + 两条边线都算进去，剩下的正好给舞台：整块正好一屏，开始/暂停永远在屏幕里
+      const avail = Math.max(420, window.innerHeight - barH - timeH - 4);
       const h = Math.round(Math.min(cap, avail));
       document.getElementById('habitat').style.setProperty('--hab-stage-height', h + 'px');
       const valEl = document.getElementById('habCanvasHeightVal');
@@ -9187,11 +9410,19 @@ showSplitPreview();
     canvasHeightInput.addEventListener('input', fitStageHeight);
     window.addEventListener('resize', fitStageHeight);
     fitStageHeight();
-    // 上下滚的是两侧栏，不是整个页面：滚轮落在侧栏里就不要再传给页面
+    // 悬停在两侧栏里滚轮就滚侧栏（滚到头再交还给页面），别把整页带着跑
     ['habLeft', 'habRight'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.addEventListener('wheel', (ev) => ev.stopPropagation(), { passive: true });
+      el.addEventListener('wheel', (ev) => {
+        const canScroll = el.scrollHeight > el.clientHeight + 1;
+        if (!canScroll) return;
+        const atTop = el.scrollTop <= 0 && ev.deltaY < 0;
+        const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1 && ev.deltaY > 0;
+        if (atTop || atBottom) return;      // 到头了让页面接管
+        el.scrollTop += ev.deltaY;
+        ev.preventDefault();
+      }, { passive: false });
     });
   }
   if (window.ResizeObserver) {
@@ -9860,6 +10091,10 @@ showSplitPreview();
     ledRenderCommand: ledRenderCommand,
     ledComposeFrame: ledComposeFrame,
     ledRecordWebVideo: ledRecordWebVideo,
+    seekTo: seekTo,
+    undoStep: undoStep,
+    redoStep: redoStep,
+    importPointCloudDoc: importPointCloudDoc,
   };
 
   bindRoutePanel();
@@ -9871,7 +10106,10 @@ showSplitPreview();
   }
 
   syncMeasured();
+  lastMeasuredSig = measuredSignature();   // 首屏同步算一次，之后只在描图器真改了才重新同步
   renderList();
+  syncHistoryUI();
+  bindTimeSlider();
   function repaintStaticLayers() {
     paintStatic();
     paintDepth();
