@@ -9321,7 +9321,10 @@ showSplitPreview();
     const H = qh > 0 ? qh : (scene.px && scene.px.h ? scene.px.h : 1360);
     const total = Math.max(1, parseInt(params.get('total'), 10) || (scene.frames || 900));
     const frame = Math.max(0, Math.min(total, parseInt(params.get('frame'), 10) || 0));
-    const T = total <= 1 ? 1 : frame / (total - 1);
+    // 循环片：周期正好是 total 帧，T = frame/total（第 total 帧才等价第 0 帧，
+    // 所以序列里不会出现"末帧=首帧"的重复卡顿）；非循环片仍是 0→1 单程。
+    const isLoop = scene.loop === true;
+    const T = isLoop ? (frame / total) : (total <= 1 ? 1 : frame / (total - 1));
 
     document.body.innerHTML = '';
     document.body.style.cssText = 'margin:0;padding:0;background:#000;overflow:hidden;';
@@ -9353,12 +9356,32 @@ showSplitPreview();
       py: y => H / 2 - cyp * s + y * s,
     };
 
-    scene.units.forEach(u => {
+    // 循环模式：每块有自己的相位，沿锯齿周期"起针→织满→收丝"；相位在 0..1 均布，
+    // 所以任意时刻整屏总丝量基本恒定，且 t=1 与 t=0 完全重合（首尾帧可无缝接）。
+    // 非循环模式保持"从空长到满"（出静帧/论文图用）。
+    const loop = isLoop;
+    const nUnits = Math.max(1, scene.units.length);
+    const growFrac = 0.42, holdFrac = 0.88;
+    const loopU = (i) => {
+      // 相位用黄金比散开（0.618…），而不是 order/N —— 否则整行块会同时起落，看起来像"整排闪"
+      const ord = scene.units[i].order != null ? scene.units[i].order : i;
+      const ph = ((ord + 0.5) * 0.61803398875) % 1;
+      const p = (T + ph) % 1;
+      if (p < growFrac) return p / growFrac;
+      if (p < holdFrac) return 1;
+      return Math.max(0, 1 - (p - holdFrac) / (1 - holdFrac));
+    };
+
+    scene.units.forEach((u, i) => {
       const agent = ledAgentFromUnit(u);
       buildWeave(agent);
-      // 每块错开起织，避免整片同时亮起；顺序由 order 决定
-      const delay = (u.order % 7) * 0.045;
-      agent.u = Math.max(0, Math.min(1, (T - delay) / (1 - delay || 1)));
+      if (loop) {
+        agent.u = loopU(i);
+      } else {
+        // 每块错开起织，避免整片同时亮起；顺序由 order 决定
+        const delay = (u.order % 7) * 0.045;
+        agent.u = Math.max(0, Math.min(1, (T - delay) / (1 - delay || 1)));
+      }
       drawWeave(g, agent, v);
     });
     return true;
