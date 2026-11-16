@@ -2928,6 +2928,8 @@ if (window.parent !== window) {
         <div class="row"><label>格子高</label><input type="range" id="habWeaveH" min="80" max="340" step="10" value="200"><span class="hab-adj-val" id="habWeaveHVal">200px</span></div>
         <div class="row"><label>覆盖率</label><input type="range" id="habWeaveCov" min="0.15" max="0.85" step="0.05" value="0.55"><span class="hab-adj-val" id="habWeaveCovVal">0.55</span></div>
         <div class="row"><label>每格蚕数</label><input type="range" id="habWeaveWorms" min="1" max="12" step="1" value="8"><span class="hab-adj-val" id="habWeaveWormsVal">8</span></div>
+        <div class="row"><label>块亮度</label><input type="range" id="habWeaveTone" min="0.4" max="1.2" step="0.02" value="0.85"><span class="hab-adj-val" id="habWeaveToneVal">0.85</span></div>
+        <div class="row"><label>块缝</label><input type="range" id="habWeaveGap" min="0" max="40" step="2" value="6"><span class="hab-adj-val" id="habWeaveGapVal">6</span></div>
         <div class="row"><label>形状</label><select id="habWeaveShape">
           <option value="plain">矩形</option>
           <option value="notch">缺角</option>
@@ -6256,6 +6258,7 @@ showSplitPreview();
   }
 
   function makeWeaveAgent(x, y, seed) {
+    const s = (seed == null ? Math.floor(Math.random() * 1e9) : seed) >>> 0;
     return {
       id: 'wv-' + (habitat.agents.filter(a => a.kind === 'weave').length + 1),
       kind: 'weave',
@@ -6267,7 +6270,9 @@ showSplitPreview();
       shape: 'island',
       worms: 8,
       wallAff: 0.6,
-      seed: (seed == null ? Math.floor(Math.random() * 1e9) : seed) >>> 0,
+      seed: s,
+      tone: 0.62 + (s % 1000) / 1000 * 0.5,
+      gap: 8,
       u: 0,
       duration: 22,
       speedScale: 1,
@@ -6313,6 +6318,14 @@ showSplitPreview();
       if (!agent.tileField) content.blank = false;   // 手放的单元一定织满，不留空格
       const ox = agent.x + i * cw;
       const oy = agent.y + j * ch;
+      const gap = Math.max(0, Number.isFinite(agent.gap) ? agent.gap : 6);
+      const tone = Math.max(0.35, Math.min(1.25, Number.isFinite(agent.tone) ? agent.tone : 0.85));
+      // 块缝：四边裁掉 gap 的黑边，参考图里块与块之间是硬黑缝
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(v.px(ox - cw / 2 + gap / 2), v.py(oy - ch / 2 + gap / 2),
+        Math.max(1, (cw - gap) * v.s), Math.max(1, (ch - gap) * v.s));
+      ctx.clip();
       // 织块边界：参考图里是极淡的方块缝
       ctx.globalCompositeOperation = 'source-over';
       if (!content.blank) {
@@ -6341,15 +6354,29 @@ showSplitPreview();
           ctx.stroke();
         });
       }
-      if (agent.bodyVisible === false) return;
+      if (agent.bodyVisible === false) { ctx.restore(); return; }
       const delay = weaveHash01(i, j, seed) * 0.18;
       const lu = Math.max(0, Math.min(1, (u - delay) / (1 - delay || 1)));
-      if (lu <= 0) return;
-      const light = 0.30 + weaveHash01(i, j, seed + 101) * 0.30;
+      if (lu <= 0) { ctx.restore(); return; }
+      const light = Math.max(0.16, Math.min(0.86, (0.30 + weaveHash01(i, j, seed + 101) * 0.30) * tone));
       ctx.globalCompositeOperation = 'lighter';
+      if (lu >= 0.995) {
+        // 已织满的块用离屏位图（每帧不再重画上万点）
+        const img = weaveRasterFor(agent, content, cw, ch, light, tone);
+        ctx.drawImage(img, v.px(ox - cw / 2), v.py(oy - ch / 2), cw * v.s, ch * v.s);
+        ctx.restore();
+        return;
+      }
       ctx.lineWidth = Math.max(0.8, 1.15 * Math.max(1, v.s * 0.6));
-      content.paths.forEach(p => {
-        const n = Math.max(2, Math.floor(p.pts.length * lu));
+      // 按丝的实际长度顺序推进：蚕是一根一根往前织，不是整块同时长
+      const cum = weavePathCum(content);
+      const target = lu * cum.total;
+      let headPt = null;
+      content.paths.forEach((p, idx) => {
+        const start = cum.acc[idx];
+        if (start >= target) return;
+        const frac = Math.min(1, (target - start) / (cum.seg[idx] || 1));
+        const n = Math.max(2, Math.floor(p.pts.length * frac));
         const alpha = Math.max(0.12, Math.min(0.95, (p.a != null ? p.a : 0.4) * (light / 0.42)));
         ctx.strokeStyle = 'rgba(226,232,228,' + alpha.toFixed(2) + ')';
         ctx.beginPath();
@@ -6358,28 +6385,71 @@ showSplitPreview();
           if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.stroke();
+        headPt = p.pts[Math.min(p.pts.length - 1, Math.max(0, n - 1))];
       });
       // 吐丝头：沿已织出的丝往前跑，让"蚕正在爬"看得见
-      if (lu < 1 && content.paths.length) {
-        const total = content.paths.reduce((s, p) => s + p.pts.length, 0);
-        let left = Math.max(1, Math.floor(total * lu));
-        for (let pi = 0; pi < content.paths.length; pi++) {
-          const p = content.paths[pi];
-          if (left <= p.pts.length) {
-            const q = p.pts[Math.min(p.pts.length - 1, Math.max(0, left - 1))];
-            const sx = v.px(ox + q.x), sy = v.py(oy + q.y);
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.fillStyle = 'rgba(240,245,242,0.9)';
-            ctx.beginPath();
-            ctx.arc(sx, sy, Math.max(2, 2.2 * v.s * 0.6), 0, Math.PI * 2);
-            ctx.fill();
-            break;
-          }
-          left -= p.pts.length;
-        }
+      if (headPt) {
+        const sx = v.px(ox + headPt.x), sy = v.py(oy + headPt.y);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(240,245,242,0.9)';
+        ctx.beginPath();
+        ctx.arc(sx, sy, Math.max(2, 2.2 * v.s * 0.6), 0, Math.PI * 2);
+        ctx.fill();
       }
+      ctx.restore();
     });
     ctx.restore();
+  }
+
+  // 每条丝的长度与前缀和（按实际折线长度推进用）
+  function weavePathCum(content) {
+    if (content.cum) return content.cum;
+    const acc = [], seg = [];
+    let total = 0;
+    content.paths.forEach(p => {
+      acc.push(total);
+      let len = 0;
+      for (let k = 1; k < p.pts.length; k++) {
+        len += Math.hypot(p.pts[k].x - p.pts[k - 1].x, p.pts[k].y - p.pts[k - 1].y);
+      }
+      seg.push(len);
+      total += len;
+    });
+    content.cum = { acc, seg, total: total || 1 };
+    return content.cum;
+  }
+
+  // 已织满的块缓存成离屏位图；tone 变了就重画
+  function weaveRasterFor(agent, content, cw, ch, light, tone) {
+    const key = (agent.seed >>> 0) + '|' + Math.round(cw) + 'x' + Math.round(ch) + '|' + tone.toFixed(2);
+    if (content.raster && content.rasterKey === key) return content.raster;
+    const W = 512;
+    const H = Math.max(64, Math.round(512 * ch / cw));
+    const cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = H;
+    const g = cv.getContext('2d');
+    g.fillStyle = 'rgba(0,0,0,0)';
+    g.clearRect(0, 0, W, H);
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    g.globalCompositeOperation = 'lighter';
+    const kx = W / cw, ky = H / ch;
+    g.lineWidth = Math.max(0.9, 1.15 * Math.max(1, kx * 0.34));
+    content.paths.forEach(p => {
+      const alpha = Math.max(0.12, Math.min(0.95, (p.a != null ? p.a : 0.4) * (light / 0.42)));
+      g.strokeStyle = 'rgba(226,232,228,' + alpha.toFixed(2) + ')';
+      g.beginPath();
+      for (let k = 0; k < p.pts.length; k++) {
+        const q = p.pts[k];
+        const X = (q.x + cw / 2) * kx, Y = (q.y + ch / 2) * ky;
+        if (k === 0) g.moveTo(X, Y); else g.lineTo(X, Y);
+      }
+      g.stroke();
+    });
+    content.raster = cv;
+    content.rasterKey = key;
+    return cv;
   }
 
   function weaveVisibleCells(agent, v) {
@@ -7253,6 +7323,10 @@ showSplitPreview();
       panelSet('habWeaveH', Math.round(a.h)); panelVal('habWeaveHVal', Math.round(a.h) + 'px');
       panelSet('habWeaveCov', a.coverage); panelVal('habWeaveCovVal', (a.coverage || 0).toFixed(2));
       panelSet('habWeaveWorms', a.worms || 6); panelVal('habWeaveWormsVal', String(a.worms || 6));
+      panelSet('habWeaveTone', Math.round((a.tone == null ? 0.85 : a.tone) * 100) / 100);
+      panelVal('habWeaveToneVal', (a.tone == null ? 0.85 : a.tone).toFixed(2));
+      panelSet('habWeaveGap', a.gap == null ? 6 : a.gap);
+      panelVal('habWeaveGapVal', String(a.gap == null ? 6 : a.gap));
       const shapeSel = document.getElementById('habWeaveShape');
       if (shapeSel) shapeSel.value = a.shape || 'island';
       const note = document.getElementById('habWeaveNote');
@@ -7330,6 +7404,16 @@ showSplitPreview();
       a.worms = Math.max(1, Math.min(12, parseInt(document.getElementById('habWeaveWorms').value, 10) || 6));
       panelVal('habWeaveWormsVal', String(a.worms));
       rebuildWeave();
+    });
+    bind('habWeaveTone', () => {
+      const a = chosen(); if (!a || a.kind !== 'weave') return;
+      a.tone = Math.max(0.4, Math.min(1.2, parseFloat(document.getElementById('habWeaveTone').value) || 0.85));
+      panelVal('habWeaveToneVal', a.tone.toFixed(2));
+    });
+    bind('habWeaveGap', () => {
+      const a = chosen(); if (!a || a.kind !== 'weave') return;
+      a.gap = Math.max(0, Math.min(40, parseFloat(document.getElementById('habWeaveGap').value) || 0));
+      panelVal('habWeaveGapVal', String(a.gap));
     });
     const weaveEditBtn = document.getElementById('habWeaveEdit');
     const weaveEditMode = document.getElementById('habWeaveEditMode');
@@ -8030,6 +8114,8 @@ showSplitPreview();
           w: a.w, h: a.h, coverage: a.coverage, shape: a.shape,
           worms: a.worms, seed: a.seed, duration: a.duration, u: a.u, wallAff: a.wallAff,
           tileField: !!a.tileField,
+          tone: Number.isFinite(a.tone) ? a.tone : 0.85,
+          gap: Number.isFinite(a.gap) ? a.gap : 6,
           profile: a.profile || null,
           custom: a.custom || { walls: {}, paths: {}, shapes: {} },
         } : undefined,
@@ -8256,6 +8342,8 @@ showSplitPreview();
           w: a.w, h: a.h, coverage: a.coverage, shape: a.shape,
           worms: a.worms, seed: a.seed, duration: a.duration, u: a.u, wallAff: a.wallAff,
           tileField: !!a.tileField,
+          tone: Number.isFinite(a.tone) ? a.tone : 0.85,
+          gap: Number.isFinite(a.gap) ? a.gap : 6,
           profile: a.profile || null,
           custom: a.custom || { walls: {}, paths: {}, shapes: {} },
         } : undefined,
@@ -8326,6 +8414,8 @@ showSplitPreview();
             ? { walls: wv.custom.walls || {}, paths: wv.custom.paths || {}, shapes: wv.custom.shapes || {} }
             : { walls: {}, paths: {}, shapes: {} };
           agent.tileField = !!wv.tileField;
+          agent.tone = Number.isFinite(wv.tone) ? Math.max(0.4, Math.min(1.2, wv.tone)) : 0.85;
+          agent.gap = Number.isFinite(wv.gap) ? Math.max(0, Math.min(40, wv.gap)) : 6;
           agent.u = Number.isFinite(wv.u) ? wv.u : 0;
         }
         if (agent.kind === 'route' && agent.route.length >= 2) applyRouteTransform(agent);
