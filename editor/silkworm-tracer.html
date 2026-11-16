@@ -6298,7 +6298,15 @@ showSplitPreview();
       const py = oy + kx * sn + ky * cs + (rng() - 0.5) * wob;
       if (weaveAllowed(cell, px, py, 2)) { push(px, py); continue; }
       // —— 撞壁 ——
-      // 真实蚕不会把丝织到孔里：丝在壁面收口（端点落在壁上），
+      const circ = weaveWallNormal(cell, px, py);
+      if (!circ) {
+        // 撞的是块的外框：把点压到框上继续走。
+        // 这样跨块接缝处不会被硬切成"一堆断头"，而是丝一直铺到框边再被裁掉。
+        const ef = weaveWallProject(cell, px, py, 1.2);
+        if (ef) push(ef.x, ef.y);
+        continue;
+      }
+      // 圆形壁（孔 / 缺口）：真实蚕不会把丝织到孔里：丝在壁面收口（端点落在壁上），
       // 然后跳过孔洞，从孔另一侧重新起一段丝。中间那段空白正好被孔遮住，看不出断口；
       // 不做贴壁圆弧（那会沿孔口连成一条亮环），也不做镜面折返（那是锐角）。
       const e = weaveWallProject(cell, px, py, 1.4);
@@ -6309,7 +6317,7 @@ showSplitPreview();
       // 不是另画一圈——不会连成等半径亮环，也不会出现镜面锐角。
       const bdx = px - last.x, bdy = py - last.y;
       const bd = (bdx || bdy) ? Math.atan2(bdy, bdx) : 0;
-      const tries = 1 + ((k + bi) % 2);
+      const tries = 2;
       for (let t2 = 0; t2 < tries; t2++) {
         const dz = (t2 % 2 ? 1 : -1) * (Math.PI / 2 + (rng() - 0.5) * 0.9);
         let sx = last.x, sy = last.y, sdir = bd + dz;
@@ -9063,8 +9071,10 @@ showSplitPreview();
     const params = new URLSearchParams(location.search);
     const scene = window.__LED_SCENE || (params.get('scene') ? ledB64Json(params.get('scene')) : null);
     if (!scene || !Array.isArray(scene.units)) return false;
-    const W = scene.px && scene.px.w ? scene.px.w : 2419;
-    const H = scene.px && scene.px.h ? scene.px.h : 1360;
+    // 分辨率优先级：URL 的 w/h（渲染脚本 -Native 传入）> 场景 px > 默认 2419×1360
+    const qw = parseInt(params.get('w'), 10), qh = parseInt(params.get('h'), 10);
+    const W = qw > 0 ? qw : (scene.px && scene.px.w ? scene.px.w : 2419);
+    const H = qh > 0 ? qh : (scene.px && scene.px.h ? scene.px.h : 1360);
     const total = Math.max(1, parseInt(params.get('total'), 10) || (scene.frames || 900));
     const frame = Math.max(0, Math.min(total, parseInt(params.get('frame'), 10) || 0));
     const T = total <= 1 ? 1 : frame / (total - 1);
@@ -9079,9 +9089,18 @@ showSplitPreview();
     g.fillStyle = '#000';
     g.fillRect(0, 0, W, H);
 
-    const s = Number.isFinite(scene.scale) ? scene.scale : Math.min(W, H) / 700;
-    const cxp = Number.isFinite(scene.center && scene.center.x) ? scene.center.x : 0;
-    const cyp = Number.isFinite(scene.center && scene.center.y) ? scene.center.y : 0;
+    // 缩放：把整个块群按外接框装进屏体（留 3% 安全边），换分辨率时构图不变形、不缩在一角
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    scene.units.forEach(u => {
+      minX = Math.min(minX, u.x - u.w / 2);
+      maxX = Math.max(maxX, u.x + u.w / 2);
+      minY = Math.min(minY, u.y - u.h / 2);
+      maxY = Math.max(maxY, u.y + u.h / 2);
+    });
+    const bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY);
+    const s = Math.min(W * 0.94 / bw, H * 0.94 / bh);
+    const cxp = (minX + maxX) / 2;
+    const cyp = (minY + maxY) / 2;
     const v = {
       w: W, h: H, s: s,
       cx: W / 2 - cxp * s,
