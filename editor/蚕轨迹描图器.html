@@ -6493,13 +6493,37 @@ showSplitPreview();
         if (pts.length > 2) paths.push({ pts, seed, custom: true });
       });
     }
-    // 丝迹一律夹在格内：生成完就收口，任何情况下都不许越过单元边界
+    // 丝迹一律收口：先躲开孔洞/缺口，再夹进格子矩形；穿洞的线段就地加密后逐点贴回孔缘
     const cwHalf = Math.max(8, cell.w / 2 - 1.2), chHalf = Math.max(8, cell.h / 2 - 1.2);
+    const holeCenters = (cell.islands || (cell.island ? [cell.island] : []))
+      .concat(cell.notch ? [cell.notch] : []);
+    const clampRect = (x, y) => ({
+      x: Math.max(-cwHalf, Math.min(cwHalf, x)),
+      y: Math.max(-chHalf, Math.min(chHalf, y)),
+    });
+    const nearHole = (x, y) => holeCenters.some(o => Math.hypot(x - o.cx, y - o.cy) < o.r + 9);
     paths.forEach(p => {
-      p.pts = p.pts.map(q => ({
-        x: Math.max(-cwHalf, Math.min(cwHalf, q.x)),
-        y: Math.max(-chHalf, Math.min(chHalf, q.y)),
-      }));
+      const src = p.pts;
+      const out = [];
+      for (let i = 0; i < src.length; i++) {
+        const q = clampRect(src[i].x, src[i].y);
+        const proj = weaveWallProject(cell, q.x, q.y, 1.6);
+        const c = proj || q;
+        const prev = out.length ? out[out.length - 1] : null;
+        if (prev && holeCenters.length && (nearHole(prev.x, prev.y) || nearHole(c.x, c.y))) {
+          // 两个点都在孔附近：中间插入若干点，逐点贴回孔缘，避免一根弦横穿孔洞
+          const seg = Math.hypot(c.x - prev.x, c.y - prev.y);
+          const n = Math.max(1, Math.min(24, Math.ceil(seg / 4)));
+          for (let k = 1; k < n; k++) {
+            const t = k / n;
+            const mx = prev.x + (c.x - prev.x) * t, my = prev.y + (c.y - prev.y) * t;
+            const pr = weaveWallProject(cell, mx, my, 1.6);
+            out.push(pr || { x: mx, y: my });
+          }
+        }
+        out.push(c);
+      }
+      p.pts = out;
     });
     const content = { cell, paths, walls: weaveContour(cell), customWalls, seed, blank };
     agent.cache.set(key, content);
@@ -8998,6 +9022,7 @@ showSplitPreview();
     wallV: '拖：改壁顶点（Alt+点删）',
     pathV: '拖：改丝路顶点（Alt+点删）',
     outlineV: '拖：改外框顶点（Alt+点删）',
+    outlineMid: '拖：从这条边拉出一个新角点',
   };
 
   function weaveHandles(a, ix, iy) {
@@ -9007,7 +9032,7 @@ showSplitPreview();
     const tool = (habitat.weaveEdit && habitat.weaveEdit.tool) || 'shape';
     const want = (k) => {
       // 角点 / 边中点 / 整块挪动 是「随时都能用」的手柄，不分工具
-      if (k === 'unitCorner' || k === 'unitEdge' || k === 'unitMove') return true;
+      if (k === 'unitCorner' || k === 'unitEdge' || k === 'unitMove' || k === 'outlineMid') return true;
       if (tool === 'shape') return true;
       if (tool === 'hole') return k === 'islandMove' || k === 'islandR' || k === 'unitCorner' || k === 'unitMove';
       if (tool === 'notch') return k === 'notchMove' || k === 'notchR' || k === 'unitCorner' || k === 'unitMove';
@@ -9046,6 +9071,11 @@ showSplitPreview();
     // 自定义外框轮廓顶点：白点可拖，Alt+点可删
     if (Array.isArray(a.outline)) {
       a.outline.forEach((pt, vi) => add({ kind: 'outlineV', vi, x: ox + pt.x, y: oy + pt.y }));
+      // 每条边的中点：拖一下就地拉出一个新角点（像钢笔工具加点）
+      for (let vi = 0; vi < a.outline.length; vi++) {
+        const p1 = a.outline[vi], p2 = a.outline[(vi + 1) % a.outline.length];
+        add({ kind: 'outlineMid', vi, x: ox + (p1.x + p2.x) / 2, y: oy + (p1.y + p2.y) / 2 });
+      }
     }
     return hs;
   }
@@ -9115,6 +9145,18 @@ showSplitPreview();
       if (!Array.isArray(a.outline) || !a.outline[h.vi]) return;
       a.outline[h.vi].x = p.x - ox;
       a.outline[h.vi].y = p.y - oy;
+      if (a.cache && a.cache.clear) a.cache.clear();
+      buildWeave(a);
+      return;
+    } else if (h.kind === 'outlineMid') {
+      // 第一次拖动就插入一个新角点，之后这个手柄一直拖这个新点
+      if (!Array.isArray(a.outline)) return;
+      if (h.newIdx == null) {
+        a.outline.splice(h.vi + 1, 0, { x: p.x - ox, y: p.y - oy });
+        h.newIdx = h.vi + 1;
+      } else {
+        a.outline[h.newIdx] = { x: p.x - ox, y: p.y - oy };
+      }
       if (a.cache && a.cache.clear) a.cache.clear();
       buildWeave(a);
       return;
@@ -9206,6 +9248,10 @@ showSplitPreview();
         ctx.arc(px, py, hov ? 6 : 4.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+      } else if (h.kind === 'outlineMid') {
+        ctx.strokeStyle = 'rgba(232,238,233,0.85)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px - 3.5, py - 3.5, 7, 7);
       } else {
         ctx.fillStyle = '#e8eee9';
         ctx.fillRect(px - 3, py - 3, 6, 6);
