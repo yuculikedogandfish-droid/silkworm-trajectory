@@ -2854,14 +2854,7 @@ if (window.parent !== window) {
         <button type="button" data-shape="rect">长方</button>
         <button type="button" data-shape="circle">圆形</button>
       </div>
-      <h3>桑叶障碍</h3>
-      <p class="hab-note">背景叶只是远景。下面放进去的叶子会挡住蚕。</p>
-      <button type="button" id="habLeafTool">放置桑叶</button>
-      <div class="row">
-        <button type="button" id="habLeafRotL">左转</button>
-        <button type="button" id="habLeafRotR">右转</button>
-        <button type="button" id="habLeafDel">删除</button>
-      </div>
+      <label class="row"><input type="checkbox" id="habGridToggle" checked> 显示场地格线</label>
       <h3>实测轨迹入室</h3>
       <p class="hab-note">描图/预览里有数据的蚕会自动同步进蚕室，可拖动、旋转缩放；「铺入只读预览轨迹」只是变淡的底图，不可操作。</p>
       <button type="button" id="habImportTraj">重新同步实测轨迹</button>
@@ -2899,7 +2892,7 @@ if (window.parent !== window) {
         <div class="row"><label>格子宽</label><input type="range" id="habWeaveW" min="80" max="340" step="10" value="200"><span class="hab-adj-val" id="habWeaveWVal">200px</span></div>
         <div class="row"><label>格子高</label><input type="range" id="habWeaveH" min="80" max="340" step="10" value="200"><span class="hab-adj-val" id="habWeaveHVal">200px</span></div>
         <div class="row"><label>覆盖率</label><input type="range" id="habWeaveCov" min="0.15" max="0.85" step="0.05" value="0.55"><span class="hab-adj-val" id="habWeaveCovVal">0.55</span></div>
-        <div class="row"><label>每格蚕数</label><input type="range" id="habWeaveWorms" min="1" max="6" step="1" value="2"><span class="hab-adj-val" id="habWeaveWormsVal">2</span></div>
+        <div class="row"><label>每格蚕数</label><input type="range" id="habWeaveWorms" min="1" max="12" step="1" value="8"><span class="hab-adj-val" id="habWeaveWormsVal">8</span></div>
         <div class="row"><label>形状</label><select id="habWeaveShape">
           <option value="plain">矩形</option>
           <option value="notch">缺角</option>
@@ -2908,7 +2901,21 @@ if (window.parent !== window) {
         </select></div>
         <div class="row"><button type="button" id="habWeaveRebuild">重新织</button></div>
         <div class="row"><button type="button" id="habWeaveLoadProfile">载入指纹 JSON</button><input type="file" id="habWeaveProfileFile" accept=".json" hidden></div>
-        <p class="hab-note" id="habWeaveNote">格网：每格按竖长八字的爬行包络生成，格子无边界、可一直延伸。</p>
+        <h3>形状编辑（壁 / 路径）</h3>
+        <p class="hab-note">在画布上点一下加一个顶点；双击结束（壁闭合、路径收尾）。选中格后才可编辑。</p>
+        <div class="row">
+          <button type="button" id="habWeaveEdit" aria-pressed="false">开始编辑形状</button>
+          <select id="habWeaveEditMode">
+            <option value="wall">壁（闭合）</option>
+            <option value="path">丝路（开口）</option>
+          </select>
+        </div>
+        <div class="row">
+          <button type="button" id="habWeaveEditEnd">结束当前线</button>
+          <button type="button" id="habWeaveEditClear">清掉本格自定义</button>
+        </div>
+        <p class="hab-note" id="habWeaveEditNote">未进入编辑。自动生成的布局可以直接改。</p>
+        <p class="hab-note" id="habWeaveNote">格网：黑底、无边界细网格；每格密织、带圆孔负空间。</p>
       </div>
       <label class="row"><input type="checkbox" id="habAdjFollow"> 沿实测轨迹爬行</label>
       <div class="row">
@@ -5746,6 +5753,8 @@ showSplitPreview();
     undo: [],
     drag: null,
     mistPhase: 0,
+    showGrid: true,
+    weaveEdit: null,
   };
 
   const habViewport = {
@@ -5795,8 +5804,7 @@ showSplitPreview();
   }
 
   function blocked(x, y) {
-    if (!insideArena(x, y, 10)) return true;
-    return habitat.obstacles.some(leaf => inLeaf(x, y, leaf, 8));
+    return !insideArena(x, y, 10);
   }
 
   /* ================= 织网单元（P1 单格引擎，移植自 prototype/weave-lab.html） ================= */
@@ -5815,26 +5823,94 @@ showSplitPreview();
   function weaveProfile() { return habitat.weaveProfile || WEAVE_DEMO_PROFILE; }
   function weaveProfileOf(agent) { return (agent && agent.profile) || weaveProfile(); }
 
+  // 真实轨迹模板：G:\raby model\trajectories.json
+  // (curves3d/v2, worm 1, 2 笔 272 点, 标定 61.06 px/mm, cell 10mm)，弧长重采样后归一化到 [-1,1]
+  const WEAVE_MEASURED_PATHS = [
+    [-0.3416,-0.6434,-0.3416,-0.524,-0.3401,-0.4046,-0.3346,-0.2853,-0.3287,-0.1661,-0.3228,-0.0468,-0.317,0.0724,-0.3142,0.1918,-0.3142,0.3112,-0.3142,0.4306,-0.3142,0.5499,-0.3142,0.6693,-0.329,0.7874,-0.3459,0.9055,-0.4285,0.9836,-0.5441,1.0,-0.5613,0.892,-0.5613,0.7726,-0.5529,0.6536,-0.5272,0.5372,-0.4745,0.4301,-0.4141,0.3312,-0.3227,0.2546,-0.2312,0.1779,-0.1423,0.0986,-0.0491,0.0245,0.0354,-0.0599,0.1199,-0.1443,0.2043,-0.2287,0.2807,-0.3202,0.3451,-0.4206,0.4128,-0.519,0.4755,-0.6204,0.513,-0.7335,0.5548,-0.8452,0.5613,-0.9634,0.4569,-1.0,0.3376,-0.9995,0.23,-0.9552,0.1434,-0.8743,0.0907,-0.7682,0.0702,-0.6518,0.0701,-0.5324,0.0636,-0.4133,0.0495,-0.2947,0.0431,-0.1755,0.0428,-0.0562,0.0428,0.0632,0.0428,0.1826,0.0428,0.302,0.0428,0.4214,0.0428,0.5408,0.0428,0.6602,0.0428,0.7796,0.0428,0.899,-0.0122,0.9752],
+    [-0.6918,0.5044,-0.6895,0.6483,-0.5857,0.7663,-0.4738,0.8769,-0.3474,0.9668,-0.2243,0.8851,-0.1551,0.7451,-0.0933,0.6014,-0.039,0.4555,-0.0278,0.2987,-0.0062,0.1429,0.0304,-0.01,0.0599,-0.1645,0.0948,-0.3178,0.1193,-0.4727,0.1435,-0.6275,0.1591,-0.7834,0.1697,-0.9398,0.044,-0.9643,0.0131,-0.8163,0.0102,-0.6591,-0.0131,-0.5043,-0.0097,-0.3472,0.0508,-0.2026,0.1282,-0.0659,0.207,0.0702,0.253,0.217,0.3037,0.3597,0.3524,0.508,0.3524,0.6653,0.3524,0.7295,0.3549,0.5723,0.4062,0.4242,0.4631,0.2776,0.5189,0.1305,0.5741,-0.0168,0.6289,-0.1642,0.6822,-0.3122,0.6918,-0.4686,0.6914,-0.6259,0.6273,-0.7647,0.557,-0.9046,0.4527,-1.0,0.4098,-0.8546,0.4206,-0.6989,0.4642,-0.5478,0.5055,-0.396,0.5404,-0.2426,0.5705,-0.0883,0.6056,0.065,0.6314,0.2197,0.6653,0.3729,0.6657,0.5302,0.6657,0.6875,0.6636,0.8447,0.6396,1.0],
+  ];
+
+  function weaveTemplates(agent) {
+    const pt = agent && agent.profile && agent.profile.pathTemplate;
+    if (pt && Array.isArray(pt.strokes) && pt.strokes.length &&
+        Array.isArray(pt.strokes[0]) && typeof pt.strokes[0][0] === 'number') {
+      return pt.strokes;
+    }
+    return WEAVE_MEASURED_PATHS;
+  }
+
+  function weaveWallRepel(walls, x, y, r) {
+    if (!walls || !walls.length) return { x, y };
+    let px = x, py = y;
+    walls.forEach(line => {
+      const pts = line.pts || line;
+      for (let k = 0; k < pts.length - 1; k++) {
+        const ax = pts[k].x, ay = pts[k].y, bx = pts[k + 1].x, by = pts[k + 1].y;
+        const dx = bx - ax, dy = by - ay;
+        const L2 = dx * dx + dy * dy || 1;
+        let t = ((px - ax) * dx + (py - ay) * dy) / L2;
+        t = Math.max(0, Math.min(1, t));
+        const qx = ax + dx * t, qy = ay + dy * t;
+        const d = Math.hypot(px - qx, py - qy);
+        if (d < r) {
+          const n = d || 1;
+          px = qx + (px - qx) / n * r;
+          py = qy + (py - qy) / n * r;
+        }
+      }
+    });
+    return { x: px, y: py };
+  }
+
+  // 可织区域判定：格内、圆孔外、缺口外（用显式几何，避免 SDF 符号约定混淆）
+  function weaveAllowed(cell, x, y, margin) {
+    const m = margin || 2;
+    if (Math.abs(x) > cell.w / 2 - m || Math.abs(y) > cell.h / 2 - m) return false;
+    if (cell.notch && Math.hypot(x - cell.notch.cx, y - cell.notch.cy) < cell.notch.r + m) return false;
+    const islands = cell.islands || (cell.island ? [cell.island] : []);
+    for (let k = 0; k < islands.length; k++) {
+      if (Math.hypot(x - islands[k].cx, y - islands[k].cy) < islands[k].r + m) return false;
+    }
+    return true;
+  }
+
   function weaveCellSpecAt(agent, ix, iy, seed) {
     const rng = mulberry32(seed >>> 0);
     const base = Math.min(agent.w, agent.h);
     const shape = agent.shape || 'plain';
-    const cell = { w: agent.w, h: agent.h, shape, ix, iy, notch: null, island: null };
+    const cell = { w: agent.w, h: agent.h, shape, ix, iy, notch: null, islands: [] };
     if (shape === 'notch' || shape === 'notchIsland') {
-      const corner = Math.floor(rng() * 4);
-      cell.notch = {
-        corner,
-        cx: (corner % 2 === 1 ? 1 : -1) * agent.w / 2,
-        cy: (corner < 2 ? -1 : 1) * agent.h / 2,
-        r: base * (0.24 + rng() * 0.20),
-      };
+      // 参考图里既有四分之一圆缺角，也有贴边的半圆缺口
+      const edge = rng() < 0.55;
+      if (edge) {
+        const side = Math.floor(rng() * 4);
+        const t = 0.2 + rng() * 0.6;
+        cell.notch = {
+          corner: -1,
+          cx: side === 0 ? -agent.w / 2 : (side === 1 ? agent.w / 2 : (t - 0.5) * agent.w),
+          cy: side === 2 ? -agent.h / 2 : (side === 3 ? agent.h / 2 : (t - 0.5) * agent.h),
+          r: base * (0.30 + rng() * 0.20),
+        };
+      } else {
+        const corner = Math.floor(rng() * 4);
+        cell.notch = {
+          corner,
+          cx: (corner % 2 === 1 ? 1 : -1) * agent.w / 2,
+          cy: (corner < 2 ? -1 : 1) * agent.h / 2,
+          r: base * (0.26 + rng() * 0.18),
+        };
+      }
     }
     if (shape === 'island' || shape === 'notchIsland') {
-      cell.island = {
-        cx: (rng() - 0.5) * agent.w * 0.30,
-        cy: (rng() - 0.5) * agent.h * 0.30,
-        r: base * (0.14 + rng() * 0.12),
-      };
+      // 大圆孔负空间：每格 1–2 个（孔径约为格宽的 30%–50%，贴近参考图比例）
+      const n = 1 + (rng() < 0.45 ? 1 : 0);
+      for (let k = 0; k < n; k++) {
+        cell.islands.push({
+          cx: (rng() - 0.5) * agent.w * 0.34,
+          cy: (rng() - 0.5) * agent.h * 0.34,
+          r: base * (0.15 + rng() * 0.10),
+        });
+      }
     }
     return cell;
   }
@@ -5846,8 +5922,10 @@ showSplitPreview();
     if (cell.notch) {
       d = Math.max(d, -(Math.hypot(x - cell.notch.cx, y - cell.notch.cy) - cell.notch.r));
     }
-    if (cell.island) {
-      d = Math.max(d, -(Math.hypot(x - cell.island.cx, y - cell.island.cy) - cell.island.r));
+    const islands = cell.islands || (cell.island ? [cell.island] : []);
+    for (let k = 0; k < islands.length; k++) {
+      const isl = islands[k];
+      d = Math.max(d, -(Math.hypot(x - isl.cx, y - isl.cy) - isl.r));
     }
     return d;
   }
@@ -5990,74 +6068,79 @@ showSplitPreview();
     return { x, y };
   }
 
-  /* 一条丝 = 若干「竖长八字」包络连成的一根线。
-     实测：蚕在一次框定里走的是拉长的 8 字（两瓣叠在一个交叉点），不是同心螺圈。
-     所以这里用 Lissajous 8 字（x=sin t, y=sin 2t，纵向振幅大于横向）当运动语法，
-     再把点投影回格内（SDF 推开墙与外岛），保证不穿墙。 */
-  function weaveFigureEight(cell, agent, seed) {
+  /* 一根丝 = 「真实丝迹回放」连成的连续线：
+     每一笔都是实测样本里蚕走过的折线（弧长重采样后的原始形状，不理想化）；
+     一笔织完 → 短距离爬行到下一处 → 再织一笔。密织时多根这样的丝叠在一格里。
+     碰到格边或圆孔负空间就断笔（真实蚕不会穿墙），返回若干段折线。 */
+  function weaveThread(cell, agent, seed, customWalls) {
     const rng = mulberry32(seed >>> 0);
     const W = cell.w, H = cell.h;
     const cov = Math.max(0.15, Math.min(0.85, Number.isFinite(agent.coverage) ? agent.coverage : 0.55));
-    const prof = weaveProfileOf(agent);
-    const fp = (prof && prof.fingerprint) || prof || {};
-    // 纵横比来自实测样本（raby 两笔丝迹 1.78 / 1.45，取均值区间）；默认 1.6
-    const aspects = fp.strokeAspects && fp.strokeAspects.length ? fp.strokeAspects : null;
-    const aspect = aspects
-      ? Math.max(1.2, Math.min(1.9, aspects.reduce((s, a) => s + a, 0) / aspects.length))
-      : 1.6;
-    // 「单次吐丝运动模式」：一个八字织完 → 直线爬行 → 换一处再织，覆盖率决定重复次数
-    const loops = Math.min(3, 1 + Math.round(cov * 1.6 * rng()));
-    const pad = Math.min(W, H) * 0.07;
-    const jitter = Math.min(W, H) * 0.002 * (0.4 + (agent.wallAff || 0.6));
-    const baseRot = (rng() < 0.5 ? -1 : 1) * (0.20 + rng() * 0.24);
-    const pts = [];
-    let cx = (rng() - 0.5) * W * 0.10;
-    let cy = (rng() - 0.5) * H * 0.12;
+    const tpls = weaveTemplates(agent);
+    const jitter = Math.min(W, H) * 0.0016 * (0.4 + (agent.wallAff || 0.6));
+    const wallR = Math.min(W, H) * 0.03;
+    const strokes = Math.max(4, Math.min(9, 4 + Math.round(rng() * 4)));
+    const segs = [];
+    let cur = [];
+    const push = (x, y) => {
+      if (!weaveAllowed(cell, x, y, 3)) {
+        if (cur.length > 2) segs.push(cur);
+        cur = [];
+        return;
+      }
+      const q = weaveWallRepel(customWalls, x, y, wallR);
+      cur.push({ x: q.x + (rng() - 0.5) * jitter, y: q.y + (rng() - 0.5) * jitter });
+    };
     let exit = null;
-    // 环圈形状：平滑 Lissajous 八字（x=sin t, y=sin 2t，纵向 > 横向），严格按截图形态
-    for (let L = 0; L < loops; L++) {
-      const s = Math.min(W, H) * 0.24 * (0.8 + rng() * 0.3);
-      const rot = baseRot + (rng() - 0.5) * 0.24;
+    let cx = (rng() - 0.5) * W * 0.85;
+    let cy = (rng() - 0.5) * H * 0.85;
+    // 同一条丝上的笔画保持大致同向（参考图里每块织网的方向性明显，不是随机乱麻）
+    const baseAng = rng() * Math.PI * 2;
+    const dir = rng() < 0.5 ? -1 : 1;
+    for (let L = 0; L < strokes; L++) {
+      const tpl = tpls[(rng() * tpls.length) | 0];
+      const n = tpl.length >> 1;
+      // 模板高度是 2（y∈[-1,1]）→ 缩放成格高的 30%–58%，密织成参考图那种多层折线网
+      const s = H * (0.15 + rng() * 0.14) * (0.85 + cov * 0.3);
+      const rot = baseAng + dir * (rng() - 0.5) * 0.5;
       const flip = rng() < 0.5 ? -1 : 1;
       const cs = Math.cos(rot), sn = Math.sin(rot);
-      const N = 120;
-      const loopPts = [];
-      const ph = rng() * Math.PI * 2;
-      for (let k = 0; k <= N; k++) {
-        const t = ph + flip * k / N * Math.PI * 2;
-        const rx = s * Math.sin(t);
-        const ry = s * aspect * Math.sin(2 * t);
-        const x = cx + rx * cs - ry * sn;
-        const y = cy + rx * sn + ry * cs;
-        const q = weaveProject(cell, x, y, pad);
-        loopPts.push({
-          x: q.x + (rng() - 0.5) * jitter,
-          y: q.y + (rng() - 0.5) * jitter,
-        });
+      const mx = Math.max(0, W / 2 - s * 0.75);
+      const my = Math.max(0, H / 2 - s * 1.05);
+      if (L > 0) {
+        // 在格内绕开圆孔一圈一圈往外铺：半径随笔画递增、角度用黄金角错开，
+        // 叠出来的就是参考图那种「围着黑孔的密织环带」，而不是随机乱麻。
+        const ang = baseAng + dir * L * 2.399;
+        const r = Math.min(W, H) * (0.05 + (L / strokes) * 0.32) * (0.8 + rng() * 0.4);
+        cx = Math.cos(ang) * r;
+        cy = Math.sin(ang) * r;
       }
+      cx = Math.max(-mx, Math.min(mx, cx));
+      cy = Math.max(-my, Math.min(my, cy));
+      // 笔间爬行：从上一笔出口直线爬到这一笔起点，出界/进圆孔就断
       if (exit) {
-        // 直线爬行过渡：从上一个八字的出口爬到下一个吐丝点，可跨出格子（不投影）
-        const dx = loopPts[0].x - exit.x, dy = loopPts[0].y - exit.y;
-        const steps = Math.max(6, Math.round(Math.hypot(dx, dy) / (Math.min(W, H) / 18)));
+        const dx = cx - exit.x, dy = cy - exit.y;
+        const steps = Math.max(4, Math.round(Math.hypot(dx, dy) / (Math.min(W, H) / 20)));
+        const crawl = [];
         for (let k = 1; k < steps; k++) {
           const t = k / steps;
-          pts.push({
-            x: exit.x + dx * t + (rng() - 0.5) * jitter * 0.6,
-            y: exit.y + dy * t + (rng() - 0.5) * jitter * 0.6,
-          });
+          crawl.push({ x: exit.x + dx * t, y: exit.y + dy * t });
         }
+        const seg = crawl.filter(p => weaveAllowed(cell, p.x, p.y, 3));
+        if (seg.length > 1) segs.push(seg);
       }
-      for (let k = 0; k < loopPts.length; k++) pts.push(loopPts[k]);
-      exit = loopPts[loopPts.length - 1];
-      // 下一处吐丝点：沿随机方向爬出去一段（留出环圈半径，避免环圈被格边压平）
-      const ang = rng() * Math.PI * 2;
-      const dist = Math.min(W, H) * (0.22 + rng() * 0.30);
-      const mx = Math.max(0, W / 2 - pad - s * 1.25);
-      const my = Math.max(0, H / 2 - pad - s * aspect * 1.15);
-      cx = Math.max(-mx, Math.min(mx, cx + Math.cos(ang) * dist));
-      cy = Math.max(-my, Math.min(my, cy + Math.sin(ang) * dist));
+      cur = [];
+      let last = null;
+      for (let k = 0; k <= n; k++) {
+        const i = (k % n) * 2;
+        const tx = tpl[i] * flip * s, ty = tpl[i + 1] * s;
+        push(cx + tx * cs - ty * sn, cy + tx * sn + ty * cs);
+        if (cur.length) last = cur[cur.length - 1];
+      }
+      if (cur.length > 2) segs.push(cur);
+      if (last) exit = last;
     }
-    return pts;
+    return segs;
   }
 
   function weaveHash01(ix, iy, seed) {
@@ -6073,13 +6156,26 @@ showSplitPreview();
     if (hit) return hit;
     const seed = (((agent.seed >>> 0) ^ Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263)) ^ 0x9e3779b9) >>> 0;
     const cell = weaveCellSpecAt(agent, ix, iy, seed);
-    const n = Math.max(1, Math.min(6, Math.round(agent.worms || 2)));
+    const custom = agent.custom || (agent.custom = { walls: {}, paths: {} });
+    const customWalls = (custom.walls && custom.walls[key]) || [];
+    const customPaths = (custom.paths && custom.paths[key]) || [];
+    const n = Math.max(1, Math.min(12, Math.round(agent.worms || 6)));
     const paths = [];
-    for (let t = 0; t < n; t++) {
-      const pts = weaveFigureEight(cell, agent, (seed + t * 7919 + 17) >>> 0);
-      if (pts.length > 20) paths.push({ pts, seed });
+    // 参考图里有整块空着的黑格：按格哈希留缺口（人工编辑过的格不封）
+    const blank = !customWalls.length && !customPaths.length && weaveHash01(ix, iy, seed + 7) > 0.88;
+    if (!blank) {
+      for (let t = 0; t < n; t++) {
+        const segs = weaveThread(cell, agent, (seed + t * 7919 + 17) >>> 0, customWalls);
+        segs.forEach(seg => {
+          if (seg.length > 6) paths.push({ pts: seg, seed });
+        });
+      }
+      customPaths.forEach(p => {
+        const pts = (p.pts || p).map(q => ({ x: q.x, y: q.y }));
+        if (pts.length > 2) paths.push({ pts, seed, custom: true });
+      });
     }
-    const content = { cell, paths, walls: weaveContour(cell), seed };
+    const content = { cell, paths, walls: weaveContour(cell), customWalls, seed, blank };
     agent.cache.set(key, content);
     if (agent.cache.size > 360) agent.cache.delete(agent.cache.keys().next().value);
     return content;
@@ -6094,6 +6190,7 @@ showSplitPreview();
       threads: origin.paths.length,
       points: origin.paths.reduce((s, p) => s + p.pts.length, 0),
       walls: origin.walls.length,
+      custom: (agent.custom ? Object.keys(agent.custom.walls || {}).length + Object.keys(agent.custom.paths || {}).length : 0),
     };
     if (!Number.isFinite(agent.u)) agent.u = 0;
   }
@@ -6107,8 +6204,8 @@ showSplitPreview();
       x: x, y: y,
       w: 200, h: 200,
       coverage: 0.55,
-      shape: 'plain',
-      worms: 2,
+      shape: 'island',
+      worms: 8,
       wallAff: 0.6,
       seed: (seed == null ? Math.floor(Math.random() * 1e9) : seed) >>> 0,
       u: 0,
@@ -6118,6 +6215,7 @@ showSplitPreview();
       heading: 0,
       walls: [],
       paths: [],
+      custom: { walls: {}, paths: {} },
       cache: null,
       sample: null,
     };
@@ -6137,7 +6235,7 @@ showSplitPreview();
     habitat.selected = agent.id;
     renderList();
     toast('已放入织网格网 ' + agent.id + '，点「开始」让它织。', 'ok');
-    hint('细网格没有外边界，平移或缩放会一直延伸；蚕按实测样本的「八字吐丝 + 直线爬行」模式反复延伸。');
+    hint('黑底 + 无边界格网。蚕按实测样本的折线丝迹一笔一笔织，笔间用直线爬行延伸；自动布局可直接用下面的形状编辑改。');
   }
 
   function drawWeave(ctx, agent, v) {
@@ -6155,36 +6253,47 @@ showSplitPreview();
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    // 细密场地网格：覆盖整个视口、无边界，随缩放取整倍间距（对齐个体原点）
-    let gs = Math.max(14, cw / 9);
-    while (gs * v.s < 16) gs *= 2;
-    ctx.strokeStyle = 'rgba(196,214,204,0.12)';
-    ctx.lineWidth = Math.max(0.6, 0.8 * v.s);
-    ctx.beginPath();
-    for (let gx = Math.ceil(wx0 / gs) * gs; gx <= wx1; gx += gs) {
-      const px = v.px(agent.x + gx);
-      ctx.moveTo(px, v.py(agent.y + wy0));
-      ctx.lineTo(px, v.py(agent.y + wy1));
-    }
-    for (let gy = Math.ceil(wy0 / gs) * gs; gy <= wy1; gy += gs) {
-      const py = v.py(agent.y + gy);
-      ctx.moveTo(v.px(agent.x + wx0), py);
-      ctx.lineTo(v.px(agent.x + wx1), py);
-    }
-    ctx.stroke();
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
         const content = weaveCellContent(agent, i, j);
         const ox = agent.x + i * cw;
         const oy = agent.y + j * ch;
+        // 织块边界：参考图里是极淡的方块缝
+        ctx.globalCompositeOperation = 'source-over';
+        if (!content.blank) {
+          ctx.strokeStyle = 'rgba(206,216,210,0.16)';
+          ctx.lineWidth = Math.max(0.6, 0.8 * v.s);
+          content.walls.forEach(line => {
+            ctx.beginPath();
+            for (let k = 0; k < line.length; k++) {
+              const px = v.px(ox + line[k].x), py = v.py(oy + line[k].y);
+              if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+          });
+        }
+        // 人工画的壁：更亮，可编辑
+        if (content.customWalls && content.customWalls.length) {
+          ctx.strokeStyle = 'rgba(235,240,236,0.55)';
+          ctx.lineWidth = Math.max(1, 1.4 * v.s);
+          content.customWalls.forEach(line => {
+            const pts = line.pts || line;
+            ctx.beginPath();
+            for (let k = 0; k < pts.length; k++) {
+              const px = v.px(ox + pts[k].x), py = v.py(oy + pts[k].y);
+              if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+          });
+        }
         if (agent.bodyVisible === false) continue;
         const delay = weaveHash01(i, j, seed) * 0.18;
         const lu = Math.max(0, Math.min(1, (u - delay) / (1 - delay || 1)));
         if (lu <= 0) continue;
-        const light = 0.34 + weaveHash01(i, j, seed + 101) * 0.26;
+        const light = 0.30 + weaveHash01(i, j, seed + 101) * 0.30;
         ctx.globalCompositeOperation = 'lighter';
         ctx.strokeStyle = 'rgba(226,232,228,' + light.toFixed(2) + ')';
-        ctx.lineWidth = Math.max(0.8, 0.9 * Math.max(1, v.s * 0.6));
+        ctx.lineWidth = Math.max(0.6, 0.8 * Math.max(1, v.s * 0.6));
         content.paths.forEach(p => {
           const n = Math.max(2, Math.floor(p.pts.length * lu));
           ctx.beginPath();
@@ -6528,65 +6637,12 @@ showSplitPreview();
     const g = bg.getContext('2d');
 
     g.clearRect(0, 0, w, h);
-
-    const base = g.createLinearGradient(0, 0, w, h);
-    base.addColorStop(0, '#080e0d');
-    base.addColorStop(0.48, '#0a1210');
-    base.addColorStop(1, '#060a0a');
-
-    g.fillStyle = base;
-    g.fillRect(0, 0, w, h);
-
-    const glow = g.createRadialGradient(
-      w * 0.50, h * 0.48, w * 0.04,
-      w * 0.50, h * 0.48, w * 0.76
-    );
-    glow.addColorStop(0, 'rgba(30,51,42,0.40)');
-    glow.addColorStop(0.56, 'rgba(17,31,27,0.20)');
-    glow.addColorStop(1, 'rgba(0,0,0,0)');
-
-    g.fillStyle = glow;
-    g.fillRect(0, 0, w, h);
-
-    const vignette = g.createRadialGradient(
-      w * 0.50, h * 0.48, w * 0.30,
-      w * 0.50, h * 0.48, w * 0.78
-    );
-    vignette.addColorStop(0, 'rgba(0,0,0,0)');
-    vignette.addColorStop(1, 'rgba(0,0,0,0.42)');
-
-    g.fillStyle = vignette;
+    // 纯黑底（展陈参考：黑场 + 密织丝块）
+    g.fillStyle = '#000000';
     g.fillRect(0, 0, w, h);
 
     const f = far.getContext('2d');
     f.clearRect(0, 0, w, h);
-
-    // 叶片只放在边缘，中央保持干净
-    f.save();
-    f.filter = 'blur(1.4px)';
-
-    const decor = [
-      [0.055, 0.20, -0.58, 82, 154, 0.28],
-      [0.93, 0.17, 0.62, 76, 142, 0.24],
-      [0.045, 0.82, 0.72, 70, 132, 0.22],
-      [0.955, 0.80, -0.66, 88, 164, 0.25],
-      [0.25, 0.015, 1.08, 44, 88, 0.14],
-      [0.77, 0.99, -1.04, 48, 96, 0.14]
-    ];
-
-    decor.forEach(d => {
-      drawBackdropLeaf(
-        f,
-        d[0] * w,
-        d[1] * h,
-        d[2],
-        d[3],
-        d[4],
-        d[5]
-      );
-    });
-
-    f.restore();
   }
 
   function paintMist() {
@@ -7021,22 +7077,25 @@ showSplitPreview();
     const v = view();
     ctx.clearRect(0, 0, v.w, v.h);
     ctx.save();
-    ctx.strokeStyle = 'rgba(230,236,233,0.09)';
-    ctx.lineWidth = 1;
+    // 场地格线：世界坐标锚定（不随任何个体移动），可隐藏
+    if (habitat.showGrid !== false) {
+      const gs = 40;
+      const wx0 = (0 - v.cx) / v.s, wx1 = (v.w - v.cx) / v.s;
+      const wy0 = (0 - v.cy) / v.s, wy1 = (v.h - v.cy) / v.s;
+      ctx.strokeStyle = 'rgba(210,220,214,0.10)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let gx = Math.ceil(wx0 / gs) * gs; gx <= wx1; gx += gs) {
+        ctx.moveTo(v.px(gx), v.py(wy0));
+        ctx.lineTo(v.px(gx), v.py(wy1));
+      }
+      for (let gy = Math.ceil(wy0 / gs) * gs; gy <= wy1; gy += gs) {
+        ctx.moveTo(v.px(wx0), v.py(gy));
+        ctx.lineTo(v.px(wx1), v.py(gy));
+      }
+      ctx.stroke();
+    }
     const a = arenaSpec();
-    const reach = a.kind === 'circle' ? a.r : Math.max(a.hw, a.hh);
-    for (let x = -reach; x <= reach; x += 20) {
-      ctx.beginPath();
-      ctx.moveTo(v.px(x), v.py(-reach));
-      ctx.lineTo(v.px(x), v.py(reach));
-      ctx.stroke();
-    }
-    for (let y = -reach; y <= reach; y += 20) {
-      ctx.beginPath();
-      ctx.moveTo(v.px(-reach), v.py(y));
-      ctx.lineTo(v.px(reach), v.py(y));
-      ctx.stroke();
-    }
     ctx.strokeStyle = 'rgba(230,236,233,0.45)';
     ctx.lineWidth = 1.2;
     ctx.beginPath();
@@ -7046,10 +7105,6 @@ showSplitPreview();
       ctx.rect(v.px(-a.hw), v.py(-a.hh), a.hw * 2 * v.s, a.hh * 2 * v.s);
     }
     ctx.stroke();
-    habitat.obstacles.forEach(leaf => {
-      drawLeaf(ctx, v.px(leaf.x), v.py(leaf.y), leaf.rot, leaf.rx * v.s, leaf.ry * v.s,
-        leaf.id === habitat.selectedLeaf ? 'rgba(46,78,64,0.82)' : 'rgba(32,58,48,0.72)');
-    });
     const env = drive();
     if (habitat.reference && habitat.reference.length > 1) {
       drawSilk(ctx, habitat.reference, v, 0.09);
@@ -7159,10 +7214,10 @@ showSplitPreview();
       const prog = Math.round((a.u || 0) * 100);
       const sample = a.sample || { threads: 0, points: 0, walls: 0 };
       info.innerHTML = '织网格网 ' + a.id + ' · 细格 ' + Math.round(a.w) + '×' + Math.round(a.h) +
-        ' · 每格 ' + sample.threads + ' 条丝 · ' + prog + '% · 八字纵横比：' +
+        ' · 每格 ' + sample.threads + ' 根丝 · ' + prog + '% · 轨迹：' +
         (a.profile && a.profile.source && a.profile.source.kind === 'measured'
           ? '实测（' + (a.profile.label || a.profile.id || '样本') + '）'
-          : '实测样本 raby-1 · 其余参数：演示');
+          : '实测样本 raby-1 回放');
       panelSet('habAdjX', Math.round(a.x)); panelVal('habAdjXVal', String(Math.round(a.x)));
       panelSet('habAdjY', Math.round(a.y)); panelVal('habAdjYVal', String(Math.round(a.y)));
       panelSet('habAdjRot', 0); panelVal('habAdjRotVal', '0°');
@@ -7176,13 +7231,13 @@ showSplitPreview();
       panelSet('habWeaveW', Math.round(a.w)); panelVal('habWeaveWVal', Math.round(a.w) + 'px');
       panelSet('habWeaveH', Math.round(a.h)); panelVal('habWeaveHVal', Math.round(a.h) + 'px');
       panelSet('habWeaveCov', a.coverage); panelVal('habWeaveCovVal', (a.coverage || 0).toFixed(2));
-      panelSet('habWeaveWorms', a.worms || 2); panelVal('habWeaveWormsVal', String(a.worms || 2));
+      panelSet('habWeaveWorms', a.worms || 6); panelVal('habWeaveWormsVal', String(a.worms || 6));
       const shapeSel = document.getElementById('habWeaveShape');
-      if (shapeSel) shapeSel.value = a.shape || 'plain';
+      if (shapeSel) shapeSel.value = a.shape || 'island';
       const note = document.getElementById('habWeaveNote');
-      if (note) note.textContent = '每格 ' + sample.points + ' 点 · 细网格无边界，可一直延伸' +
-        ' · 八字（平滑）+ 直线爬行 · 纵横比：' + (a.profile ? (a.profile.label || a.profile.id || '自定义') : '实测样本 raby-1') +
-        ' · 种子 ' + a.seed;
+      if (note) note.textContent = '每格 ' + sample.points + ' 点 · 黑底细网格（可隐藏）' +
+        ' · 轨迹：' + (a.profile ? (a.profile.label || a.profile.id || '自定义') : '实测样本 raby-1 回放') +
+        ' · 自定义壁/丝路 ' + (sample.custom || 0) + ' 条 · 种子 ' + a.seed;
       return;
     }
     if (weavePanel) weavePanel.hidden = true;
@@ -7251,9 +7306,44 @@ showSplitPreview();
     });
     bind('habWeaveWorms', () => {
       const a = chosen(); if (!a || a.kind !== 'weave') return;
-      a.worms = Math.max(1, Math.min(6, parseInt(document.getElementById('habWeaveWorms').value, 10) || 2));
+      a.worms = Math.max(1, Math.min(12, parseInt(document.getElementById('habWeaveWorms').value, 10) || 6));
       panelVal('habWeaveWormsVal', String(a.worms));
       rebuildWeave();
+    });
+    const weaveEditBtn = document.getElementById('habWeaveEdit');
+    const weaveEditMode = document.getElementById('habWeaveEditMode');
+    if (weaveEditBtn) weaveEditBtn.addEventListener('click', () => {
+      const a = chosen();
+      if (!a || a.kind !== 'weave') { toast('先选中一个织网格网，再编辑形状。', 'err'); return; }
+      if (habitat.weaveEdit && habitat.weaveEdit.agentId) {
+        finishWeaveEditLine();
+        habitat.weaveEdit = null;
+        weaveEditBtn.textContent = '开始编辑形状';
+        weaveEditBtn.setAttribute('aria-pressed', 'false');
+        syncEditNote();
+        hint('已退出形状编辑。');
+        return;
+      }
+      habitat.weaveEdit = {
+        agentId: a.id, ix: 0, iy: 0,
+        mode: weaveEditMode ? weaveEditMode.value : 'wall',
+        drafts: {},
+      };
+      weaveEditBtn.textContent = '退出编辑';
+      weaveEditBtn.setAttribute('aria-pressed', 'true');
+      syncEditNote();
+      hint('编辑中：在画布上点顶点，双击结束这条线；壁会挡丝，丝路会直接织出来。');
+    });
+    if (weaveEditMode) weaveEditMode.addEventListener('change', () => {
+      if (habitat.weaveEdit) { habitat.weaveEdit.mode = weaveEditMode.value; syncEditNote(); }
+    });
+    const weaveEditEnd = document.getElementById('habWeaveEditEnd');
+    if (weaveEditEnd) weaveEditEnd.addEventListener('click', finishWeaveEditLine);
+    const weaveEditClear = document.getElementById('habWeaveEditClear');
+    if (weaveEditClear) weaveEditClear.addEventListener('click', clearWeaveCellCustom);
+    const gridToggle = document.getElementById('habGridToggle');
+    if (gridToggle) gridToggle.addEventListener('change', () => {
+      habitat.showGrid = !!gridToggle.checked;
     });
     const shapeSel = document.getElementById('habWeaveShape');
     if (shapeSel) shapeSel.addEventListener('change', () => {
@@ -7296,8 +7386,8 @@ showSplitPreview();
             const kind = prof.source && prof.source.kind === 'measured' ? '实测' : '演示（非实测）';
             toast('已载入指纹：' + (prof.wormId || prof.id || '未命名') + '（' + kind + '）', 'ok');
             hint(prof.fingerprint && prof.fingerprint.strokeAspects
-              ? '指纹的实测纵横比已参与八字生成；覆盖率决定每条丝织几个八字。'
-              : '指纹只影响每格的包络数量与纵横比；颜色/密度仍由覆盖率控制。');
+              ? '指纹的实测纵横比已参与生成；每格密度由「每格蚕数」与覆盖率控制。'
+              : '指纹只影响纵横比与包络数量；密度/颜色仍由覆盖率控制。');
           } catch (err) {
             toast('指纹读取失败：' + err.message, 'err');
           }
@@ -7405,15 +7495,17 @@ showSplitPreview();
       return;
     }
     const p = screenToHab(ev);
-    if (habitat.tool === 'leaf') {
-      if (!insideArena(p.x, p.y, 0)) return;
-      pushUndo();
-      const id = 'leaf-' + Date.now();
-      habitat.obstacles.push({ id, x: p.x, y: p.y, rot: 0, rx: 36, ry: 58 });
-      habitat.selectedLeaf = id;
-      habitat.drag = { kind: 'leaf', id, dx: 0, dy: 0 };
-      world.setPointerCapture(ev.pointerId);
-      return;
+    // 织网形状编辑：点一下加一个顶点（壁/路径都走这里）
+    if (habitat.weaveEdit && habitat.weaveEdit.agentId) {
+      const a = habitat.agents.find(x => x.id === habitat.weaveEdit.agentId);
+      if (a && a.kind === 'weave') {
+        const c = weaveCellAt(a, p);
+        const e = habitat.weaveEdit;
+        if (e.ix !== c.ix || e.iy !== c.iy) { e.ix = c.ix; e.iy = c.iy; }
+        weaveEditDraft(e, c.ix + ',' + c.iy).push({ x: c.lx, y: c.ly });
+        syncEditNote();
+        return;
+      }
     }
     const hit = habitat.agents.find(a => {
       if (a.mode === 'bench') return false;
@@ -7439,17 +7531,16 @@ showSplitPreview();
       return;
     }
     const p = screenToHab(ev);
-    if (d.kind === 'leaf') {
-      const leaf = habitat.obstacles.find(l => l.id === d.id);
-      if (leaf && insideArena(p.x, p.y, 0)) { leaf.x = p.x; leaf.y = p.y; }
-      return;
-    }
     const agent = habitat.agents.find(a => a.id === d.id);
     if (!agent) return;
     if (!blocked(p.x, p.y)) {
       if (agent.kind === 'route') { agent.offX = p.x; agent.offY = p.y; applyRouteTransform(agent); }
       else { agent.x = p.x; agent.y = p.y; }
     }
+  });
+
+  world.addEventListener('dblclick', () => {
+    if (habitat.weaveEdit && habitat.weaveEdit.agentId) finishWeaveEditLine();
   });
 
   world.addEventListener('pointerup', () => {
@@ -7460,9 +7551,8 @@ showSplitPreview();
       world.classList.remove('panning');
       return;
     }
-    if (d.kind !== 'agent' && d.kind !== 'leaf') return;
-    habitat.drag = null;
     if (d.kind !== 'agent') return;
+    habitat.drag = null;
     const agent = habitat.agents.find(a => a.id === d.id);
     if (!agent) return;
     agent.mode = d.modeBefore === 'run' ? 'paused' : (d.modeBefore === 'bench' ? 'idle' : d.modeBefore);
@@ -7528,7 +7618,7 @@ showSplitPreview();
     }
     const p = screenToHab(ev);
     if (blocked(p.x, p.y)) {
-      toast('放不进去：该处被桑叶或场地边界占用，换个位置。', 'err');
+      toast('放不进去：该处超出场地边界，换个位置。', 'err');
       hint('该位置不可放置，请换一处。');
       return;
     }
@@ -7559,22 +7649,81 @@ showSplitPreview();
       });
     });
   });
-  document.getElementById('habLeafTool').addEventListener('click', () => {
-    habitat.tool = habitat.tool === 'leaf' ? 'worm' : 'leaf';
-    document.getElementById('habLeafTool').classList.toggle('active', habitat.tool === 'leaf');
-  });
-  function currentLeaf() { return habitat.obstacles.find(l => l.id === habitat.selectedLeaf); }
-  document.getElementById('habLeafRotL').addEventListener('click', () => { const l = currentLeaf(); if (l) l.rot -= 0.25; });
-  document.getElementById('habLeafRotR').addEventListener('click', () => { const l = currentLeaf(); if (l) l.rot += 0.25; });
-  document.getElementById('habLeafDel').addEventListener('click', () => {
-    const l = currentLeaf();
-    if (!l) return;
-    pushUndo();
-    habitat.obstacles = habitat.obstacles.filter(x => x.id !== l.id);
-    habitat.selectedLeaf = null;
-  });
+  // 桑叶障碍已移除（用户要求删掉桑叶功能）
 
   function chosen() { return habitat.agents.find(a => a.id === habitat.selected); }
+
+  /* ===== 织网形状编辑：人工创建 / 调整壁与路径 ===== */
+  function weaveCellAt(agent, p) {
+    const ix = Math.floor((p.x - agent.x) / agent.w + 0.5);
+    const iy = Math.floor((p.y - agent.y) / agent.h + 0.5);
+    return {
+      ix, iy,
+      lx: p.x - (agent.x + ix * agent.w),
+      ly: p.y - (agent.y + iy * agent.h),
+    };
+  }
+
+  function weaveEditAgent() {
+    const e = habitat.weaveEdit;
+    if (!e || !e.agentId) return null;
+    const a = habitat.agents.find(x => x.id === e.agentId);
+    return a && a.kind === 'weave' ? a : null;
+  }
+
+  function weaveEditDraft(e, key) {
+    if (!e.drafts) e.drafts = {};
+    if (!e.drafts[key]) e.drafts[key] = [];
+    return e.drafts[key];
+  }
+
+  function syncEditNote() {
+    const el = document.getElementById('habWeaveEditNote');
+    if (!el) return;
+    const e = habitat.weaveEdit;
+    if (!e || !e.agentId) { el.textContent = '未进入编辑。自动生成的布局可以直接改。'; return; }
+    const n = (e.drafts && e.drafts[e.ix + ',' + e.iy] || []).length;
+    el.textContent = '格 (' + e.ix + ',' + e.iy + ') · ' + (e.mode === 'wall' ? '壁' : '丝路') +
+      ' · 已点 ' + n + ' 个顶点；双击结束这条线。';
+  }
+
+  function finishWeaveEditLine() {
+    const a = weaveEditAgent();
+    const e = habitat.weaveEdit;
+    if (!a || !e) { syncEditNote(); return; }
+    const key = e.ix + ',' + e.iy;
+    const draft = weaveEditDraft(e, key);
+    if (!draft.length) { syncEditNote(); return; }
+    if (draft.length < 2) { toast('至少两个点才能成线。', 'err'); return; }
+    pushUndo();
+    a.custom = a.custom || { walls: {}, paths: {} };
+    const bucket = e.mode === 'wall' ? a.custom.walls : a.custom.paths;
+    (bucket[key] = bucket[key] || []).push({ pts: draft.slice() });
+    draft.length = 0;
+    if (a.cache && a.cache.delete) a.cache.delete(key);
+    weaveCellContent(a, e.ix, e.iy);
+    a.sample = a.sample || {};
+    if (a.sample.custom != null) a.sample.custom += 1;
+    syncRoutePanel();
+    syncEditNote();
+    toast('已记下这条' + (e.mode === 'wall' ? '壁' : '丝路') + '（格 ' + e.ix + ',' + e.iy + '）。', 'ok');
+  }
+
+  function clearWeaveCellCustom() {
+    const a = weaveEditAgent();
+    const e = habitat.weaveEdit;
+    if (!a || !e) return;
+    pushUndo();
+    const key = e.ix + ',' + e.iy;
+    if (a.custom && a.custom.walls) delete a.custom.walls[key];
+    if (a.custom && a.custom.paths) delete a.custom.paths[key];
+    if (e.drafts && e.drafts[key]) e.drafts[key].length = 0;
+    if (a.cache && a.cache.delete) a.cache.delete(key);
+    weaveCellContent(a, e.ix, e.iy);
+    syncRoutePanel();
+    syncEditNote();
+    toast('已清掉格 (' + e.ix + ',' + e.iy + ') 的自定义壁与丝路。', 'ok');
+  }
   document.getElementById('habAddWeave').addEventListener('click', addWeaveAgent);
   document.getElementById('habAddRandom').addEventListener('click', () => {
     pushUndo();
@@ -7665,6 +7814,7 @@ showSplitPreview();
           w: a.w, h: a.h, coverage: a.coverage, shape: a.shape,
           worms: a.worms, seed: a.seed, duration: a.duration, u: a.u, wallAff: a.wallAff,
           profile: a.profile || null,
+          custom: a.custom || { walls: {}, paths: {} },
         } : undefined,
         speedScale: Number.isFinite(a.speedScale) ? a.speedScale : 1,
       })),
@@ -7889,6 +8039,7 @@ showSplitPreview();
           w: a.w, h: a.h, coverage: a.coverage, shape: a.shape,
           worms: a.worms, seed: a.seed, duration: a.duration, u: a.u, wallAff: a.wallAff,
           profile: a.profile || null,
+          custom: a.custom || { walls: {}, paths: {} },
         } : undefined,
         speedScale: Number.isFinite(a.speedScale) ? a.speedScale : 1,
       })),
@@ -7911,9 +8062,8 @@ showSplitPreview();
       habitat.shape = data.shape;
       document.querySelectorAll('[data-shape]').forEach(b => b.classList.toggle('active', b.dataset.shape === data.shape));
     }
-    habitat.tool = data.tool || 'worm';
-    document.getElementById('habLeafTool').classList.toggle('active', habitat.tool === 'leaf');
-    habitat.obstacles = Array.isArray(data.obstacles) ? data.obstacles : [];
+    habitat.tool = 'worm';
+    habitat.obstacles = [];
     habitat.orphans = Array.isArray(data.orphanSilk) ? data.orphanSilk : [];
     habitat.reference = data.reference || null;
     habitat.selected = data.selected || null;
@@ -7948,20 +8098,24 @@ showSplitPreview();
           agent.w = Number.isFinite(wv.w) ? Math.max(80, Math.min(340, wv.w)) : 200;
           agent.h = Number.isFinite(wv.h) ? Math.max(80, Math.min(340, wv.h)) : 200;
           agent.coverage = Number.isFinite(wv.coverage) ? wv.coverage : 0.55;
-          agent.shape = wv.shape || 'plain';
-          agent.worms = Number.isFinite(wv.worms) ? wv.worms : 2;
+          agent.shape = wv.shape || 'island';
+          agent.worms = Number.isFinite(wv.worms) ? wv.worms : 6;
           agent.seed = Number.isFinite(wv.seed) ? wv.seed : 1;
           agent.duration = Number.isFinite(wv.duration) ? wv.duration : 22;
           agent.wallAff = Number.isFinite(wv.wallAff) ? wv.wallAff : 0.6;
           agent.profile = (wv.profile && typeof wv.profile === 'object') ? wv.profile : null;
+          agent.custom = (wv.custom && typeof wv.custom === 'object')
+            ? { walls: wv.custom.walls || {}, paths: wv.custom.paths || {} }
+            : { walls: {}, paths: {} };
           agent.u = Number.isFinite(wv.u) ? wv.u : 0;
         }
         if (agent.kind === 'route' && agent.route.length >= 2) applyRouteTransform(agent);
         if (agent.kind === 'weave') {
           if (!agent.w) agent.w = 200;
           if (!agent.h) agent.h = 200;
-          if (!agent.shape) agent.shape = 'plain';
+          if (!agent.shape) agent.shape = 'island';
           if (!agent.seed) agent.seed = 1;
+          if (!agent.custom) agent.custom = { walls: {}, paths: {} };
           buildWeave(agent);
         }
         return agent;
@@ -7978,7 +8132,8 @@ showSplitPreview();
     addWeave: addWeaveAgent,
     weaveCellContent: weaveCellContent,
     weaveCellSpecAt: weaveCellSpecAt,
-    weaveFigureEight: weaveFigureEight,
+    weaveThread: weaveThread,
+    weaveTemplates: weaveTemplates,
     view: () => view(),
   };
 
