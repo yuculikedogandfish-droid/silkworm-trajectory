@@ -940,4 +940,10 @@ python tools\weave_to_td.py exports\weave-curves.json --out exports\td
 - 孔内残留 0.15 的 seed 303/404 未单独出图核实是辉光还是越界；`weaveAllowed` 的 margin=2 单位偏小。
 - k=0.9 让"一次吐丝≈一格"，因此单格里再也看不出单个八字；八字要近看/看局部才成立。若展陈要"一眼认出八字"，需要降到 k≈0.3–0.4，与"实测 1:1"是取舍关系，**不是 bug**。
 - 覆盖均匀度仍是经验参数（段数 53 份/格），未做"参考图密度反解"。
-- 母版 900 帧全量仍未跑，只出了 150 帧试片。
+### 26.8 母版首跑完成（2419×1360，900 帧）
+- 场景 `_backup\make_master_scene.py` → `qa-master-scene.json`：7 列 × 6 行 = **42 块**，块 300×250（±6 抖动），缝 26，`coverage 0.62 / worms 7 / scaleK 0.9 / strata 2`。
+- 命令：`& .\scripts\render_led_frames.ps1 -Html docs\index.html -Scene <json> -Native 2419x1360 -Frames 900 -Fps 30 -OutDir G:\led_master_r18 -Encode -Resume`
+- 结果：900 帧 28 分 24 秒（1.9 s/帧）；`weave_master_prores.mov` 763 MB；`weave_playback_h264.mp4` 5.4 MB。
+- **踩坑**：2419 是奇数宽，libx264 + yuv420p 要求偶数宽，原脚本直接 `width not divisible by 2` 报错。已在 `render_led_frames.ps1` 的两条编码命令里加 `-vf pad=ceil(iw/2)*2:ceil(ih/2)*2`（ProRes 那条本来不要求，保持不变）。
+- 逐帧 `u` 由 `T = frame/(total-1)`、`delay = (order%7)*0.045` 驱动，所以 **frame 0 必定全黑**（起针），抽查 frame_0000 空白不是 bug。
+

@@ -162,7 +162,7 @@ if (-not $ffmpeg) {
 $prores = Join-Path $OutDir "weave_master_prores.mov"
 $h264   = Join-Path $OutDir "weave_playback_h264.mp4"
 $cmdProres = "ffmpeg -y -framerate $Fps -start_number 0 -i `"$OutDir\frame_%04d.png`" -c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le `"$prores`""
-$cmdH264   = "ffmpeg -y -framerate $Fps -start_number 0 -i `"$OutDir\frame_%04d.png`" -c:v libx264 -crf 14 -preset slow -pix_fmt yuv420p `"$h264`""
+$cmdH264   = "ffmpeg -y -framerate $Fps -start_number 0 -i `"$OutDir\frame_%04d.png`" -c:v libx264 -crf 14 -preset slow -vf pad=ceil(iw/2)*2:ceil(ih/2)*2 -pix_fmt yuv420p `"$h264`""
 
 if ($ffmpeg) {
   if ($Encode) {
@@ -172,7 +172,7 @@ if ($ffmpeg) {
     $p1 = Start-Process -FilePath $ffmpeg -ArgumentList $a1 -Wait -PassThru -WindowStyle Hidden -RedirectStandardError $logEnc -RedirectStandardOutput (Join-Path $OutDir "encode.out.txt")
     if ($p1.ExitCode -ne 0) { throw "ProRes 编码失败，见 $logEnc" }
     Write-Host "编码 H.264 播放版…"
-    $a2 = @("-y", "-framerate", "$Fps", "-start_number", "0", "-i", (Join-Path $OutDir "frame_%04d.png"), "-c:v", "libx264", "-crf", "14", "-preset", "slow", "-pix_fmt", "yuv420p", $h264)
+    $a2 = @("-y", "-framerate", "$Fps", "-start_number", "0", "-i", (Join-Path $OutDir "frame_%04d.png"), "-c:v", "libx264", "-crf", "14", "-preset", "slow", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-pix_fmt", "yuv420p", $h264)
     $p2 = Start-Process -FilePath $ffmpeg -ArgumentList $a2 -Wait -PassThru -WindowStyle Hidden -RedirectStandardError (Join-Path $OutDir "encode_h264.log") -RedirectStandardOutput (Join-Path $OutDir "encode_h264.out.txt")
     if ($p2.ExitCode -ne 0) { throw "H.264 编码失败，见 encode_h264.log" }
     Write-Host "完成：$prores / $h264"
