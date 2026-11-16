@@ -2950,7 +2950,7 @@ if (window.parent !== window) {
           <button type="button" id="habWeaveEditClear">清掉本格自定义</button>
         </div>
         <p class="hab-note" id="habWeaveEditNote">未进入编辑。自动生成的布局可以直接改。</p>
-        <p class="hab-note" id="habWeaveNote">格网：黑底、无边界细网格；每格密织、带圆孔负空间。</p>
+        <p class="hab-note" id="habWeaveNote">织网单元：一个单元就是一格（放几个就几块）；格内密织 + 大圆孔负空间，形状可手动编辑。</p>
       </div>
       <label class="row"><input type="checkbox" id="habAdjFollow"> 沿实测轨迹爬行</label>
       <div class="row">
@@ -6204,7 +6204,9 @@ showSplitPreview();
     const n = Math.max(1, Math.min(12, Math.round(agent.worms || 6)));
     const paths = [];
     // 参考图里有整块空着的黑格：按格哈希留缺口（人工编辑过的格不封）
-    const blank = !customWalls.length && !customPaths.length && !manual && weaveHash01(ix, iy, seed + 7) > 0.88;
+    // 手放的单元一定织满；只有整场铺格模式才按哈希留空格（参考图里有整块黑板）
+    const blank = !customWalls.length && !customPaths.length && !manual
+      && agent.tileField && weaveHash01(ix, iy, seed + 7) > 0.88;
     if (!blank) {
       for (let t = 0; t < n; t++) {
         const segs = weaveThread(cell, agent, (seed + t * 7919 + 17) >>> 0, customWalls);
@@ -6253,11 +6255,12 @@ showSplitPreview();
       u: 0,
       duration: 22,
       speedScale: 1,
+      tileField: false,
       silk: [],
       heading: 0,
       walls: [],
       paths: [],
-      custom: { walls: {}, paths: {} },
+      custom: { walls: {}, paths: {}, shapes: {} },
       cache: null,
       sample: null,
     };
@@ -6276,11 +6279,93 @@ showSplitPreview();
     habitat.agents.push(agent);
     habitat.selected = agent.id;
     renderList();
-    toast('已放入织网格网 ' + agent.id + '，点「开始」让它织。', 'ok');
-    hint('黑底 + 无边界格网。蚕按实测样本的折线丝迹一笔一笔织，笔间用直线爬行延伸；自动布局可直接用下面的形状编辑改。');
+    toast('已放入织网单元 ' + agent.id + '（一格），点「开始」让蚕在格里织。', 'ok');
+    hint('一个织网单元就是一格：放几个单元就有几块。格里的圆孔/缺口/壁/丝路都能用「开始编辑形状」+ 拖手柄改。');
   }
 
   function drawWeave(ctx, agent, v) {
+    const cw = Math.max(60, agent.w), ch = Math.max(60, agent.h);
+    // 一个织网单元 = 一格（手动放多少就有多少块）；只有显式开启 tileField 才整场铺格
+    const cells = agent.tileField ? weaveVisibleCells(agent, v) : [[0, 0]];
+    const u = Math.max(0, Math.min(1, agent.u || 0));
+    const seed = agent.seed >>> 0;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    cells.forEach(([i, j]) => {
+      const content = weaveCellContent(agent, i, j);
+      if (!agent.tileField) content.blank = false;   // 手放的单元一定织满，不留空格
+      const ox = agent.x + i * cw;
+      const oy = agent.y + j * ch;
+      // 织块边界：参考图里是极淡的方块缝
+      ctx.globalCompositeOperation = 'source-over';
+      if (!content.blank) {
+        ctx.strokeStyle = 'rgba(206,216,210,0.16)';
+        ctx.lineWidth = Math.max(0.6, 0.8 * v.s);
+        content.walls.forEach(line => {
+          ctx.beginPath();
+          for (let k = 0; k < line.length; k++) {
+            const px = v.px(ox + line[k].x), py = v.py(oy + line[k].y);
+            if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+        });
+      }
+      // 人工画的壁：更亮，可编辑
+      if (content.customWalls && content.customWalls.length) {
+        ctx.strokeStyle = 'rgba(235,240,236,0.55)';
+        ctx.lineWidth = Math.max(1, 1.4 * v.s);
+        content.customWalls.forEach(line => {
+          const pts = line.pts || line;
+          ctx.beginPath();
+          for (let k = 0; k < pts.length; k++) {
+            const px = v.px(ox + pts[k].x), py = v.py(oy + pts[k].y);
+            if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+        });
+      }
+      if (agent.bodyVisible === false) return;
+      const delay = weaveHash01(i, j, seed) * 0.18;
+      const lu = Math.max(0, Math.min(1, (u - delay) / (1 - delay || 1)));
+      if (lu <= 0) return;
+      const light = 0.30 + weaveHash01(i, j, seed + 101) * 0.30;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = 'rgba(226,232,228,' + light.toFixed(2) + ')';
+      ctx.lineWidth = Math.max(0.6, 0.8 * Math.max(1, v.s * 0.6));
+      content.paths.forEach(p => {
+        const n = Math.max(2, Math.floor(p.pts.length * lu));
+        ctx.beginPath();
+        for (let k = 0; k < n; k++) {
+          const px = v.px(ox + p.pts[k].x), py = v.py(oy + p.pts[k].y);
+          if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      });
+      // 吐丝头：沿已织出的丝往前跑，让"蚕正在爬"看得见
+      if (lu < 1 && content.paths.length) {
+        const total = content.paths.reduce((s, p) => s + p.pts.length, 0);
+        let left = Math.max(1, Math.floor(total * lu));
+        for (let pi = 0; pi < content.paths.length; pi++) {
+          const p = content.paths[pi];
+          if (left <= p.pts.length) {
+            const q = p.pts[Math.min(p.pts.length - 1, Math.max(0, left - 1))];
+            const sx = v.px(ox + q.x), sy = v.py(oy + q.y);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = 'rgba(240,245,242,0.9)';
+            ctx.beginPath();
+            ctx.arc(sx, sy, Math.max(2, 2.2 * v.s * 0.6), 0, Math.PI * 2);
+            ctx.fill();
+            break;
+          }
+          left -= p.pts.length;
+        }
+      }
+    });
+    ctx.restore();
+  }
+
+  function weaveVisibleCells(agent, v) {
     const cw = Math.max(60, agent.w), ch = Math.max(60, agent.h);
     const wx0 = (0 - v.cx) / v.s - agent.x;
     const wx1 = (v.w - v.cx) / v.s - agent.x;
@@ -6290,64 +6375,9 @@ showSplitPreview();
     let j0 = Math.floor(wy0 / ch) - 1, j1 = Math.floor(wy1 / ch) + 1;
     if (i1 - i0 > 16) i1 = i0 + 16;
     if (j1 - j0 > 16) j1 = j0 + 16;
-    const u = Math.max(0, Math.min(1, agent.u || 0));
-    const seed = agent.seed >>> 0;
-    ctx.save();
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (let j = j0; j <= j1; j++) {
-      for (let i = i0; i <= i1; i++) {
-        const content = weaveCellContent(agent, i, j);
-        const ox = agent.x + i * cw;
-        const oy = agent.y + j * ch;
-        // 织块边界：参考图里是极淡的方块缝
-        ctx.globalCompositeOperation = 'source-over';
-        if (!content.blank) {
-          ctx.strokeStyle = 'rgba(206,216,210,0.16)';
-          ctx.lineWidth = Math.max(0.6, 0.8 * v.s);
-          content.walls.forEach(line => {
-            ctx.beginPath();
-            for (let k = 0; k < line.length; k++) {
-              const px = v.px(ox + line[k].x), py = v.py(oy + line[k].y);
-              if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-            }
-            ctx.stroke();
-          });
-        }
-        // 人工画的壁：更亮，可编辑
-        if (content.customWalls && content.customWalls.length) {
-          ctx.strokeStyle = 'rgba(235,240,236,0.55)';
-          ctx.lineWidth = Math.max(1, 1.4 * v.s);
-          content.customWalls.forEach(line => {
-            const pts = line.pts || line;
-            ctx.beginPath();
-            for (let k = 0; k < pts.length; k++) {
-              const px = v.px(ox + pts[k].x), py = v.py(oy + pts[k].y);
-              if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-            }
-            ctx.stroke();
-          });
-        }
-        if (agent.bodyVisible === false) continue;
-        const delay = weaveHash01(i, j, seed) * 0.18;
-        const lu = Math.max(0, Math.min(1, (u - delay) / (1 - delay || 1)));
-        if (lu <= 0) continue;
-        const light = 0.30 + weaveHash01(i, j, seed + 101) * 0.30;
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.strokeStyle = 'rgba(226,232,228,' + light.toFixed(2) + ')';
-        ctx.lineWidth = Math.max(0.6, 0.8 * Math.max(1, v.s * 0.6));
-        content.paths.forEach(p => {
-          const n = Math.max(2, Math.floor(p.pts.length * lu));
-          ctx.beginPath();
-          for (let k = 0; k < n; k++) {
-            const px = v.px(ox + p.pts[k].x), py = v.py(oy + p.pts[k].y);
-            if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-          }
-          ctx.stroke();
-        });
-      }
-    }
-    ctx.restore();
+    const cells = [];
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) cells.push([i, j]);
+    return cells;
   }
 
   let toastTimer = 0;
@@ -6449,6 +6479,31 @@ showSplitPreview();
     const a = pts[i];
     const b = pts[Math.min(pts.length - 1, i + 1)];
     return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  }
+
+  // 局部实测笔迹（以蚕自身为原点，不含场地偏移）
+  function sampleRouteCentered(agent, u) {
+    const pts = agent.route || [];
+    if (pts.length < 2) return { x: 0, y: 0 };
+    const f = Math.max(0, Math.min(1, u)) * (pts.length - 1);
+    const i = Math.floor(f);
+    const t = f - i;
+    const a = pts[i];
+    const b = pts[Math.min(pts.length - 1, i + 1)];
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  }
+
+  // 场地巡游轨迹：让蚕把实测笔迹一遍遍铺到整个场地上（方向是合成的，局部形态是实测的）
+  function roamPoint(agent, t) {
+    const a = arenaSpec();
+    const span = a.kind === 'circle' ? a.r : Math.min(a.hw, a.hh);
+    const ph = (agent.wormId || 1) * 1.7;
+    const rr = span * (0.20 + 0.62 * (0.5 + 0.5 * Math.sin(t * 1.45 + ph)));
+    const ang = t * 2.05 + ph;
+    return {
+      x: Math.cos(ang) * rr * 0.92,
+      y: Math.sin(ang * 0.87 + 0.4) * rr * 0.86,
+    };
   }
 
   function measuredSource() {
@@ -7091,7 +7146,7 @@ showSplitPreview();
     const routeN = habitat.agents.filter(a => a.kind === 'route').length;
     const weaveN = habitat.agents.filter(a => a.kind === 'weave').length;
     const demoN = habitat.agents.length - routeN - weaveN;
-    if (syncStat) syncStat.textContent = '实测 ' + routeN + ' 只 · 演示 ' + demoN + ' 只 · 格网 ' + weaveN + ' 个';
+    if (syncStat) syncStat.textContent = '实测 ' + routeN + ' 只 · 演示 ' + demoN + ' 只 · 织网单元 ' + weaveN + ' 个';
     if (!habitat.agents.length) {
       box.innerHTML = '<div class="hab-note">暂无个体：描好的蚕会自动出现在这里；也可添加随机演示蚕。</div>';
       syncRoutePanel();
@@ -7099,9 +7154,9 @@ showSplitPreview();
     }
     box.innerHTML = habitat.agents.map(a => {
       const label = { bench: '待放入', idle: '已放置', drag: '拖动中', run: '爬行', paused: '暂停' }[a.mode] || a.mode;
-      const disp = a.kind === 'route' ? '蚕 ' + a.wormId : (a.kind === 'weave' ? '格网 ' + a.id : a.id);
+      const disp = a.kind === 'route' ? '蚕 ' + a.wormId : (a.kind === 'weave' ? '织网单元 ' + a.id : a.id);
       const tag = a.kind === 'route' ? '<span class="tag">实测</span>'
-        : (a.kind === 'weave' ? '<span class="tag">格网</span>' : '<span class="tag">演示</span>');
+        : (a.kind === 'weave' ? '<span class="tag">织网单元</span>' : '<span class="tag">演示</span>');
       const tip = a.kind === 'route'
         ? (a.mode === 'idle' || a.mode === 'paused' ? '<span class="drag-tip">可拖动改位置</span>' : '<span class="drag-tip">拖动可改位置</span>')
         : (a.kind === 'weave'
@@ -7162,7 +7217,7 @@ showSplitPreview();
       if (weavePanel) weavePanel.hidden = false;
       const prog = Math.round((a.u || 0) * 100);
       const sample = a.sample || { threads: 0, points: 0, walls: 0 };
-      info.innerHTML = '织网格网 ' + a.id + ' · 细格 ' + Math.round(a.w) + '×' + Math.round(a.h) +
+      info.innerHTML = '织网单元 ' + a.id + ' · 细格 ' + Math.round(a.w) + '×' + Math.round(a.h) +
         ' · 每格 ' + sample.threads + ' 根丝 · ' + prog + '% · 轨迹：' +
         (a.profile && a.profile.source && a.profile.source.kind === 'measured'
           ? '实测（' + (a.profile.label || a.profile.id || '样本') + '）'
@@ -7263,7 +7318,7 @@ showSplitPreview();
     const weaveEditMode = document.getElementById('habWeaveEditMode');
     if (weaveEditBtn) weaveEditBtn.addEventListener('click', () => {
       const a = chosen();
-      if (!a || a.kind !== 'weave') { toast('先选中一个织网格网，再编辑形状。', 'err'); return; }
+      if (!a || a.kind !== 'weave') { toast('先选中一个织网单元，再编辑形状。', 'err'); return; }
       if (habitat.weaveEdit && habitat.weaveEdit.agentId) {
         finishWeaveEditLine();
         habitat.weaveEdit = null;
@@ -7374,16 +7429,24 @@ showSplitPreview();
       if (agent.kind === 'route') {
         if (agent.follow && agent.route && agent.route.length >= 2) {
           const speedScale = Number.isFinite(agent.speedScale) ? agent.speedScale : 1;
+          // 真实吐丝形态（局部） + 场地巡游（整体）：蚕一路爬过整个场地，边爬边重复实测笔迹
           agent.u = (agent.u + dt * 0.18 * speedScale) % 1;
-          const h = sampleRoute(agent, agent.u);
-          const ahead = sampleRoute(agent, Math.min(1, agent.u + 0.002));
-          agent.x = h.x;
-          agent.y = h.y;
-          agent.heading = Math.atan2(ahead.y - h.y, ahead.x - h.x);
-          const last = agent.silk[agent.silk.length - 1];
-          if (!last || Math.hypot(last.x - h.x, last.y - h.y) > 2.5) {
-            agent.silk.push({ x: h.x, y: h.y, t: habitat.simTime });
-            if (agent.silk.length > 4000) agent.silk.shift();
+          agent.travel = (agent.travel || 0) + dt * 0.075 * speedScale;
+          const g = roamPoint(agent, agent.travel);
+          const l = sampleRouteCentered(agent, agent.u);
+          const sc = (agent.scale || 1) * 0.6;
+          const cs = Math.cos(agent.rot || 0), sn = Math.sin(agent.rot || 0);
+          const lx = l.x * sc, ly = l.y * sc;
+          const x = g.x + lx * cs - ly * sn;
+          const y = g.y + lx * sn + ly * cs;
+          const px = agent.x, py = agent.y;
+          agent.x = x;
+          agent.y = y;
+          if (Math.hypot(x - px, y - py) > 0.4) agent.heading = Math.atan2(y - py, x - px);
+          const lastPt = agent.silk[agent.silk.length - 1];
+          if (!lastPt || Math.hypot(lastPt.x - x, lastPt.y - y) > 2.2) {
+            agent.silk.push({ x, y, t: habitat.simTime });
+            if (agent.silk.length > 6000) agent.silk.shift();
           }
         }
         return;
@@ -7462,8 +7525,15 @@ showSplitPreview();
           return;
         }
         const c = weaveCellAt(a, p);
-        if (e.ix !== c.ix || e.iy !== c.iy) { e.ix = c.ix; e.iy = c.iy; }
-        weaveEditDraft(e, c.ix + ',' + c.iy).push({ x: c.lx, y: c.ly });
+        if (!a.tileField) {
+          const inside = Math.abs(p.x - a.x) <= a.w / 2 && Math.abs(p.y - a.y) <= a.h / 2;
+          if (!inside) {
+            hint('形状编辑只在当前织网单元这一格内；要更多块，就再放一个织网单元。');
+            return;
+          }
+          e.ix = 0; e.iy = 0;
+        } else if (e.ix !== c.ix || e.iy !== c.iy) { e.ix = c.ix; e.iy = c.iy; }
+        weaveEditDraft(e, e.ix + ',' + e.iy).push({ x: c.lx, y: c.ly });
         syncEditNote();
         return;
       }
@@ -7942,8 +8012,9 @@ showSplitPreview();
         weave: a.kind === 'weave' ? {
           w: a.w, h: a.h, coverage: a.coverage, shape: a.shape,
           worms: a.worms, seed: a.seed, duration: a.duration, u: a.u, wallAff: a.wallAff,
+          tileField: !!a.tileField,
           profile: a.profile || null,
-          custom: a.custom || { walls: {}, paths: {} },
+          custom: a.custom || { walls: {}, paths: {}, shapes: {} },
         } : undefined,
         speedScale: Number.isFinite(a.speedScale) ? a.speedScale : 1,
       })),
@@ -8167,8 +8238,9 @@ showSplitPreview();
         weave: a.kind === 'weave' ? {
           w: a.w, h: a.h, coverage: a.coverage, shape: a.shape,
           worms: a.worms, seed: a.seed, duration: a.duration, u: a.u, wallAff: a.wallAff,
+          tileField: !!a.tileField,
           profile: a.profile || null,
-          custom: a.custom || { walls: {}, paths: {} },
+          custom: a.custom || { walls: {}, paths: {}, shapes: {} },
         } : undefined,
         speedScale: Number.isFinite(a.speedScale) ? a.speedScale : 1,
       })),
@@ -8234,8 +8306,9 @@ showSplitPreview();
           agent.wallAff = Number.isFinite(wv.wallAff) ? wv.wallAff : 0.6;
           agent.profile = (wv.profile && typeof wv.profile === 'object') ? wv.profile : null;
           agent.custom = (wv.custom && typeof wv.custom === 'object')
-            ? { walls: wv.custom.walls || {}, paths: wv.custom.paths || {} }
-            : { walls: {}, paths: {} };
+            ? { walls: wv.custom.walls || {}, paths: wv.custom.paths || {}, shapes: wv.custom.shapes || {} }
+            : { walls: {}, paths: {}, shapes: {} };
+          agent.tileField = !!wv.tileField;
           agent.u = Number.isFinite(wv.u) ? wv.u : 0;
         }
         if (agent.kind === 'route' && agent.route.length >= 2) applyRouteTransform(agent);
@@ -8263,6 +8336,9 @@ showSplitPreview();
     weaveCellSpecAt: weaveCellSpecAt,
     weaveThread: weaveThread,
     weaveTemplates: weaveTemplates,
+    roamPoint: roamPoint,
+    step: step,
+    sampleRouteCentered: sampleRouteCentered,
     view: () => view(),
   };
 
