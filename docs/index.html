@@ -6025,7 +6025,12 @@ showSplitPreview();
     if (cell.notch && Math.hypot(x - cell.notch.cx, y - cell.notch.cy) < cell.notch.r + m) return false;
     const islands = cell.islands || (cell.island ? [cell.island] : []);
     for (let k = 0; k < islands.length; k++) {
-      if (Math.hypot(x - islands[k].cx, y - islands[k].cy) < islands[k].r + m) return false;
+      const isl = islands[k];
+      // 孔口不是完美圆：半径带低频起伏，让丝收口的地方有自然的“毛边”
+      const ang = Math.atan2(y - isl.cy, x - isl.cx);
+      const ph = isl.ph || 0;
+      const wob = 1 + 0.045 * Math.sin(ang * 3 + ph) + 0.022 * Math.sin(ang * 7 + ph * 2.3);
+      if (Math.hypot(x - isl.cx, y - isl.cy) < isl.r * wob + m) return false;
     }
     return true;
   }
@@ -6066,6 +6071,7 @@ showSplitPreview();
           cx: (rng() - 0.5) * agent.w * 0.40,
           cy: (rng() - 0.5) * agent.h * 0.40,
           r: base * (0.22 + rng() * 0.13),
+          ph: rng() * Math.PI * 2,
         });
       }
     }
@@ -6280,33 +6286,39 @@ showSplitPreview();
       push(px * cs - py * sn + (rng() - 0.5) * wob, px * sn + py * cs + (rng() - 0.5) * wob);
     }
     if (cur.length > 2) segs.push(cur);
-    // 圆孔/缺口边缘的环带只由第一根丝负责
+    // 圆孔/缺口边缘：贴壁丝 + 渐隐过渡（只由第一根丝负责）
+    // 不做同心等亮圆环——那会读成「画出来的圆圈」。改为大量短弧，半径、弧长、亮度都随机，
+    // 越贴孔边越密越亮，向外逐渐变稀变暗，与块内丝网自然咬合。
     if (bi === 0) {
       const islands = cell.islands || (cell.island ? [cell.island] : []);
+      const minWH = Math.min(W, H);
       islands.forEach((isl, ii) => {
-        const rings = Math.max(6, Math.min(18, Math.round(Math.min(W, H) * 0.045)));
-        for (let ring = 1; ring <= rings; ring++) {
-          const rr = isl.r + Math.min(W, H) * 0.009 * ring;
-          for (let arc = 0; arc < 6; arc++) {
-            const a0 = rng() * Math.PI * 2;
-            const a1 = a0 + Math.PI * (0.85 + rng() * 0.4);
-            const st = 28;
-            let c2 = [];
-            for (let k = 0; k <= st; k++) {
-              const a = a0 + (a1 - a0) * (k / st);
-              const w2 = Math.sin(k * 1.1 + ii) * Math.min(W, H) * 0.003;
-              const x = isl.cx + Math.cos(a) * (rr + w2);
-              const y = isl.cy + Math.sin(a) * (rr + w2);
-              if (!weaveAllowed(cell, x, y, 2)) {
-                if (c2.length > 2) segs.push(c2);
-                c2 = [];
-                continue;
-              }
-              const q = weaveWallRepel(customWalls, x, y, wallR);
-              c2.push({ x: q.x, y: q.y });
+        const fringe = minWH * 0.12;
+        const arcs = Math.max(50, Math.min(240, Math.round(minWH * 0.62)));
+        for (let a = 0; a < arcs; a++) {
+          const t = arcs > 1 ? a / (arcs - 1) : 0;
+          const spread = Math.pow(t, 0.62) * (0.62 + rng() * 0.6);
+          const rr = isl.r * (1 + 0.03 * (rng() - 0.5)) + fringe * spread;
+          const a0 = rng() * Math.PI * 2;
+          const span = 0.10 + rng() * 0.32;
+          const st = Math.max(9, Math.round(26 * span));
+          const mul = (0.95 - 0.78 * t) * (0.45 + rng() * 0.55);
+          const wob2 = minWH * 0.006;
+          let c2 = [];
+          for (let k = 0; k <= st; k++) {
+            const a1 = a0 + span * (k / st);
+            const rg = rr + Math.sin(k * 1.3 + a) * wob2 * (0.4 + rng() * 0.9);
+            const x = isl.cx + Math.cos(a1) * rg;
+            const y = isl.cy + Math.sin(a1) * rg;
+            if (!weaveAllowed(cell, x, y, 2)) {
+              if (c2.length > 2) segs.push({ pts: c2, mul });
+              c2 = [];
+              continue;
             }
-            if (c2.length > 2) segs.push(c2);
+            const q = weaveWallRepel(customWalls, x, y, wallR);
+            c2.push({ x: q.x, y: q.y });
           }
+          if (c2.length > 2) segs.push({ pts: c2, mul });
         }
       });
     }
@@ -6351,7 +6363,12 @@ showSplitPreview();
       for (let b = 0; b < bandCount; b++) {
         const segs = weaveThread(cell, agent, (seed + b * 7919 + 17) >>> 0, customWalls, b, bandCount);
         segs.forEach(seg => {
-          if (seg.length > 6) paths.push({ pts: seg, seed, b, a: (0.13 + weaveHash01(b, b + 31, seed) * 0.22) * (0.72 + covN * 0.5) });
+          const pts = Array.isArray(seg) ? seg : seg.pts;
+          const mul = Array.isArray(seg) ? 1 : (seg.mul != null ? seg.mul : 1);
+          if (pts.length > 6) paths.push({
+            pts, seed, b,
+            a: (0.13 + weaveHash01(b, b + 31, seed) * 0.22) * (0.72 + covN * 0.5) * mul,
+          });
         });
       }
       customPaths.forEach(p => {
@@ -6529,19 +6546,10 @@ showSplitPreview();
       ctx.rect(v.px(ox - cw / 2 + gap / 2), v.py(oy - ch / 2 + gap / 2),
         Math.max(1, (cw - gap) * v.s), Math.max(1, (ch - gap) * v.s));
       ctx.clip();
-      // 织块边界：参考图里是极淡的方块缝；自定义多边形轮廓也描一道细边
+      // 织块边界：不再描 SDF 轮廓线（那条等粗细圆环会被读成「画出来的圆圈」），
+      // 块缝由 gap 裁切形成；多边形单元只描自己的外框
       ctx.globalCompositeOperation = 'source-over';
       if (!content.blank) {
-        ctx.strokeStyle = 'rgba(206,216,210,0.07)';
-        ctx.lineWidth = Math.max(0.6, 0.8 * v.s);
-        content.walls.forEach(line => {
-          ctx.beginPath();
-          for (let k = 0; k < line.length; k++) {
-            const px = v.px(ox + line[k].x), py = v.py(oy + line[k].y);
-            if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-          }
-          ctx.stroke();
-        });
         if (content.cell && content.cell.outline) {
           ctx.strokeStyle = 'rgba(206,216,210,0.22)';
           ctx.beginPath();
@@ -6623,6 +6631,8 @@ showSplitPreview();
           if (L === strata - 1) headPt = p.pts[Math.min(p.pts.length - 1, Math.max(0, n - 1))];
         });
       }
+      // 孔口羽化：孔内清空、孔缘 2–3 px 渐隐，让丝网与黑洞之间是过渡而不是硬切边
+      weaveFeatherHoles(ctx, content.cell, ox, oy, v);
       // 吐丝头：沿已织出的丝往前跑，让"蚕正在爬"看得见
       if (headPt) {
         const sx = v.px(ox + headPt.x), sy = v.py(oy + headPt.y);
@@ -6637,9 +6647,31 @@ showSplitPreview();
     ctx.restore();
   }
 
+  // 孔口羽化：孔内清空、孔缘若干像素渐隐（destination-out 径向渐变），
+  // 让丝网收在孔口时是「越贴边越亮、再往里淡出」，而不是一条硬切边
+  function weaveFeatherHoles(g, cell, ox, oy, v) {
+    const islands = (cell && cell.islands) || [];
+    if (!islands.length) return;
+    const prev = g.globalCompositeOperation;
+    g.globalCompositeOperation = 'destination-out';
+    islands.forEach(isl => {
+      const cx = v.px(ox + isl.cx), cy = v.py(oy + isl.cy);
+      const r = isl.r * v.s;
+      const feather = Math.max(1.5, r * 0.16);
+      const grd = g.createRadialGradient(cx, cy, Math.max(0.5, r * 0.45), cx, cy, r + feather);
+      grd.addColorStop(0, 'rgba(0,0,0,1)');
+      grd.addColorStop(0.66, 'rgba(0,0,0,1)');
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grd;
+      g.beginPath();
+      g.arc(cx, cy, r + feather, 0, Math.PI * 2);
+      g.fill();
+    });
+    g.globalCompositeOperation = prev;
+  }
+
   // 每条丝的长度与前缀和（按实际折线长度推进用）
-  function weavePathCum(content) {
-    if (content.cum) return content.cum;
+  function weavePathCum(content) {    if (content.cum) return content.cum;
     const acc = [], seg = [];
     let total = 0;
     content.paths.forEach(p => {
@@ -6703,6 +6735,12 @@ showSplitPreview();
         g.stroke();
       });
     }
+    // 孔口羽化（离屏位图里同样做一遍，鼓包/硬边都不会带进缓存）
+    weaveFeatherHoles(g, content.cell, 0, 0, {
+      s: kx,
+      px: x => (x + cw / 2) * kx,
+      py: y => (y + ch / 2) * ky,
+    });
     content.raster = cv;
     content.rasterKey = key;
     return cv;
