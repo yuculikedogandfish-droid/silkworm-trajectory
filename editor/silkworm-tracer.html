@@ -8562,7 +8562,7 @@ showSplitPreview();
       if (a && a.kind === 'weave') {
         const e = habitat.weaveEdit;
         const v = view();
-        const tol = 10 / v.s;
+        const tol = 14 / v.s;
         const hs = weaveHandles(a, e.ix, e.iy);
         const hit = hs.find(h => Math.hypot(h.x - p.x, h.y - p.y) <= tol);
         if (hit) {
@@ -8864,7 +8864,7 @@ showSplitPreview();
   function syncEditNote() { syncEditNoteText(); syncEditHud(); }
 
   const WT_HINT = {
-    shape: '拖橙方点＝改整块大小 · 拖橙十字＝挪整块 · 拖青点/青圈＝挪孔/改孔径',
+    shape: '拖四角＝改整块大小 · 拖四条边中点＝只改宽或只改高 · 拖中间十字＝整块挪位 · 拖青点/青圈＝挪孔/改孔径',
     hole: '拖青点＝挪孔 · 拖青圈＝改孔径 · 点格内空白＝把孔挪到那里 · 没有孔时点一下会新建一个孔',
     notch: '拖青点＝挪缺口 · 拖青圈＝改大小 · 点格子边缘附近＝把缺口挪到那边',
     wall: '在格内连点几下画一条壁，双击收尾 · 白点可拖 · Alt+点删顶点',
@@ -8989,6 +8989,7 @@ showSplitPreview();
 
   const WEAVE_HANDLE_LABEL = {
     unitCorner: '拖：改整块大小',
+    unitEdge: '拖：只改这一边',
     unitMove: '拖：整块挪位置',
     islandMove: '拖：挪孔洞',
     islandR: '拖：改孔洞大小',
@@ -9005,6 +9006,8 @@ showSplitPreview();
     const ox = a.x + ix * a.w, oy = a.y + iy * a.h;
     const tool = (habitat.weaveEdit && habitat.weaveEdit.tool) || 'shape';
     const want = (k) => {
+      // 角点 / 边中点 / 整块挪动 是「随时都能用」的手柄，不分工具
+      if (k === 'unitCorner' || k === 'unitEdge' || k === 'unitMove') return true;
       if (tool === 'shape') return true;
       if (tool === 'hole') return k === 'islandMove' || k === 'islandR' || k === 'unitCorner' || k === 'unitMove';
       if (tool === 'notch') return k === 'notchMove' || k === 'notchR' || k === 'unitCorner' || k === 'unitMove';
@@ -9018,6 +9021,11 @@ showSplitPreview();
     [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sy]) => {
       add({ kind: 'unitCorner', sx, sy, x: ox + sx * a.w / 2, y: oy + sy * a.h / 2 });
     });
+    // 四个边中点：只拖这一边，另一侧固定（像建模软件拉包围盒）
+    add({ kind: 'unitEdge', edge: 'l', x: ox - a.w / 2, y: oy });
+    add({ kind: 'unitEdge', edge: 'r', x: ox + a.w / 2, y: oy });
+    add({ kind: 'unitEdge', edge: 't', x: ox, y: oy - a.h / 2 });
+    add({ kind: 'unitEdge', edge: 'b', x: ox, y: oy + a.h / 2 });
     add({ kind: 'unitMove', x: a.x, y: a.y });
     (c.cell.islands || []).forEach((isl, i) => {
       add({ kind: 'islandMove', i, x: ox + isl.cx, y: oy + isl.cy });
@@ -9052,6 +9060,25 @@ showSplitPreview();
     if (h.kind === 'unitMove') {
       a.x = p.x;
       a.y = p.y;
+      return;
+    }
+    if (h.kind === 'unitEdge') {
+      // 只动被拖的这一边，对面那条边钉死
+      if (h.edge === 'l' || h.edge === 'r') {
+        const left = ox - a.w / 2, right = ox + a.w / 2;
+        const nw = Math.max(80, Math.min(400, h.edge === 'l' ? right - p.x : p.x - left));
+        const nox = h.edge === 'l' ? right - nw / 2 : left + nw / 2;
+        a.w = nw;
+        a.x = nox - ix * nw;
+      } else {
+        const top = oy - a.h / 2, bot = oy + a.h / 2;
+        const nh = Math.max(80, Math.min(400, h.edge === 't' ? bot - p.y : p.y - top));
+        const noy = h.edge === 't' ? bot - nh / 2 : top + nh / 2;
+        a.h = nh;
+        a.y = noy - iy * nh;
+      }
+      a.cache = new Map();
+      buildWeave(a);
       return;
     }
     if (h.kind === 'unitCorner') {
@@ -9152,6 +9179,12 @@ showSplitPreview();
       if (h.kind === 'unitCorner') {
         ctx.fillStyle = '#f0b45a';
         ctx.fillRect(px - (hov ? 5 : 4), py - (hov ? 5 : 4), hov ? 10 : 8, hov ? 10 : 8);
+      } else if (h.kind === 'unitEdge') {
+        // 边中点画成短粗条：一看就知道"拉这条边"
+        ctx.fillStyle = '#f0b45a';
+        const L = hov ? 16 : 13, T = hov ? 7 : 6;
+        if (h.edge === 'l' || h.edge === 'r') ctx.fillRect(px - T / 2, py - L / 2, T, L);
+        else ctx.fillRect(px - L / 2, py - T / 2, L, T);
       } else if (h.kind === 'unitMove') {
         ctx.strokeStyle = '#f0b45a';
         ctx.lineWidth = hov ? 2 : 1;
@@ -9178,10 +9211,24 @@ showSplitPreview();
         ctx.fillRect(px - 3, py - 3, 6, 6);
       }
     });
+    // 正在拖角/边的时候，在块上方直接报尺寸，边拖边看得见
+    const dg = habitat.drag;
+    if (dg && dg.kind === 'weaveHandle' && (dg.handle.kind === 'unitCorner' || dg.handle.kind === 'unitEdge')) {
+      const txt = '宽 ' + Math.round(a.w) + ' × 高 ' + Math.round(a.h) + ' 像素';
+      ctx.font = '12px "Microsoft YaHei", system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+      const tw = ctx.measureText(txt).width;
+      const bx = v.px(a.x) - tw / 2 - 8, by = v.py(a.y - a.h / 2) - 26;
+      ctx.fillStyle = 'rgba(10,16,14,0.88)';
+      ctx.fillRect(bx, by, tw + 16, 20);
+      ctx.strokeStyle = 'rgba(240,180,90,0.75)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx, by, tw + 16, 20);
+      ctx.fillStyle = '#f4e6cc';
+      ctx.fillText(txt, bx + 8, by + 10);
+    }
     ctx.restore();
   }
-
-  // 鼠标停在手柄上时，在手柄旁边浮一个小标签，直接说明"拖这里会改什么"
   function renderHoverLabel(ctx, hs, v) {
     const h = habitat.hoverHandle;
     if (!h || !h.label) return;
