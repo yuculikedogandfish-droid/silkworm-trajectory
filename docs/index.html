@@ -2960,6 +2960,12 @@ if (window.parent !== window) {
         <p class="hab-note" id="habWeaveNote">织网单元：一个单元就是一格（放几个就几块）；格内密织 + 大圆孔负空间，形状可手动编辑。</p>
       </div>
       <label class="row"><input type="checkbox" id="habAdjFollow"> 沿实测轨迹爬行</label>
+      <div class="row"><label>活动范围</label>
+        <select id="habAdjScope">
+          <option value="field">整场 / 跨格</option>
+          <option value="cell">单个单元格内</option>
+        </select>
+      </div>
       <div class="row">
         <button type="button" id="habAdjCenter">居中复位</button>
         <button type="button" id="habAdjDrop">移除该个体</button>
@@ -6812,9 +6818,31 @@ showSplitPreview();
 
   // 场地巡游轨迹：让蚕把实测笔迹一遍遍铺到整个场地上（方向是合成的，局部形态是实测的）
   function roamPoint(agent, t) {
+    const ph = (agent.wormId || 1) * 1.7;
+    // 单个单元格内活动：把巡游中心绑到最近的织网单元，半径限制在格内
+    if (agent.scope === 'cell') {
+      const units = habitat.agents.filter(u => u.kind === 'weave');
+      let unit = units.find(u => u.id === agent.homeUnitId);
+      if (!unit && units.length) {
+        let best = null, bd = Infinity;
+        units.forEach(u => {
+          const d = Math.hypot(u.x - agent.x, u.y - agent.y);
+          if (d < bd) { bd = d; best = u; }
+        });
+        unit = best;
+        if (best) agent.homeUnitId = best.id;
+      }
+      if (unit) {
+        const r = Math.min(unit.w, unit.h) * 0.30;
+        return {
+          x: unit.x + Math.cos(t * 1.7 + ph) * r,
+          y: unit.y + Math.sin(t * 1.35 + ph * 1.1) * r * 0.9,
+        };
+      }
+      // 还没放织网单元就先按整场跑，放了再自动收进格内
+    }
     const a = arenaSpec();
     const span = a.kind === 'circle' ? a.r : Math.min(a.hw, a.hh);
-    const ph = (agent.wormId || 1) * 1.7;
     const rr = span * (0.20 + 0.62 * (0.5 + 0.5 * Math.sin(t * 1.45 + ph)));
     const ang = t * 2.05 + ph;
     return {
@@ -6870,6 +6898,8 @@ showSplitPreview();
           pauseUntil: 0,
           speedScale: 1,
           silk: [],
+          scope: 'field',
+          homeUnitId: null,
           x: 0, y: 0, heading: 0,
         };
         applyRouteTransform(agent);
@@ -7579,6 +7609,8 @@ showSplitPreview();
     panelSet('habAdjScale', a.scale || 1); panelVal('habAdjScaleVal', (a.scale || 1).toFixed(2));
     panelSet('habAdjFollow', !!a.follow);
     panelCheck('habAdjFollow', !!a.follow);
+    const scopeEl = document.getElementById('habAdjScope');
+    if (scopeEl) { scopeEl.value = a.scope === 'cell' ? 'cell' : 'field'; scopeEl.disabled = !isRoute; }
     ['habAdjRot', 'habAdjScale', 'habAdjFollow'].forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !isRoute; });
     const speedScale = Number.isFinite(a.speedScale) ? a.speedScale : 1;
     panelSet('habAdjSpeed', speedScale);
@@ -7604,6 +7636,20 @@ showSplitPreview();
       const a = chosen(); if (!a) return;
       a.follow = fol.checked;
       if (a.follow && a.mode === 'idle') a.mode = 'run';
+      renderList();
+    });
+    const scopeSel = document.getElementById('habAdjScope');
+    if (scopeSel) scopeSel.addEventListener('change', () => {
+      const a = chosen(); if (!a || a.kind !== 'route') return;
+      a.scope = scopeSel.value === 'cell' ? 'cell' : 'field';
+      a.homeUnitId = null;
+      if (a.scope === 'cell' && !habitat.agents.some(u => u.kind === 'weave')) {
+        hint('还没有织网单元：先放一个/铺一块群，蚕才会收进单格。');
+      } else if (a.scope === 'cell') {
+        hint('已收进单元格：蚕只在这个格内爬行吐丝，丝不会越界。');
+      } else {
+        hint('跨格模式：蚕沿整场巡游，会依次穿过多个织网单元。');
+      }
       renderList();
     });
     const rebuildWeave = () => {
@@ -8413,6 +8459,7 @@ showSplitPreview();
         kind: a.kind, wormId: a.wormId, route: a.route,
         offX: a.offX, offY: a.offY, rot: a.rot, scale: a.scale,
         follow: a.follow, u: a.u, color: a.color,
+        scope: a.scope || 'field', homeUnitId: a.homeUnitId || null,
         weave: a.kind === 'weave' ? {
           w: a.w, h: a.h, coverage: a.coverage, shape: a.shape,
           worms: a.worms, seed: a.seed, duration: a.duration, u: a.u, wallAff: a.wallAff,
@@ -8645,6 +8692,8 @@ showSplitPreview();
         follow: a.follow,
         u: a.u,
         color: a.color,
+        scope: a.scope || 'field',
+        homeUnitId: a.homeUnitId || null,
         weave: a.kind === 'weave' ? {
           w: a.w, h: a.h, coverage: a.coverage, shape: a.shape,
           worms: a.worms, seed: a.seed, duration: a.duration, u: a.u, wallAff: a.wallAff,
@@ -8707,6 +8756,8 @@ showSplitPreview();
           follow: !!a.follow,
           u: Number.isFinite(a.u) ? a.u : 0,
           color: a.color || '#d4c4a8',
+          scope: a.scope === 'cell' ? 'cell' : 'field',
+          homeUnitId: typeof a.homeUnitId === 'string' ? a.homeUnitId : null,
           speedScale: Number.isFinite(a.speedScale) ? Math.max(0.1, Math.min(3, a.speedScale)) : 1,
           pauseUntil: 0,
         };
