@@ -10,7 +10,7 @@
 | 阶段 | 状态 | 说明 |
 | --- | --- | --- |
 | P0 数据结构与指纹 | **契约完成，数据受限于素材** | 指纹已升级为 `silkworm-motion-profile/v1`；派生工具可用；现有轨迹是自动追踪结果，只能标 `assumption` |
-| P1 单格生成器 | 原型内可用 | SDF + 占用场 + 直方图采样生长；**尚未移植进 `docs/index.html`** |
+| P1 单格生成器 | **已移植进 `docs/index.html`** | 原型 SDF + 占用场 + 直方图采样生长；主程序新增 `kind:'weave'` 单元（墙 + 丝 + 逐帧生长 + 面板 + 保存/导入） |
 | P2 多格/分层/动画 | 原型内可用 | 60 格 × 3 层、逐帧确定重绘、母版脚本可跑 |
 | P3 母版与导出 | 导出链完成 | SVG / curves JSON / scene JSON / PNG / Blender / TD 全部打通 |
 | P4 现场 | 未开始 | 屏体宽高比、亮度、播放器待定 |
@@ -166,8 +166,9 @@ python scripts\render_led_frames.ps1 ... -Resume                                
 1. **实测指纹缺位**：仓库里只有自动追踪轨迹。要拿到能进论文的 `measured` 指纹，需要用户在描图器里手工描 2–3 条，
    导出工程 JSON 后跑 `python tools\derive_profile.py <工程.json> --measured --out profiles\measured`。
    在此之前，所有展陈母版只能使用 `assumption` 指纹并在片头/文档中标注，不能声称是实测。
-2. **P1 尚未移植主程序**：`docs/index.html` 的蚕室仍是「单蚕沿轨迹」逻辑，织网还只在 `prototype/weave-lab.html`。
-   移植时要新增 `kind: 'weave'`，不能改动 `silkworm-habitat/v1` 现有字段含义。
+2. **P1 已移植，P2 多格/分层还没进主程序**：`docs/index.html` 的蚕室现在有 `kind:'weave'` 单格单元
+   （一台「织网单元」= 一格，含墙体、丝、动画、参数面板、保存/导入）；60 格 × 3 层仍只在原型里。
+   移植时未改动 `silkworm-habitat/v1` 现有字段含义，只新增 `weave` 可选字段。
 3. **屏体宽高比未定**：`nativePx` 随 `areaM2/aspect/pitch` 自动算，当前 16:9 @ P1.5 → 2418×1360（3.29 MP）；
    若现场是 2419×1360 或 2565×1282，只改 config，不用改代码。
 4. **母版耗时**：单帧约 3.7 s（800×450 测试），按 2418×1360 预计 5 s/帧，900 帧 ≈ 75 min。已支持 `-Resume`。
@@ -175,7 +176,52 @@ python scripts\render_led_frames.ps1 ... -Resume                                
 
 ---
 
-## 6. 复现命令
+## 7. P1 移植：主程序蚕室里的「织网单元」
+
+代码位置：`docs/index.html` 蚕室 IIFE，`blocked()` 之后新增引擎段，`step()/paintWorld()/renderList()/syncRoutePanel()/bindRoutePanel()/exportHabitat()/importHabitat()` 各加一支。
+
+### 7.1 新增函数
+
+| 函数 | 作用 |
+| --- | --- |
+| `WEAVE_DEMO_PROFILE` | 演示指纹，`source.kind = assumption`，界面标注「演示（非实测）」 |
+| `weaveProfile()` | 返回演示指纹（后续接 `profiles/measured`） |
+| `weaveCellSpec(agent)` | 生成格子 SDF：`plain / notch / island / notchIsland` |
+| `weaveSDF(cell,x,y)` | 矩形 + 缺角 + 内岛的有符号距离 |
+| `weaveSimplify()` / `weaveChain()` | Douglas-Peucker + 闭合链修复（先去尾点再简化，最后补回） |
+| `weaveContour()` / `weaveSDF` | marching squares 提取墙线 |
+| `weaveGrowOne()` | 占用场生长：`res=max(2,min(W,H)/90)`；候选方向 ±0.9 rad；打分 `free·3.2 + band·wallAff·0.5 - |off|·0.9`；卡死时向空位跳跃（≤ `8+24·cov` 次） |
+| `buildWeave()` / `makeWeaveAgent()` / `addWeaveAgent()` | 建格、建个体、放入场地 |
+| `drawWeave()` | 画墙（常显）+ 丝（`lighter`、alpha 0.55、按 `u` 逐步显现） |
+
+### 7.2 交互与持久化
+
+- 「操作」区新增 **放入织网单元** 按钮；个体列表出现 `织网 wv-N` 卡片
+- 右侧「选中调整」在选中织网单元时显示专有面板：织网宽/高（80–340 px）、覆盖率（0.15–0.85）、蚕数（1–6）、形状（矩形/缺角/内岛/缺角+内岛）、**重新织**、指纹来源说明
+- 位置/速度沿用原滑杆；旋转、缩放、跟随对织网单元禁用（不适用）
+- 覆盖率同时影响三件事：占用半径 `markR = stepLen·(0.52-0.22·cov)`、跳跃预算 `8+24·cov`、步数上限 `420+2800·cov`
+- 开始/暂停/继续：`step()` 里 `u += dt/duration·speedScale`，到 1 自动 `idle`；再点开始会归零重播
+- 保存 / 导出 / 导入都带 `weave:{w,h,coverage,shape,worms,seed,duration,u,wallAff}`，导入后按同 seed 重建，结果与导出前逐点一致
+- `window.__studioHabitat` 增加 `agents()` 与 `addWeave()`，便于自动化验证
+
+### 7.3 验收（无头 Chrome，`_backup/make_weave_qa.py`）
+
+- 默认 252×252、3 条丝、覆盖率 0.55：**2,629 点**，墙体 1 条闭合线，画面为密集嵌套环 + 交叉丝
+- 覆盖率单调：0.30 → 2,451 点；0.55 → 2,746；0.80 → 3,185
+- 形状：`plain` 1 条墙线 / `notch` 1 条（凹多边形合并）/ `island` 2 条（外框 + 内岛）/ `notchIsland` 2 条
+- 保存→导入闭环：`paths 3 / points 2816 / walls 1` 前后完全一致
+- `u=0` 时只有墙，随动画逐段长出丝（见 `qa-weave-hold.png` 与 `qa-weave10.png`）
+- 三副本 `docs/index.html` / `editor/silkworm-tracer.html` / `editor/蚕轨迹描图器.html` SHA256 一致
+
+### 7.4 仍未做
+
+- 多格阵列与分层合成（P2）仍在原型，主程序一次只放一个织网单元
+- 织网单元的真蚕「爬行头」还没画，只有丝在长
+- 指纹固定为 `assumption`，等人工描图后换成 `profiles/measured`
+
+---
+
+## 8. 复现命令
 
 ```powershell
 # 1) 指纹
