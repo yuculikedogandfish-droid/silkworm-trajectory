@@ -265,7 +265,7 @@
 .hab-tool { font-size: 11px; padding: 3px 8px; border-radius: 4px; border: 1px solid #3a3a3a; background: #161616; color: #cdd4cf; cursor: pointer; }
 .hab-tool[aria-pressed="true"] { border-color: #f0b45a; color: #f5d3a2; background: #241d12; }
 .hab-tools[aria-disabled="true"] { opacity: .45; pointer-events: none; }
-#habCtxMenu{position:fixed;z-index:99999;display:none;min-width:196px;padding:6px;background:#0e1614;border:1px solid #3a4a44;box-shadow:0 10px 28px rgba(0,0,0,.55);border-radius:8px}
+#habCtxMenu{position:fixed;z-index:99999;display:none;max-height:calc(100vh - 24px);overflow:auto;min-width:196px;padding:6px;background:#0e1614;border:1px solid #3a4a44;box-shadow:0 10px 28px rgba(0,0,0,.55);border-radius:8px}
 #habCtxMenu button{display:block;width:100%;margin:2px 0;padding:7px 10px;text-align:left;font:13px "Microsoft YaHei",system-ui,sans-serif;color:#e7efeb;background:#16201d;border:1px solid #2b3a35;border-radius:6px;cursor:pointer}
 #habCtxMenu button:hover{background:#1d2a26;border-color:#4d6a60}
 #habCtxMenu button.danger{color:#ffb3a3;border-color:#5a3330}
@@ -3090,7 +3090,7 @@ if (window.parent !== window) {
           <option value="island">内岛</option>
           <option value="notchIsland">缺角 + 内岛</option>
         </select></div>
-        <div class="row"><button type="button" id="habWeaveRebuild">重新织</button></div>
+        <div class="row"><button type="button" id="habWeaveRebuild">重新织</button><button type="button" id="habDeleteUnit" style="border-color:#8a4141;color:#ffbdbd">删除这一块</button></div>
         <div class="row"><button type="button" id="habWeaveLoadProfile">载入点列 / 指纹 JSON</button><input type="file" id="habWeaveProfileFile" accept=".json" hidden></div>
         <p class="hab-note">点列 .json 来自上方描图器顶栏「导出 JSON」，或 <code>trajectories.json</code>；载入后直接变成场地里的蚕。</p>
         <div class="row"><label>这一格用哪只蚕</label><select id="habWeaveWorm"><option value="">合并丝路（默认）</option></select></div>
@@ -8589,12 +8589,26 @@ showSplitPreview();
       if (world) world.style.cursor = '';
       hint('已退出形状编辑，可以继续播放或放新的单元。');
     }
+    function deleteWeaveUnit(a) {
+      if (!a || a.kind !== 'weave') { toast('先点中一块织网单元，再删除。', 'err'); return; }
+      pushUndo();
+      if (habitat.weaveEdit && habitat.weaveEdit.agentId === a.id) exitWeaveEdit();
+      const label = a.id;
+      habitat.agents = habitat.agents.filter(x => x.id !== a.id);
+      if (habitat.selected === a.id) habitat.selected = null;
+      habitat.hoverHandle = null;
+      if (a.cache && a.cache.clear) a.cache.clear();
+      if (typeof renderList === 'function') renderList();
+      const rest = habitat.agents.filter(x => x.kind === 'weave').length;
+      toast('删掉了这一块织网单元（' + label + '）。还剩 ' + rest + ' 块。按 Ctrl+Z 可以撤回。', 'ok');
+    }
     // 编辑相关函数只活在这个面板闭包里，而场地画布的指针事件在更外层：
     // 用一个全局小桥把它们接出去，避免同一套逻辑写两遍。
     window.__weaveHooks = Object.assign(window.__weaveHooks || {}, {
       enter: enterWeaveEdit,
       exit: exitWeaveEdit,
       deleteAt: (p) => (typeof weaveDeleteAt === 'function' ? weaveDeleteAt(p) : false),
+      deleteUnit: (id) => deleteWeaveUnit(habitat.agents.find(x => x.id === id) || chosen()),
     });
     if (weaveEditBtn) weaveEditBtn.addEventListener('click', () => {
       if (habitat.weaveEdit && habitat.weaveEdit.agentId) exitWeaveEdit();
@@ -8740,6 +8754,13 @@ showSplitPreview();
       if (a.kind === 'route') { a.offX = 0; a.offY = 0; a.rot = 0; a.scale = 1; a.u = 0; applyRouteTransform(a); }
       else if (!blocked(0, 0)) { a.x = 0; a.y = 0; }
       renderList();
+    });
+    const habDeleteUnitBtn = document.getElementById('habDeleteUnit');
+    if (habDeleteUnitBtn) habDeleteUnitBtn.addEventListener('click', () => {
+      const a = (habitat.weaveEdit && habitat.weaveEdit.agentId)
+        ? habitat.agents.find(x => x.id === habitat.weaveEdit.agentId)
+        : chosen();
+      deleteWeaveUnit(a);
     });
     document.getElementById('habAdjDrop').addEventListener('click', () => {
       const a = chosen(); if (!a) return;
@@ -9199,7 +9220,9 @@ showSplitPreview();
     });
     el.style.display = 'block';
     el.style.left = Math.max(8, Math.min(clientX, window.innerWidth - 224)) + 'px';
-    el.style.top = Math.max(8, Math.min(clientY, window.innerHeight - 300)) + 'px';
+    // 菜单项会越来越多，按真实高度夹住，别掉到屏幕外面
+    const mh = el.offsetHeight || 320;
+    el.style.top = Math.max(8, Math.min(clientY, window.innerHeight - mh - 12)) + 'px';
   }
   window.addEventListener('pointerdown', (ev) => {
     const el = getCtxMenu();
@@ -9345,6 +9368,9 @@ showSplitPreview();
           clearWeaveCellCustom(a, e.ix, e.iy);
           syncEditNote();
           toast('这一格回到默认形状。', 'ok');
+        } },
+      { label: '删除这一块织网单元（整块消失）', danger: true, run: () => {
+          if (window.__weaveHooks && window.__weaveHooks.deleteUnit) window.__weaveHooks.deleteUnit(a.id);
         } },
       { label: '退出编辑', run: () => { if (window.__weaveHooks && window.__weaveHooks.exit) window.__weaveHooks.exit(); } },
     ]));
