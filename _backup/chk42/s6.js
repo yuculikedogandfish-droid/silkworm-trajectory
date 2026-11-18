@@ -628,11 +628,11 @@
       ctx.strokeRect(0.5, 0.5, cv.width - 1, cv.height - 1);
     });
   }
-  setInterval(() => { const p = $('habRight'); if (p && p.offsetParent) paintThumbs(); }, 1200);
+  setInterval(() => { const p = $('habRight'); if (!document.hidden && p && p.offsetParent) paintThumbs(); }, 2500);
   /* ---------- 与主界面同步 ---------- */
   const box0 = $('habAgents');
   if (box0 && window.MutationObserver) new MutationObserver(() => refresh(false)).observe(box0, { childList: true, subtree: true });
-  setInterval(() => refresh(false), 500);
+  setInterval(() => { const hab = $('habitat'); if (!document.hidden && hab && hab.offsetParent) refresh(false); }, 500);
   refresh(true);
   window.__layerSel = {
     ids: () => [...sel],

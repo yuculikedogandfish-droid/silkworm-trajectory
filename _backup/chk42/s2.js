@@ -2630,9 +2630,9 @@
       if (world) world.style.cursor = '';
       hint('已退出形状编辑，可以继续播放或放新的单元。');
     }
-    function deleteWeaveUnit(a) {
+    function deleteWeaveUnit(a, skipUndo) {
       if (!a || a.kind !== 'weave') { toast('先点中一块织网单元，再删除。', 'err'); return; }
-      pushUndo();
+      if (!skipUndo) pushUndo();
       if (habitat.weaveEdit && habitat.weaveEdit.agentId === a.id) exitWeaveEdit();
       const label = a.id;
       habitat.agents = habitat.agents.filter(x => x.id !== a.id);
@@ -2650,6 +2650,14 @@
       exit: exitWeaveEdit,
       deleteAt: (p) => (typeof weaveDeleteAt === 'function' ? weaveDeleteAt(p) : false),
       deleteUnit: (id) => deleteWeaveUnit(habitat.agents.find(x => x.id === id) || chosen()),
+      deleteUnits: (ids) => {
+        const set = new Set(ids || []);
+        const list = habitat.agents.filter(a => a.kind === 'weave' && set.has(a.id));
+        if (!list.length) return;
+        pushUndo();
+        list.forEach(a => deleteWeaveUnit(a, true));
+        toast('已删除 ' + list.length + ' 块织网单元。按 Ctrl+Z 可以一次恢复整批。', 'ok');
+      },
     });
     if (weaveEditBtn) weaveEditBtn.addEventListener('click', () => {
       if (habitat.weaveEdit && habitat.weaveEdit.agentId) exitWeaveEdit();
@@ -4433,7 +4441,7 @@
       try { clearInterval(autoTimer); } catch (_) {}
     }
   }
-  const autoTimer = setInterval(autoSaveNow, 3000);
+  const autoTimer = setInterval(() => { if (!document.hidden) autoSaveNow(); }, 3000);
   window.addEventListener('beforeunload', autoSaveNow);
   document.addEventListener('visibilitychange', () => { if (document.hidden) autoSaveNow(); });
   document.getElementById('habLoad').addEventListener('click', () => {
@@ -5400,6 +5408,7 @@
     export: exportHabitat, import: importHabitat, syncMeasured: syncMeasured,
     toast: toast, hint: hint,
     agents: () => habitat.agents,
+    drawingOutline: () => !!habitat.newOutline,
     // 编辑态自检：当前在改哪一块、用什么工具、已经点了几个顶点
     weaveEditState: () => {
       const e = habitat.weaveEdit;

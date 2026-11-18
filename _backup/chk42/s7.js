@@ -15,10 +15,15 @@
     const tr = top.getBoundingClientRect();
     bar.style.top = Math.max(8, tr.bottom - hr.top + 8) + 'px';
   }
-  window.addEventListener('resize', placeRecBar);
+  window.addEventListener('resize', placeRecBar, { passive: true });
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(placeRecBar);
+    const top = document.querySelector('.hab-top');
+    if (top) ro.observe(top);
+    ro.observe($('habitat'));
+  }
   placeRecBar();
   setTimeout(placeRecBar, 400);
-  setInterval(placeRecBar, 1500);
 
   /* 框选 / 多选之后：在选区里右键 = 批量操作 */
   const world = $('habWorld');
@@ -48,7 +53,8 @@
       const ids = api.ids().filter(id => (H().agents().find(a => a.id === id) || {}).kind === 'weave');
       if (!ids.length) return;
       if (!confirm('确定删掉选中的 ' + ids.length + ' 块织网单元？（Ctrl+Z 可撤销）')) return;
-      ids.forEach(id => { if (window.__weaveHooks && window.__weaveHooks.deleteUnit) window.__weaveHooks.deleteUnit(id); });
+      if (window.__weaveHooks && window.__weaveHooks.deleteUnits) window.__weaveHooks.deleteUnits(ids);
+      else ids.forEach(id => { if (window.__weaveHooks && window.__weaveHooks.deleteUnit) window.__weaveHooks.deleteUnit(id); });
       api.clear();
     }, true);
     if (n >= 2) mk('把这 ' + n + ' 层编为一组', () => { const b = $('habLayerGroup'); if (b) b.click(); });
