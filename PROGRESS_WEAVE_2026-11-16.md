@@ -1348,3 +1348,49 @@ QA：`habVidRatioOf/habVidDims` 探针（`_backup/gen_video_qa.py`，结果写 `
 ### 37.4 说明书同步
 - 网页版 `docs/使用说明.html`：新增「导出单张图片」「五之二、只看丝、只看蚕」两节 + 导出区实拍图。
 - PDF `docs/蚕轨迹描图器_使用说明.pdf`：同步两节，新增图 5（裁剪放大的左栏导出区）。
+
+## 38. r30 · 场地里"点一下就改"、右键即删、壁只做编辑辅助
+
+提交前基线：r29 `7a3cd652`（`docs/index.html` 421,872 B）。r30 落盘后 `docs/index.html` 446,438 B / SHA256 `C9ED96705269AD8393639A6F8E387CE953DFC96A2407BA86F8D5D2EFCFBF9202`，`editor\` 两副本字节一致。
+
+### 38.1 交互：取消"先选再点编辑这一格"的两段式
+- 场地里点中任意一块织网单元 → 立刻进入这一块的编辑（`enterWeaveEdit(agentId)`），不必再去右栏点按钮、也不必先"完成编辑"。
+- 点到另一块 → 整块切过去（新增 `otherUnit` 预判：先认"点到的是另一块"，再走"这一格加顶点"的逻辑；否则平铺场会把跨块点击当成同块内的格子）。
+- 点场地空白 → 自动退出编辑；正在画的那一笔会先收尾。
+- 编辑相关的函数原本只活在右栏面板闭包里，用 `window.__weaveHooks`（`enter/exit/deleteAt`）把小桥接到外层画布的指针事件上。
+
+### 38.2 右键即删
+- 新增 `weaveDeleteAt(p)` + `world.addEventListener('contextmenu')`：
+  - 顶点/手柄：孔洞、缺口、壁顶点、丝路顶点、外框顶点（`deleteWeaveHandleVertex` 已有能力全部复用）
+  - 线身：压在壁/丝路线上 → 删整条
+  - 缺口内部：删整个缺口
+- 右键命中优先级单独处理：同一位置上"整块挪动十字"与"孔心"重合时，优先认能删的那个（孔洞 > 壁/丝路顶点 > 外框）。
+
+### 38.3 壁：只在编辑时可见、画成曲线、成品帧不出现
+- 壁的显示条件改为 `weaveEdit.agentId === agent.id && !habitat.composing`：非编辑态、成品帧、图片/视频导出、母版全部不画壁。
+- 画法由折线改为二次贝塞尔（穿过相邻两点的中点），点两下也是弧线。
+- 编辑态保留壁顶点的小方点提示（提示"这些点可以右键删/拖动"）。
+- `ledComposeFrame` 用 `try/finally` 置/清 `habitat.composing`。
+
+### 38.4 蚕对壁的反应与"沿大丝路更密"
+- 新增 `pushOutOfWalls(unit, x, y, margin)`：格内蚕的落点若落在壁附近，沿壁法线推开到 `7×sizeK`，表现为"撞壁 → 贴壁滑开 → 绕过去"。
+- `step()` 的格内蚕：`speedScale*boost` 提高局部笔迹的重复频率、`travel` 除以 `√boost` 让巡游半径收窄 → 同一条大路径被反复走，丝迹变密（`habPathBoost` 1–5）。
+- 格内笔迹尺寸与身体尺寸都乘 `habitat.wormSize`（蚕大小 0.5–2.0×）。
+
+### 38.5 左栏新增「丝线与蚕的观感」
+- `habWormSize`（蚕大小）、`habPathBoost`（重复密度）、`habSilkWidth`（丝线粗细 0.3–2.2）、`habSilkGain`（丝线亮度 0.3–2.5）、`habSilkMode`（真丝/哑光/亮银/淡墨）。
+- `silkLook()` 统一给出 `{width,gain,comp,rgb}`，`drawSilk` 按它上色与混合，所有丝迹（含个体丝、孔缘）一起变。
+
+### 38.6 验收（无头 Chrome 截图，干净 profile 避免自动恢复覆盖场景）
+`_backup/gen_edit_qa_r30.py` 生成 `qa-r30-wall.html` / `qa-r30-exit.html`，页内左下角打印状态：
+- 点中第 1 块 → 按钮变「退出编辑」，手柄与虚线框出现（`qa-r30-wall.png`）
+- 点第 2 块 → `weaveEditState().agentId` 直接变成 `wv-2`（切块成功，不需要先退出）
+- 右键孔心 → 该格 `cell.islands` 1 → 0，画面大圆孔消失
+- 加壁：`mode:"wall"`，三点收尾后 `custom.walls['0,0']` 顶点=3，画面是一道弧线
+- 点场地空白 → 按钮回到「编辑这一格」，壁与手柄消失（`qa-r30-exit.png`）
+- `node --check` 三块脚本通过（`C:\Users\54364\AppData\Local\Temp\chk30`）
+
+### 38.7 本轮没做/待验
+- 蚕"撞壁绕行"只是几何推开，未逐帧验证是否出现贴壁抖动；壁为曲线绘制，但避障仍按原始折线近似。
+- 「重复密度」只调了巡游与笔迹的频率，没有实现"一格内多蚕共享同一份丝路编排"。
+- 蚕大小/丝线三参数为全局，不随单块保存；导出 JSON 不含这些观感参数（属屏幕观感，不进母版）。
