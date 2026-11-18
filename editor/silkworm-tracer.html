@@ -266,6 +266,16 @@
 .hab-tool[aria-pressed="true"] { border-color: #f0b45a; color: #f5d3a2; background: #241d12; }
 .hab-tools[aria-disabled="true"] { opacity: .45; pointer-events: none; }
 #habRecOverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:7}
+#habSnapOverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:8}
+.lay-align,.lay-array{margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.07)}
+.lay-row.on{background:rgba(121,203,182,0.12);box-shadow:inset 2px 0 0 rgba(121,203,182,0.9)}
+.lay-group.on{background:rgba(121,203,182,0.16)}
+#habLayerTree{width:100%}
+.lay-row{width:100%;box-sizing:border-box;display:flex;align-items:center}
+.lay-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.lay-row{gap:3px}
+.lay-mini{font-size:10px;background:rgba(255,255,255,0.08);border:0;color:inherit;border-radius:4px;padding:1px 3px;cursor:pointer;min-width:17px;line-height:15px}
+.lay-mini.on{background:rgba(232,201,138,0.25)}
 .hab-rec-bar{padding:6px 14px 0}
 .hab-rec{background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.09);border-radius:10px;padding:0 10px}
 .hab-rec>summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:baseline;padding:8px 2px;font-size:13px}
@@ -3102,6 +3112,7 @@ if (window.parent !== window) {
       <canvas id="habWorld"></canvas>
       <canvas id="habDepth" class="depth" aria-hidden="true"></canvas>
       <canvas id="habRecOverlay" aria-hidden="true"></canvas>
+      <canvas id="habSnapOverlay" aria-hidden="true"></canvas>
       <div class="hab-edit-hud" id="habEditHud" hidden></div>
       <div class="hab-viewport-tools">
         <button type="button" id="habZoomOut" title="缩小">−</button>
@@ -3112,13 +3123,20 @@ if (window.parent !== window) {
       </div>
     </div>
     <aside class="hab-side right" id="habRight">
-      <h3>个体</h3>
-      <p class="hab-note">实测蚕随描图数据自动进入；演示蚕从这里拖到场地。状态是放置、拖动、爬行、暂停。</p>
-      <div id="habAgents"></div>
-      <h3>图层</h3>
-      <p class="hab-note">像 PS 的图层：每块织网单元、每只蚕各是一层。勾两层以上就能编组；「开 / 关」控制这一层显示。</p>
-      <div class="row"><button type="button" id="habLayerGroup">编组所选</button><button type="button" id="habLayerUngroup">解散组</button><button type="button" id="habLayerClear">全部展开</button></div>
+      <h3>个体与图层</h3>
+      <p class="hab-note">每块织网单元、每只蚕就是一层（像 PS）。点层名＝在场地里选中并画高亮框；勾多层可编组，组内拖动会一起走。</p>
+      <div class="row"><button type="button" id="habLayerGroup">编组所选</button><button type="button" id="habLayerUngroup">解散组</button><button type="button" id="habLayerMerge">并入同组</button><button type="button" id="habLayerClear">全展开</button></div>
       <div id="habLayerTree"></div>
+      <div class="lay-align">
+        <span class="hab-note" style="margin:0 0 2px">对齐所选</span>
+        <div class="row"><button type="button" data-align="l">左</button><button type="button" data-align="cx">横中</button><button type="button" data-align="r">右</button><button type="button" data-align="t">上</button><button type="button" data-align="cy">竖中</button><button type="button" data-align="b">下</button></div>
+        <div class="row"><button type="button" data-align="dx">水平等距</button><button type="button" data-align="dy">垂直等距</button></div>
+      </div>
+      <div class="lay-array">
+        <span class="hab-note" style="margin:0 0 2px">阵列复制（先只选一块）</span>
+        <div class="row"><label>列</label><input type="number" id="habArrayN" min="1" max="20" value="3" style="width:52px"><label>排</label><input type="number" id="habArrayM" min="1" max="20" value="1" style="width:52px"><label>缝</label><input type="number" id="habArrayGap" min="0" max="200" value="12" style="width:52px"><button type="button" id="habArrayGo">复制</button></div>
+      </div>
+      <div id="habAgents" style="display:none"></div>
       <h3>选中调整</h3>
       <div class="stat" id="habRouteInfo">未选中个体</div>
       <div class="row"><label>位置 X</label><input type="range" id="habAdjX" min="-180" max="180" step="2"><span class="hab-adj-val" id="habAdjXVal">0</span></div>
@@ -9889,6 +9907,7 @@ showSplitPreview();
     const a = weaveEditAgent();
     const e = habitat.weaveEdit;
     if (!a || !e) return;
+    if (a.locked) return;
     const key = e.ix + ',' + e.iy;
     const ix = e.ix, iy = e.iy;
     const ox = a.x + ix * a.w, oy = a.y + iy * a.h;
@@ -10702,6 +10721,7 @@ showSplitPreview();
       tool: habitat.tool,
       selected: habitat.selected,
       selectedLeaf: habitat.selectedLeaf,
+      layerGroups: (window.__layerStore && window.__layerStore.dump) ? window.__layerStore.dump() : null,
       obstacles: habitat.obstacles,
       orphanSilk: habitat.orphans,
       reference: habitat.reference,
@@ -11316,6 +11336,9 @@ showSplitPreview();
 
   function importHabitat(data) {
     if (!data) return;
+    if (data.layerGroups && window.__layerStore && window.__layerStore.load) {
+      setTimeout(() => window.__layerStore.load(data.layerGroups), 0);
+    }
     if (Number.isFinite(data.temperatureC)) {
       habitat.tempC = data.temperatureC;
       document.getElementById('habTemp').value = data.temperatureC;
@@ -11824,153 +11847,452 @@ showSplitPreview();
     });
   }
 
-  /* ---------- 2) 图层面板（组 / 层 / 眼睛 / 编组） ---------- */
+  /* （r39 起：图层已并入右栏统一面板，旧 r38 图层模块整段移除） */
+
+</script>
+<script>
+/* ===== r39 个体与图层合并 + 组一起挪 + 吸附/对齐/阵列（独立模块，只加不改） ===== */
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const H = () => window.__studioHabitat;
   const tree = $('habLayerTree');
   if (!tree) return;
-  const KEY = 'silkworm-habitat-layer-groups/v1';
-  let store = { groups: [], member: {} };
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) { const o = JSON.parse(raw); if (o && Array.isArray(o.groups)) store = { groups: o.groups, member: o.member || {} }; }
-  } catch (e) {}
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
-  const picked = new Set();
-  let rev = 0;
-  let sigLast = '';
 
-  const nameOf = (a) => a.kind === 'weave' ? ('织网单元 ' + a.id) : (a.kind === 'route' ? ('蚕 ' + a.wormId) : String(a.id));
-  const typeOf = (a) => a.kind === 'weave' ? '织' : (a.kind === 'route' ? '蚕' : '演');
-  const hiddenOf = (a) => a.kind === 'weave' ? !!a.hideSilk : (!!a.hideSilk && !!a.hideBody);
-  const toggleHide = (a, hide) => {
-    if (a.kind === 'weave') a.hideSilk = !!hide;
-    else { a.hideSilk = !!hide; a.hideBody = !!hide; }
+  /* ---------- 组数据的存与带 ---------- */
+  const KEY = 'silkworm-habitat-layer-groups/v2';
+  let store = { groups: [], member: {}, order: [] };
+  function norm(o) {
+    return {
+      groups: Array.isArray(o && o.groups) ? o.groups.map(g => ({ id: String(g.id), name: String(g.name || '组'), open: g.open !== false })) : [],
+      member: (o && o.member && typeof o.member === 'object') ? o.member : {},
+      order: Array.isArray(o && o.order) ? o.order.slice() : [],
+    };
+  }
+  try { const raw = localStorage.getItem(KEY); if (raw) store = norm(JSON.parse(raw)); } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
+
+  // 工程文件带组：exportHabitat / importHabitat 各挂一个钩子（由主程序调用）
+  window.__layerStore = {
+    dump: () => ({ groups: store.groups, member: store.member, order: store.order }),
+    load: (o) => { store = norm(o); save(); sig = ''; refresh(true); },
   };
 
-  function agents() { const h = H(); return (h && h.agents()) || []; }
+  /* ---------- 选中模型 ---------- */
+  const sel = new Set();
+  const agents = () => (H() && H().agents()) || [];
+  const byId = (id) => agents().find(a => a.id === id);
+  const nameOf = (a) => a.kind === 'weave'
+    ? ('单元 ' + String(a.id).replace(/^wv-/, ''))
+    : (a.kind === 'route' ? ('蚕 ' + (a.wormId != null ? a.wormId : a.id)) : String(a.id));
+  const iconOf = (a) => a.kind === 'weave' ? '织' : (a.kind === 'route' ? '蚕' : '演');
+  const hiddenOf = (a) => a.kind === 'weave' ? !!a.hideSilk : (!!a.hideSilk && !!a.hideBody);
+  function setHidden(a, hide) {
+    if (a.kind === 'weave') a.hideSilk = !!hide;
+    else { a.hideSilk = !!hide; a.hideBody = !!hide; }
+  }
 
-  function rowLayer(a, groupId) {
+  /* ---------- 画布提示（选中框 / 组框 / 吸附参考线） ---------- */
+  const ov = $('habSnapOverlay');
+  const octx = ov && ov.getContext('2d');
+  let guides = [];
+  function resize() {
+    const wrap = $('habWorldWrap'); const world = $('habWorld');
+    if (!wrap || !ov) return;
+    if (ov.width !== wrap.clientWidth || ov.height !== wrap.clientHeight) { ov.width = wrap.clientWidth; ov.height = wrap.clientHeight; }
+    if (world) { ov.style.left = world.offsetLeft + 'px'; ov.style.top = world.offsetTop + 'px'; }
+  }
+  function bboxOf(ids) {
+    const list = ids.map(byId).filter(a => a && a.kind === 'weave');
+    if (!list.length) return null;
+    let l = Infinity, r = -Infinity, t = Infinity, b = -Infinity;
+    list.forEach(a => { l = Math.min(l, a.x - a.w / 2); r = Math.max(r, a.x + a.w / 2); t = Math.min(t, a.y - a.h / 2); b = Math.max(b, a.y + a.h / 2); });
+    return { l, r, t, b };
+  }
+  function paint() {
+    if (!octx || !H()) return;
+    resize();
+    const v = H().view();
+    octx.clearRect(0, 0, ov.width, ov.height);
+    const box = bboxOf([...sel]);
+    if (box) {
+      const x = v.px(box.l), y = v.py(box.t), w = (box.r - box.l) * v.s, h = (box.b - box.t) * v.s;
+      octx.save();
+      octx.strokeStyle = 'rgba(121,203,182,0.95)';
+      octx.lineWidth = 1.4;
+      octx.setLineDash([6, 4]);
+      octx.strokeRect(x, y, w, h);
+      octx.fillStyle = 'rgba(121,203,182,0.10)';
+      octx.fillRect(x, y, w, h);
+      octx.setLineDash([]);
+      octx.fillStyle = 'rgba(121,203,182,0.95)';
+      octx.font = '11px ui-monospace,monospace';
+      octx.fillText(sel.size > 1 ? ('已选 ' + sel.size + ' 层') : '', x + 6, y - 6);
+      octx.restore();
+    }
+    guides.forEach(g => {
+      octx.save();
+      octx.strokeStyle = 'rgba(255,140,190,0.95)';
+      octx.lineWidth = 1;
+      octx.setLineDash([3, 3]);
+      octx.beginPath();
+      if (g.axis === 'x') { const X = v.px(g.at); octx.moveTo(X, 0); octx.lineTo(X, ov.height); }
+      else { const Y = v.py(g.at); octx.moveTo(0, Y); octx.lineTo(ov.width, Y); }
+      octx.stroke();
+      octx.restore();
+    });
+  }
+  (function loop() { paint(); requestAnimationFrame(loop); })();
+
+  /* ---------- 吸附（拖动结束后处理，屏幕上 8px 手感） ---------- */
+  function snapDelta(box, skipIds) {
+    const v = H().view();
+    const thr = 9 / (v.s || 1);
+    const cand = [];
+    agents().forEach(a => {
+      if (a.kind !== 'weave' || skipIds.has(a.id)) return;
+      cand.push(a.x - a.w / 2, a.x, a.x + a.w / 2);
+    });
+    const candY = [];
+    agents().forEach(a => {
+      if (a.kind !== 'weave' || skipIds.has(a.id)) return;
+      candY.push(a.y - a.h / 2, a.y, a.y + a.h / 2);
+    });
+    cand.push(0); candY.push(0);
+    const mine = [box.l, (box.l + box.r) / 2, box.r];
+    const mineY = [box.t, (box.t + box.b) / 2, box.b];
+    let bestX = null, bestY = null;
+    mine.forEach(m => cand.forEach(c => {
+      const d = c - m;
+      if (Math.abs(d) <= thr && (!bestX || Math.abs(d) < Math.abs(bestX.d))) bestX = { d, at: c };
+    }));
+    mineY.forEach(m => candY.forEach(c => {
+      const d = c - m;
+      if (Math.abs(d) <= thr && (!bestY || Math.abs(d) < Math.abs(bestY.d))) bestY = { d, at: c };
+    }));
+    return { dx: bestX ? bestX.d : 0, dy: bestY ? bestY.d : 0, gx: bestX ? bestX.at : null, gy: bestY ? bestY.at : null };
+  }
+
+  /* ---------- 拖动时整组一起走 ---------- */
+  let pending = null, drag = null;
+  const worldEl = $('habWorld');
+  function baseOf(ids) { const m = {}; ids.forEach(id => { const a = byId(id); if (a) m[id] = { x: a.x, y: a.y }; }); return m; }
+  function groupOf(id) { return store.member[id] || null; }
+  function moveSet(anchorId) {
+    const g = groupOf(anchorId);
+    if (g) { const ids = agents().filter(a => store.member[a.id] === g).map(a => a.id); if (ids.length) return ids; }
+    if (sel.has(anchorId) && sel.size > 1) return [...sel];
+    return [anchorId];
+  }
+  let own = null;
+  function toWorld(ev) {
+    const v = H().view();
+    const rect = worldEl.getBoundingClientRect();
+    const sx = (ev.clientX - rect.left) * (worldEl.width / rect.width);
+    const sy = (ev.clientY - rect.top) * (worldEl.height / rect.height);
+    return { x: (sx - v.cx) / v.s, y: (sy - v.cy) / v.s };
+  }
+  function hitWeave(p) {
+    let hit = null;
+    agents().forEach(a => {
+      if (a.kind !== 'weave' || a.locked) return;
+      if (Math.abs(p.x - a.x) <= a.w / 2 && Math.abs(p.y - a.y) <= a.h / 2) hit = a;
+    });
+    return hit;
+  }
+  function inEditMode() {
+    try { const st = H().weaveEditState && H().weaveEditState(); return !!(st && st.agentId); } catch (e) { return false; }
+  }
+  if (worldEl) {
+    worldEl.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      pending = { snap: baseOf(agents().map(a => a.id)), t: Date.now() };
+      drag = null; own = null;
+      if (inEditMode()) return;               // 编辑态交给原生手柄
+      const p = toWorld(e);
+      const hit = hitWeave(p);
+      if (!hit) return;
+      const ids = moveSet(hit.id);
+      own = { ids, base: baseOf(ids), start: p, anchor: hit.id };
+    }, true);
+    window.addEventListener('pointermove', (e) => {
+      if (own) {
+        const p = toWorld(e);
+        const dx = p.x - own.start.x, dy = p.y - own.start.y;
+        own.ids.forEach(id => { const a = byId(id); const b = own.base[id]; if (a && b && !a.locked) { a.x = b.x + dx; a.y = b.y + dy; } });
+        const box = bboxOf(own.ids);
+        if (box && !(e.ctrlKey || e.metaKey)) {
+          const sn = snapDelta(box, new Set(own.ids));
+          if (sn.dx || sn.dy) own.ids.forEach(id => { const a = byId(id); if (a && !a.locked) { a.x += sn.dx; a.y += sn.dy; } });
+          guides = [];
+          if (sn.gx != null) guides.push({ axis: 'x', at: sn.gx });
+          if (sn.gy != null) guides.push({ axis: 'y', at: sn.gy });
+        } else guides = [];
+        return;
+      }
+      if (!pending || drag === null) {
+        if (!pending) return;
+        if (!e.buttons) { pending = null; return; }
+        // 找出"动得最多"的那一层 = 正在被拖的层
+        let best = null;
+        Object.keys(pending.snap).forEach(id => {
+          const a = byId(id); const s = pending.snap[id];
+          if (!a || a.locked) return;
+          const d = Math.abs(a.x - s.x) + Math.abs(a.y - s.y);
+          if (d > 1.5 && (!best || d > best.d)) best = { id, d };
+        });
+        if (!best) return;
+        const ids = moveSet(best.id);
+        drag = { anchor: best.id, ids, base: baseOf(ids), delta: 0 };
+      }
+      if (!drag) return;
+      const a = byId(drag.anchor);
+      if (!a) { drag = null; return; }
+      const dx0 = a.x - drag.base[drag.anchor].x;
+      const dy0 = a.y - drag.base[drag.anchor].y;
+      // 其它成员跟齐
+      drag.ids.forEach(id => {
+        const b = drag.base[id], m = byId(id);
+        if (!m || id === drag.anchor || m.locked) return;
+        m.x = b.x + dx0; m.y = b.y + dy0;
+      });
+      // 吸附：按整组外包框对齐别人的边/中心与场地轴
+      const box = bboxOf(drag.ids);
+      if (box && !(e.ctrlKey || e.metaKey)) {
+        const s = snapDelta(box, new Set(drag.ids));
+        if (s.dx || s.dy) {
+          drag.ids.forEach(id => { const m = byId(id); if (m && !m.locked) { m.x += s.dx; m.y += s.dy; } });
+          a.cache = a.cache;
+        }
+        guides = [];
+        if (s.gx != null) guides.push({ axis: 'x', at: s.gx });
+        if (s.gy != null) guides.push({ axis: 'y', at: s.gy });
+      } else { guides = []; }
+    });
+    window.addEventListener('pointerup', () => { pending = null; drag = null; own = null; guides = []; sig = ''; }, true);
+  }
+
+  /* ---------- 键盘微调 ---------- */
+  window.addEventListener('keydown', (e) => {
+    if (!sel.size) return;
+    const tag = (e.target && e.target.tagName) || '';
+    if (/INPUT|TEXTAREA|SELECT/.test(tag) || (e.target && e.target.isContentEditable)) return;
+    const step = e.shiftKey ? 10 : 1;
+    let dx = 0, dy = 0;
+    if (e.key === 'ArrowLeft') dx = -step;
+    else if (e.key === 'ArrowRight') dx = step;
+    else if (e.key === 'ArrowUp') dy = -step;
+    else if (e.key === 'ArrowDown') dy = step;
+    else return;
+    sel.forEach(id => { const a = byId(id); if (a && !a.locked) { a.x += dx; a.y += dy; } });
+    e.preventDefault();
+  });
+
+  /* ---------- 列表 ---------- */
+  let sig = '';
+  function orderKey(a) { const i = store.order.indexOf(a.id); return i < 0 ? 9999 : i; }
+  function rowsFor(list) { return list.slice().sort((p, q) => orderKey(p) - orderKey(q)); }
+
+  function rowHTML(a, gid) {
     const off = hiddenOf(a);
-    return '<div class="lay-row' + (off ? ' dim' : '') + '" data-agent="' + a.id + '">' +
-      '<label class="lay-chk"><input type="checkbox" data-pick="' + a.id + '"' + (picked.has(a.id) ? ' checked' : '') + '></label>' +
-      '<span class="lay-icon">' + typeOf(a) + '</span>' +
-      '<button type="button" class="lay-name" data-focus="' + a.id + '">' + nameOf(a) + '</button>' +
-      '<button type="button" class="lay-eye" data-eye="' + a.id + '" title="' + (off ? '显示这一层' : '隐藏这一层') + '">' + (off ? '隐' : '显') + '</button>' +
+    return '<div class="lay-row' + (off ? ' dim' : '') + (sel.has(a.id) ? ' on' : '') + '" data-agent="' + a.id + '">' +
+      '<input type="checkbox" class="lay-chk" data-pick="' + a.id + '"' + (sel.has(a.id) ? ' checked' : '') + '>' +
+      '<span class="lay-icon">' + iconOf(a) + '</span>' +
+      '<button type="button" class="lay-name" title="选中这一层" data-focus="' + a.id + '">' + nameOf(a) + '</button>' +
+      '<button type="button" class="lay-mini" data-eye="' + a.id + '" title="显示／隐藏这一层">' + (off ? '隐' : '显') + '</button>' +
+      '<button type="button" class="lay-mini' + (a.locked ? ' on' : '') + '" data-lock="' + a.id + '" title="锁定后不能拖动">' + (a.locked ? '锁' : '开') + '</button>' +
+      (a.kind === 'weave'
+        ? '<button type="button" class="lay-mini" data-up="' + a.id + '" title="上移一层">↑</button><button type="button" class="lay-mini" data-down="' + a.id + '" title="下移一层">↓</button><button type="button" class="lay-mini" data-del="' + a.id + '" title="删掉这一层">✕</button>'
+        : '<button type="button" class="lay-mini" data-up="' + a.id + '">↑</button><button type="button" class="lay-mini" data-down="' + a.id + '">↓</button>') +
       '</div>';
   }
 
   function render() {
     const list = agents();
-    const rows = [];
-    // 清理已经不存在的成员
     Object.keys(store.member).forEach(id => { if (!list.some(a => a.id === id)) delete store.member[id]; });
-    const grouped = [];
-    store.groups.forEach((g, gi) => {
-      const members = list.filter(a => store.member[a.id] === g.id);
+    if (!list.length) { tree.innerHTML = '<div class="hab-note">场地里还没有任何层：放一块织网单元，或拖一只蚕进来。</div>'; return; }
+    const groupedIds = new Set();
+    const out = [];
+    store.groups.forEach(g => {
+      const members = rowsFor(list.filter(a => store.member[a.id] === g.id));
       if (!members.length) return;
-      grouped.push(...members.map(a => a.id));
+      members.forEach(a => groupedIds.add(a.id));
       const allOff = members.every(hiddenOf);
-      rows.push('<div class="lay-group" data-group="' + g.id + '">' +
+      out.push('<div class="lay-group' + (sel.size && members.every(a => sel.has(a.id)) ? ' on' : '') + '" data-group="' + g.id + '">' +
         '<button type="button" class="lay-caret" data-open="' + g.id + '">' + (g.open ? '▾' : '▸') + '</button>' +
-        '<button type="button" class="lay-gname" data-rename="' + g.id + '">' + g.name + '</button>' +
+        '<button type="button" class="lay-gname" data-gsel="' + g.id + '">' + g.name + '</button>' +
         '<span class="lay-count">' + members.length + '</span>' +
-        '<button type="button" class="lay-eye" data-geye="' + g.id + '" title="整组显示／隐藏">' + (allOff ? '隐' : '显') + '</button>' +
+        '<button type="button" class="lay-mini" data-geye="' + g.id + '">' + (allOff ? '隐' : '显') + '</button>' +
+        '<button type="button" class="lay-mini" data-gren="' + g.id + '">改</button>' +
+        '<button type="button" class="lay-mini" data-gdel="' + g.id + '">✕</button>' +
         '</div>');
-      if (g.open) members.forEach(a => rows.push(rowLayer(a, g.id)));
+      if (g.open) members.forEach(a => out.push(rowHTML(a, g.id)));
     });
-    const free = list.filter(a => !grouped.includes(a.id));
+    const free = rowsFor(list.filter(a => !groupedIds.has(a.id)));
     if (free.length) {
-      rows.push('<div class="lay-group plain"><span class="lay-caret" style="visibility:hidden">▸</span><span class="lay-gname">未编组</span><span class="lay-count">' + free.length + '</span></div>');
-      free.forEach(a => rows.push(rowLayer(a, null)));
+      out.push('<div class="lay-group plain"><span class="lay-caret" style="visibility:hidden">▸</span><span class="lay-gname">未编组</span><span class="lay-count">' + free.length + '</span></div>');
+      free.forEach(a => out.push(rowHTML(a, null)));
     }
-    tree.innerHTML = rows.join('') || '<div class="hab-note">场地里还没有任何层。</div>';
+    tree.innerHTML = out.join('');
   }
 
   function refresh(force) {
-    const list = agents();
-    const sig = list.map(a => a.id + (hiddenOf(a) ? '0' : '1')).join('|') + '#' + rev + '#' + list.length;
-    if (!force && sig === sigLast) return;
-    sigLast = sig;
+    const s = agents().map(a => a.id + (hiddenOf(a) ? '0' : '1') + (a.locked ? 'L' : '') + Math.round(a.x) + ',' + Math.round(a.y)).join('|') + '#' + [...sel].join(',');
+    if (!force && s === sig) return;
+    sig = s;
     render();
   }
 
+  /* ---------- 列表交互 ---------- */
   tree.addEventListener('click', (e) => {
-    const t = e.target;
-    const focus = t.getAttribute && t.getAttribute('data-focus');
+    const t = e.target; const at = (k) => t.getAttribute && t.getAttribute(k);
+    const focus = at('data-focus');
     if (focus) {
+      sel.clear(); sel.add(focus);
       const card = document.querySelector('#habAgents .agent-card[data-id="' + focus + '"]');
       if (card) card.click();
-      return;
+      refresh(true); return;
     }
-    const eye = t.getAttribute && t.getAttribute('data-eye');
-    if (eye) {
-      const a = agents().find(x => x.id === eye);
-      if (a) { toggleHide(a, !hiddenOf(a)); rev++; render(); }
-      return;
+    if (at('data-gsel')) {
+      const gid = at('data-gsel');
+      sel.clear();
+      agents().filter(a => store.member[a.id] === gid).forEach(a => sel.add(a.id));
+      refresh(true); return;
     }
-    const geye = t.getAttribute && t.getAttribute('data-geye');
-    if (geye) {
-      const g = store.groups.find(x => x.id === geye);
-      const members = agents().filter(a => store.member[a.id] === geye);
-      const allOff = members.length && members.every(hiddenOf);
-      members.forEach(a => toggleHide(a, !allOff));
-      rev++; save(); render();
-      return;
+    if (at('data-geye')) {
+      const gid = at('data-geye');
+      const mem = agents().filter(a => store.member[a.id] === gid);
+      const anyOn = mem.some(a => !hiddenOf(a));
+      mem.forEach(a => setHidden(a, anyOn));
+      sig = ''; render(); return;
     }
-    const open = t.getAttribute && t.getAttribute('data-open');
-    if (open) {
-      const g = store.groups.find(x => x.id === open);
-      if (g) { g.open = !g.open; save(); render(); }
-      return;
+    if (at('data-eye')) { const a = byId(at('data-eye')); if (a) { setHidden(a, !hiddenOf(a)); sig = ''; render(); } return; }
+    if (at('data-lock')) { const a = byId(at('data-lock')); if (a) { a.locked = !a.locked; sig = ''; render(); } return; }
+    if (at('data-open')) { const g = store.groups.find(x => x.id === at('data-open')); if (g) { g.open = !g.open; save(); render(); } return; }
+    if (at('data-gren')) { const g = store.groups.find(x => x.id === at('data-gren')); const v = g && prompt('这组叫什么？', g.name); if (g && v && v.trim()) { g.name = v.trim().slice(0, 24); save(); render(); } return; }
+    if (at('data-gdel')) {
+      const gid = at('data-gdel');
+      if (!confirm('解散这一组？（层不会被删掉，只是回到未编组）')) return;
+      Object.keys(store.member).forEach(id => { if (store.member[id] === gid) delete store.member[id]; });
+      store.groups = store.groups.filter(g => g.id !== gid);
+      save(); sig = ''; render(); return;
     }
-    const rn = t.getAttribute && t.getAttribute('data-rename');
-    if (rn) {
-      const g = store.groups.find(x => x.id === rn);
-      if (g) {
-        const v = prompt('这组叫什么？', g.name);
-        if (v && v.trim()) { g.name = v.trim().slice(0, 24); save(); render(); }
-      }
+    if (at('data-del')) {
+      const id = at('data-del');
+      if (!confirm('删掉这一块织网单元？')) return;
+      if (window.__weaveHooks && window.__weaveHooks.deleteUnit) window.__weaveHooks.deleteUnit(id);
+      sel.delete(id); sig = ''; render(); return;
+    }
+    if (at('data-up') || at('data-down')) {
+      const id = at('data-up') || at('data-down');
+      const dir = at('data-up') ? -1 : 1;
+      const list = agents().map(a => a.id);
+      list.forEach(x => { if (store.order.indexOf(x) < 0) store.order.push(x); });
+      const i = store.order.indexOf(id), j = i + dir;
+      if (i >= 0 && j >= 0 && j < store.order.length) { const t2 = store.order[i]; store.order[i] = store.order[j]; store.order[j] = t2; }
+      save(); render(); return;
     }
   });
-
   tree.addEventListener('change', (e) => {
     const p = e.target.getAttribute && e.target.getAttribute('data-pick');
     if (!p) return;
-    if (e.target.checked) picked.add(p); else picked.delete(p);
+    if (e.target.checked) sel.add(p); else sel.delete(p);
+    refresh(true);
   });
 
   function btn(id, fn) { const b = $(id); if (b) b.addEventListener('click', fn); }
-
   btn('habLayerGroup', () => {
-    if (picked.size < 2) { alert('先在图层前勾上两个或更多，再点「编组所选」。'); return; }
-    const name = prompt('新组叫什么？', '组 ' + (store.groups.length + 1));
-    if (name === null) return;
-    const g = { id: 'g' + Date.now().toString(36), name: (name || '组').trim().slice(0, 24) || '组', open: true };
+    if (sel.size < 1) { alert('先在列表里勾上要编组的层（两层以上更像 PS 的组）。'); return; }
+    const v = prompt('新组叫什么？', '组 ' + (store.groups.length + 1));
+    if (v === null) return;
+    const g = { id: 'g' + Date.now().toString(36), name: (v || '组').trim().slice(0, 24) || '组', open: true };
     store.groups.push(g);
-    picked.forEach(id => { store.member[id] = g.id; });
-    picked.clear();
-    rev++; save(); render();
+    sel.forEach(id => { store.member[id] = g.id; });
+    save(); sig = ''; render();
   });
-
   btn('habLayerUngroup', () => {
-    let n = 0;
-    if (picked.size) { picked.forEach(id => { if (store.member[id]) { delete store.member[id]; n++; } }); }
-    else { n = Object.keys(store.member).length; store.member = {}; }
-    picked.clear();
-    store.groups = store.groups.filter((g, i) => true);
-    rev++; save(); render();
-    if (!n) alert('现在没有编组中的层。先勾选层，再点「解散组」。');
+    if (!sel.size) { alert('先勾选要解散的层。'); return; }
+    sel.forEach(id => { delete store.member[id]; });
+    save(); sig = ''; render();
   });
-
-  btn('habLayerClear', () => {
-    store.groups.forEach(g => { g.open = true; });
-    save(); render();
+  btn('habLayerMerge', () => {
+    if (!sel.size) { alert('先勾选要并到一组里的层。'); return; }
+    let gid = null;
+    sel.forEach(id => { if (store.member[id]) gid = store.member[id]; });
+    if (!gid) { alert('这些层都还没编组，直接点「编组所选」就行。'); return; }
+    sel.forEach(id => { store.member[id] = gid; });
+    save(); sig = ''; render();
   });
+  btn('habLayerClear', () => { store.groups.forEach(g => { g.open = true; }); save(); render(); });
 
-  const agentsBox = document.getElementById('habAgents');
-  if (agentsBox && window.MutationObserver) {
-    new MutationObserver(() => refresh(false)).observe(agentsBox, { childList: true, subtree: true });
+  /* ---------- 对齐 / 等距 ---------- */
+  function selAgents() { return [...sel].map(byId).filter(Boolean); }
+  function applyAlign(kind) {
+    const list = selAgents();
+    if (list.length < 2) { alert('先勾选两层以上（或点一个组名）再对齐。'); return; }
+    const box = bboxOf(list.map(a => a.id));
+    list.forEach(a => {
+      if (a.kind !== 'weave') return;
+      if (kind === 'l') a.x = box.l + a.w / 2;
+      if (kind === 'cx') a.x = (box.l + box.r) / 2;
+      if (kind === 'r') a.x = box.r - a.w / 2;
+      if (kind === 't') a.y = box.t + a.h / 2;
+      if (kind === 'cy') a.y = (box.t + box.b) / 2;
+      if (kind === 'b') a.y = box.b - a.h / 2;
+    });
+    if (kind === 'dx' || kind === 'dy') {
+      const ws = list.filter(a => a.kind === 'weave');
+      if (ws.length < 2) return;
+      if (kind === 'dx') {
+        ws.sort((p, q) => p.x - q.x);
+        const first = ws[0], last = ws[ws.length - 1];
+        const total = last.x - first.x;
+        ws.forEach((a, i) => { a.x = first.x + total * (i / (ws.length - 1)); });
+      } else {
+        ws.sort((p, q) => p.y - q.y);
+        const first = ws[0], last = ws[ws.length - 1];
+        const total = last.y - first.y;
+        ws.forEach((a, i) => { a.y = first.y + total * (i / (ws.length - 1)); });
+      }
+    }
+    sig = ''; refresh(true);
   }
-  setInterval(() => refresh(false), 600);
+  document.querySelectorAll('[data-align]').forEach(b => b.addEventListener('click', () => applyAlign(b.dataset.align)));
+
+  /* ---------- 阵列复制 ---------- */
+  btn('habArrayGo', () => {
+    const one = sel.size === 1 ? byId([...sel][0]) : null;
+    if (!one || one.kind !== 'weave') { alert('阵列复制一次只对一块织网单元生效：先在列表里只勾选一块。'); return; }
+    const n = Math.max(1, Math.min(20, parseInt(($('habArrayN') || {}).value, 10) || 1));
+    const m = Math.max(1, Math.min(20, parseInt(($('habArrayM') || {}).value, 10) || 1));
+    if (n * m <= 1) return;
+    const gap = Number(($('habArrayGap') || {}).value || 12);
+    const sx = one.w + gap, sy = one.h + gap;
+    const H0 = H();
+    for (let j = 0; j < m; j++) {
+      for (let i = 0; i < n; i++) {
+        if (i === 0 && j === 0) continue;
+        const before = H0.agents().filter(a => a.kind === 'weave').length;
+        H0.addWeave({});
+        const l = H0.agents().filter(a => a.kind === 'weave');
+        if (l.length <= before) continue;
+        const u = l[l.length - 1];
+        ['w', 'h', 'coverage', 'shape', 'worms', 'seed', 'duration', 'wallAff', 'tileField', 'tone', 'gap', 'strata', 'profile', 'outline'].forEach(k => { if (one[k] !== undefined) u[k] = one[k]; });
+        u.custom = JSON.parse(JSON.stringify(one.custom || { walls: {}, paths: {}, shapes: {} }));
+        u.x = one.x + i * sx;
+        u.y = one.y + j * sy;
+        u.tileField = false;
+        if (u.cache && u.cache.clear) u.cache.clear();
+        H0.buildWeave(u);
+      }
+    }
+    sig = ''; refresh(true);
+  });
+
+  /* ---------- 与主界面同步 ---------- */
+  const box0 = $('habAgents');
+  if (box0 && window.MutationObserver) new MutationObserver(() => refresh(false)).observe(box0, { childList: true, subtree: true });
+  setInterval(() => refresh(false), 500);
   refresh(true);
 })();
 </script>
