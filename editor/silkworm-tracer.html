@@ -276,7 +276,23 @@
 .lay-row{gap:3px}
 .lay-mini{font-size:10px;background:rgba(255,255,255,0.08);border:0;color:inherit;border-radius:4px;padding:1px 3px;cursor:pointer;min-width:17px;line-height:15px}
 .lay-mini.on{background:rgba(232,201,138,0.25)}
-.hab-rec-bar{padding:6px 14px 0}
+.lay-menu{position:fixed;z-index:1000;min-width:160px;padding:4px;background:#0e1614;border:1px solid #3a4a44;border-radius:8px;box-shadow:0 10px 24px rgba(0,0,0,.5)}
+.lay-menu button{display:block;width:100%;text-align:left;padding:6px 9px;margin:2px 0;font-size:12px;background:#16201d;border:1px solid #2b3a35;border-radius:5px;color:#e7efeb;cursor:pointer}
+.lay-menu button:hover{background:#1d2a26;border-color:#4d6a60}
+.lay-menu button.danger{color:#ffb3a3;border-color:#5a3330}
+
+/* r40：识别条浮在画布上，不再占高度 */
+#habitat { position: relative; }
+.hab-rec-bar{position:absolute;left:264px;top:52px;z-index:9;width:min(560px,calc(100% - 560px));padding:0}
+.hab-rec{background:rgba(10,16,18,.94);border:1px solid rgba(230,236,233,.16);border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,.45);backdrop-filter:blur(6px)}
+.hab-rec>summary{padding:5px 9px;font-size:12px;gap:8px}
+.hab-rec-body{max-height:52vh;overflow:auto;padding:6px 9px 10px}
+/* r40：层行缩略图与副信息 */
+.lay-thumb{width:28px;height:28px;flex:0 0 28px;border-radius:3px;background:#05080a;border:1px solid rgba(255,255,255,.08)}
+.lay-txt{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}
+.lay-txt .lay-name{font-size:12px;line-height:1.25}
+.lay-meta{font-size:10px;font-style:normal;opacity:.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lay-gicon{width:28px;flex:0 0 28px;text-align:center;font-size:10px;opacity:.45}
 .hab-rec{background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.09);border-radius:10px;padding:0 10px}
 .hab-rec>summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:baseline;padding:8px 2px;font-size:13px}
 .hab-rec>summary::-webkit-details-marker{display:none}
@@ -12003,15 +12019,28 @@ showSplitPreview();
   function inEditMode() {
     try { const st = H().weaveEditState && H().weaveEditState(); return !!(st && st.agentId); } catch (e) { return false; }
   }
+  // 编辑态里，手柄（角/边中点/中心）附近要点就给原生手柄，别抢
+  function nearHandle(a, p) {
+    const v = H().view();
+    const pts = [
+      [a.x, a.y],
+      [a.x - a.w / 2, a.y - a.h / 2], [a.x + a.w / 2, a.y - a.h / 2],
+      [a.x - a.w / 2, a.y + a.h / 2], [a.x + a.w / 2, a.y + a.h / 2],
+      [a.x, a.y - a.h / 2], [a.x, a.y + a.h / 2],
+      [a.x - a.w / 2, a.y], [a.x + a.w / 2, a.y],
+    ];
+    return pts.some(q => Math.hypot(q[0] - p.x, q[1] - p.y) * v.s < 22);
+  }
   if (worldEl) {
     worldEl.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       pending = { snap: baseOf(agents().map(a => a.id)), t: Date.now() };
       drag = null; own = null;
-      if (inEditMode()) return;               // 编辑态交给原生手柄
       const p = toWorld(e);
       const hit = hitWeave(p);
       if (!hit) return;
+      if (inEditMode() && nearHandle(hit, p)) return;   // 压在手柄上：交给原生拖拽
+      if (inEditMode() && sel.size < 2 && !groupOf(hit.id)) return; // 编辑单块：交给原生
       const ids = moveSet(hit.id);
       own = { ids, base: baseOf(ids), start: p, anchor: hit.id };
     }, true);
@@ -12093,17 +12122,24 @@ showSplitPreview();
   function orderKey(a) { const i = store.order.indexOf(a.id); return i < 0 ? 9999 : i; }
   function rowsFor(list) { return list.slice().sort((p, q) => orderKey(p) - orderKey(q)); }
 
+  function metaOf(a) {
+    if (a.kind === 'weave') {
+      const w = Math.round(a.w || 0), h = Math.round(a.h || 0);
+      const worms = Math.round(a.worms || 0);
+      return w + '×' + h + (worms ? ' · ' + worms + ' 蚕/格' : '');
+    }
+    if (a.kind === 'route') return (Math.round(a.scale * 100) / 100) + '× · ' + a.route.length + ' 点';
+    return a.mode || '';
+  }
   function rowHTML(a, gid) {
     const off = hiddenOf(a);
     return '<div class="lay-row' + (off ? ' dim' : '') + (sel.has(a.id) ? ' on' : '') + '" data-agent="' + a.id + '">' +
       '<input type="checkbox" class="lay-chk" data-pick="' + a.id + '"' + (sel.has(a.id) ? ' checked' : '') + '>' +
-      '<span class="lay-icon">' + iconOf(a) + '</span>' +
-      '<button type="button" class="lay-name" title="选中这一层" data-focus="' + a.id + '">' + nameOf(a) + '</button>' +
+      '<canvas class="lay-thumb" width="40" height="40" data-thumb="' + a.id + '"></canvas>' +
+      '<span class="lay-txt"><button type="button" class="lay-name" title="选中这一层" data-focus="' + a.id + '">' + iconOf(a) + ' ' + nameOf(a) + '</button>' +
+      '<i class="lay-meta">' + metaOf(a) + '</i></span>' +
       '<button type="button" class="lay-mini" data-eye="' + a.id + '" title="显示／隐藏这一层">' + (off ? '隐' : '显') + '</button>' +
-      '<button type="button" class="lay-mini' + (a.locked ? ' on' : '') + '" data-lock="' + a.id + '" title="锁定后不能拖动">' + (a.locked ? '锁' : '开') + '</button>' +
-      (a.kind === 'weave'
-        ? '<button type="button" class="lay-mini" data-up="' + a.id + '" title="上移一层">↑</button><button type="button" class="lay-mini" data-down="' + a.id + '" title="下移一层">↓</button><button type="button" class="lay-mini" data-del="' + a.id + '" title="删掉这一层">✕</button>'
-        : '<button type="button" class="lay-mini" data-up="' + a.id + '">↑</button><button type="button" class="lay-mini" data-down="' + a.id + '">↓</button>') +
+      '<button type="button" class="lay-mini' + (a.locked ? ' on' : '') + '" data-menu="' + a.id + '" title="更多操作">⋯</button>' +
       '</div>';
   }
 
@@ -12120,6 +12156,7 @@ showSplitPreview();
       const allOff = members.every(hiddenOf);
       out.push('<div class="lay-group' + (sel.size && members.every(a => sel.has(a.id)) ? ' on' : '') + '" data-group="' + g.id + '">' +
         '<button type="button" class="lay-caret" data-open="' + g.id + '">' + (g.open ? '▾' : '▸') + '</button>' +
+        '<span class="lay-gicon">组</span>' +
         '<button type="button" class="lay-gname" data-gsel="' + g.id + '">' + g.name + '</button>' +
         '<span class="lay-count">' + members.length + '</span>' +
         '<button type="button" class="lay-mini" data-geye="' + g.id + '">' + (allOff ? '隐' : '显') + '</button>' +
@@ -12134,6 +12171,7 @@ showSplitPreview();
       free.forEach(a => out.push(rowHTML(a, null)));
     }
     tree.innerHTML = out.join('');
+    paintThumbs();
   }
 
   function refresh(force) {
@@ -12144,8 +12182,49 @@ showSplitPreview();
   }
 
   /* ---------- 列表交互 ---------- */
+
+  /* ---------- 行内「⋯」菜单 ---------- */
+  let menuEl = null;
+  function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+  function openMenu(id, x, y) {
+    closeMenu();
+    const a = byId(id); if (!a) return;
+    menuEl = document.createElement('div');
+    menuEl.className = 'lay-menu';
+    const items = [];
+    items.push([a.locked ? '解锁这一层' : '锁定这一层（不能拖）', () => { a.locked = !a.locked; }]);
+    items.push(['上移一层', () => { shiftOrder(id, -1); }]);
+    items.push(['下移一层', () => { shiftOrder(id, 1); }]);
+    if (store.member[id]) items.push(['移出所在组', () => { delete store.member[id]; save(); }]);
+    if (a.kind === 'weave') items.push(['删掉这一块', () => { if (confirm('删掉这一块织网单元？')) { if (window.__weaveHooks && window.__weaveHooks.deleteUnit) window.__weaveHooks.deleteUnit(a.id); sel.delete(a.id); } }]);
+    items.forEach(([label, fn], i) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = label;
+      if (i === items.length - 1 && a.kind === 'weave') b.className = 'danger';
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); closeMenu(); sig = ''; render(); });
+      menuEl.appendChild(b);
+    });
+    document.body.appendChild(menuEl);
+    const w = menuEl.offsetWidth, h = menuEl.offsetHeight;
+    menuEl.style.left = Math.min(window.innerWidth - w - 8, x) + 'px';
+    menuEl.style.top = Math.min(window.innerHeight - h - 8, y) + 'px';
+  }
+  function shiftOrder(id, dir) {
+    const list = agents().map(a => a.id);
+    list.forEach(x => { if (store.order.indexOf(x) < 0) store.order.push(x); });
+    const i = store.order.indexOf(id), j = i + dir;
+    if (i >= 0 && j >= 0 && j < store.order.length) { const t2 = store.order[i]; store.order[i] = store.order[j]; store.order[j] = t2; save(); }
+  }
+  document.addEventListener('pointerdown', (e) => {
+    if (menuEl && !menuEl.contains(e.target) && !(e.target.getAttribute && e.target.getAttribute('data-menu'))) closeMenu();
+  }, true);
   tree.addEventListener('click', (e) => {
     const t = e.target; const at = (k) => t.getAttribute && t.getAttribute(k);
+    if (at('data-menu')) {
+      const r = t.getBoundingClientRect();
+      openMenu(at('data-menu'), r.left - 150, r.bottom + 6);
+      return;
+    }
     const focus = at('data-focus');
     if (focus) {
       sel.clear(); sel.add(focus);
@@ -12289,6 +12368,38 @@ showSplitPreview();
     sig = ''; refresh(true);
   });
 
+
+  /* ---------- 缩略图：从主画布裁剪 ---------- */
+  function paintThumbs() {
+    const world = $('habWorld');
+    if (!world || !H()) return;
+    const v = H().view();
+    const cw = world.width, chh = world.height;
+    const rect = world.getBoundingClientRect();
+    const kx = cw / (rect.width || 1), ky = chh / (rect.height || 1);
+    document.querySelectorAll('#habLayerTree canvas[data-thumb]').forEach(cv => {
+      const a = byId(cv.getAttribute('data-thumb'));
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      if (!a || a.kind !== 'weave') { ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(0, 0, cv.width, cv.height); return; }
+      const sx = v.px(a.x - a.w / 2) * kx, sy = v.py(a.y - a.h / 2) * ky;
+      const sw = a.w * v.s * kx, sh = a.h * v.s * ky;
+      if (sw < 2 || sh < 2) return;
+      try {
+        ctx.fillStyle = '#05080a';
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(world, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.55;
+        ctx.drawImage(world, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+        ctx.strokeRect(0.5, 0.5, cv.width - 1, cv.height - 1);
+      } catch (e) {}
+    });
+  }
+  setInterval(() => { const p = $('habRight'); if (p && p.offsetParent) paintThumbs(); }, 1200);
   /* ---------- 与主界面同步 ---------- */
   const box0 = $('habAgents');
   if (box0 && window.MutationObserver) new MutationObserver(() => refresh(false)).observe(box0, { childList: true, subtree: true });
