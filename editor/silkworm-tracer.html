@@ -12286,7 +12286,7 @@ showSplitPreview();
       b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); closeMenu(); sig = ''; render(); });
       menuEl.appendChild(b);
     });
-    document.body.appendChild(menuEl);
+    (document.getElementById('habitat') || document.body).appendChild(menuEl);
     const w = menuEl.offsetWidth, h = menuEl.offsetHeight;
     menuEl.style.left = Math.min(window.innerWidth - w - 8, x) + 'px';
     menuEl.style.top = Math.min(window.innerHeight - h - 8, y) + 'px';
