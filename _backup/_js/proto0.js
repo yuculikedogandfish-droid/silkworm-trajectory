@@ -1,0 +1,897 @@
+
+'use strict';
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/* ================= 配置 ================= */
+const S = {
+  areaM2: 7.4, aspectW: 16, aspectH: 9, pitchMM: 1.5,
+  cols: 10, rows: 6, marginPct: 2.5, strata: 3,
+  coverage: 0.62, worms: 2, seed: 20261116,
+  loopAmp: 0.26, wallAff: 0.60, duration: 40,
+  progress: 1, playing: false, showWalls: true,
+  profile: null,
+};
+
+/* 演示指纹：没有实测数据时的联调占位，绝不能当论文依据 */
+const DEMO_PROFILE = {
+  id: 'demo', label: '演示指纹（非实测）',
+  stepMean: 1.8, stepSD: 0.30, curveAmp: 0.26,
+  maxTurn: 0.72, noise: 0.045, phaseStep: 0.020, loopsHint: 2.4,
+};
+S.profile = { ...DEMO_PROFILE };
+
+/* ================= 随机数 ================= */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function gauss(rng) {
+  let u = 0, v = 0;
+  while (!u) u = rng();
+  while (!v) v = rng();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v);
+}
+function angDiff(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= TAU;
+  while (d < -Math.PI) d += TAU;
+  return d;
+}
+
+/* ================= 几何：SDF ================= */
+function cellSDF(cell, x, y) {
+  const lx = x - (cell.x + cell.w / 2), ly = y - (cell.y + cell.h / 2);
+  let d = Math.max(Math.abs(lx) - cell.w / 2, Math.abs(ly) - cell.h / 2);
+  if (cell.notch) {
+    const nx = x - cell.notch.cx, ny = y - cell.notch.cy;
+    d = Math.max(d, -(Math.hypot(nx, ny) - cell.notch.r));
+  }
+  if (cell.island) {
+    const ix = x - cell.island.cx, iy = y - cell.island.cy;
+    d = Math.max(d, -(Math.hypot(ix, iy) - cell.island.r));
+  }
+  return d;
+}
+function sdfGrad(cell, x, y, e) {
+  const h = e || 1.0;
+  return {
+    dx: (cellSDF(cell, x + h, y) - cellSDF(cell, x - h, y)) / (2 * h),
+    dy: (cellSDF(cell, x, y + h) - cellSDF(cell, x, y - h)) / (2 * h),
+  };
+}
+
+/* ================= 场景构建 ================= */
+function cellId(c, r) { return String.fromCharCode(65 + c) + (r + 1); }
+
+function buildScene() {
+  const t0 = performance.now();
+  const areaMM = S.areaM2 * 1e6;
+  const aspect = S.aspectW / S.aspectH;
+  const W = Math.sqrt(areaMM * aspect);
+  const H = W / aspect;
+
+  const margin = Math.max(6, Math.min(W, H) * S.marginPct / 100);
+  const cw = (W - 2 * margin) / S.cols;
+  const ch = (H - 2 * margin) / S.rows;
+
+  const seedRng = mulberry32(S.seed);
+  const cells = [];
+  for (let r = 0; r < S.rows; r++) {
+    for (let c = 0; c < S.cols; c++) {
+      const x = margin + c * cw, y = margin + r * ch;
+      const cell = { id: cellId(c, r), x, y, w: cw, h: ch, type: 'plain' };
+      const t = seedRng();
+      if (t < 0.20) cell.type = 'notch';
+      else if (t < 0.52) cell.type = 'notchIsland';
+      else if (t < 0.70) cell.type = 'island';
+
+      if (cell.type === 'notch' || cell.type === 'notchIsland') {
+        const corner = Math.floor(seedRng() * 4);
+        cell.notch = {
+          corner,
+          cx: x + (corner % 2 === 1 ? cw : 0),
+          cy: y + (corner < 2 ? 0 : ch),
+          r: Math.min(cw, ch) * (0.26 + seedRng() * 0.24),
+        };
+      }
+      if (cell.type === 'island' || cell.type === 'notchIsland') {
+        cell.island = {
+          cx: x + cw * (0.30 + seedRng() * 0.40),
+          cy: y + ch * (0.30 + seedRng() * 0.40),
+          r: Math.min(cw, ch) * (0.14 + seedRng() * 0.13),
+        };
+      }
+      cell.target = clamp(S.coverage + (seedRng() - 0.5) * 0.46, 0.06, 0.88);
+      cell.seed = Math.floor(seedRng() * 1e9);
+
+      const L = Math.min(cw, ch);
+      cell.contour = contourPolylines(cell, Math.max(1.2, L / 70));
+      cell.grid = prepareGrid(cell, Math.max(1.4, L / 96));
+      cells.push(cell);
+    }
+  }
+
+  const strata = [];
+  for (let s = 0; s < S.strata; s++) {
+    const paths = [];
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      const rng = mulberry32(cell.seed + s * 7919 + 13);
+      for (let w = 0; w < S.worms; w++) {
+        const p = growInCell(cell, S.profile, rng, s, w);
+        if (p) paths.push(p);
+      }
+    }
+    strata.push({
+      index: s,
+      alpha: S.strata === 1 ? 0.62 : 0.16 + 0.40 * (s / (S.strata - 1)),
+      paths,
+    });
+  }
+
+  let pts = 0, len = 0, covSum = 0, covN = 0;
+  strata.forEach(st => st.paths.forEach(p => {
+    pts += p.pts.length; len += p.length; covSum += p.coverage; covN++;
+  }));
+  const stats = {
+    W, H, cells: cells.length, strata: S.strata, worms: cells.length * S.worms,
+    points: pts, lengthMM: len, coverageAvg: covN ? covSum / covN : 0,
+    ms: Math.round(performance.now() - t0),
+  };
+  return { W, H, cells, strata, stats, margin };
+}
+
+/* 允许面积网格（与占用网格同分辨率） */
+function prepareGrid(cell, res) {
+  const nx = Math.max(2, Math.ceil(cell.w / res));
+  const ny = Math.max(2, Math.ceil(cell.h / res));
+  const allow = new Uint8Array(nx * ny);
+  let count = 0;
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const x = cell.x + (i + 0.5) * res, y = cell.y + (j + 0.5) * res;
+      if (cellSDF(cell, x, y) < -res) { allow[j * nx + i] = 1; count++; }
+    }
+  }
+  return { res, nx, ny, allow, count: Math.max(1, count) };
+}
+
+/* ================= 生长（按格尺度归一化） ================= */
+function growInCell(cell, profile, rng, stratum, wormIdx) {
+  const g = cell.grid;
+  const { res, nx, ny } = g;
+  const occ = new Uint8Array(nx * ny);
+  let occN = 0;
+
+  const idx = (x, y) => {
+    const i = Math.floor((x - cell.x) / res), j = Math.floor((y - cell.y) / res);
+    if (i < 0 || j < 0 || i >= nx || j >= ny) return -1;
+    return j * nx + i;
+  };
+  const isFree = (x, y) => {
+    const k = idx(x, y);
+    if (k < 0) return false;
+    if (occ[k]) return false;
+    return g.allow[k] === 1;
+  };
+  const mark = (x, y, rad) => {
+    const r = Math.ceil(rad / res);
+    const i0 = Math.floor((x - cell.x) / res), j0 = Math.floor((y - cell.y) / res);
+    for (let j = j0 - r; j <= j0 + r; j++) {
+      for (let i = i0 - r; i <= i0 + r; i++) {
+        if (i < 0 || j < 0 || i >= nx || j >= ny) continue;
+        const px = cell.x + (i + 0.5) * res, py = cell.y + (j + 0.5) * res;
+        if (cellSDF(cell, px, py) >= -0.6) continue;
+        if ((px - x) * (px - x) + (py - y) * (py - y) > rad * rad) continue;
+        const k = j * nx + i;
+        if (!occ[k]) { occ[k] = 1; occN++; }
+      }
+    }
+  };
+
+  const L = Math.min(cell.w, cell.h);
+
+  // 尺度归一：真实步长按 90 mm 标称格折算，环半径固定为格宽的 8.5%
+  const U = L / 90;
+  const stepLen = Math.max(0.5 * res, 2.0 * U * (profile.stepMean / 1.8));
+  const loopR = L * 0.085;
+  const amp = clamp(stepLen / loopR, 0.06, 0.5);
+  const wallBand = L * 0.06;
+  const markR = Math.max(1.0, stepLen * 0.65);
+  const ahead = stepLen * 2.4;
+
+  // 起点：贴壁带内
+  let sx = 0, sy = 0, found = false;
+  for (let tries = 0; tries < 800 && !found; tries++) {
+    const x = cell.x + rng() * cell.w, y = cell.y + rng() * cell.h;
+    const d = cellSDF(cell, x, y);
+    if (d > -wallBand && d < -res * 1.6) { sx = x; sy = y; found = true; }
+  }
+  if (!found) return null;
+
+  const g0 = sdfGrad(cell, sx, sy);
+  let heading = Math.atan2(-g0.dy, -g0.dx) + (rng() - 0.5) * 1.2;
+
+  let x = sx, y = sy, phase = rng() * TAU, stuck = 0, steps = 0;
+  const pts = [{ x, y }];
+  mark(x, y, markR);
+
+  const maxSteps = Math.round((cell.target * g.count * res * res) / (stepLen * markR * 2) * 1.8) + 400;
+  const targetN = Math.min(g.count, Math.round(cell.target * g.count));
+
+  while (steps < Math.max(600, maxSteps) && occN < targetN && stuck < 120) {
+    steps++;
+    phase += (profile.phaseStep || 0.02);
+
+    let desired = heading + amp * Math.cos(phase) + (profile.noise || 0.04) * gauss(rng);
+
+    // 贴壁：靠近壁时叠加切向
+    const d0 = cellSDF(cell, x, y);
+    if (d0 > -wallBand) {
+      const gd = sdfGrad(cell, x, y);
+      const tx = -gd.dy, ty = gd.dx;
+      const sgn = (Math.cos(heading) * tx + Math.sin(heading) * ty) >= 0 ? 1 : -1;
+      const angT = Math.atan2(sgn * ty, sgn * tx);
+      desired += S.wallAff * clamp(1 - (-d0) / wallBand, 0, 1) * angDiff(angT, desired);
+    }
+
+    // 候选方向打分：空 + 贴壁 + 转角小
+    const cands = [0, 0.12, -0.12, 0.26, -0.26, 0.42, -0.42, 0.58, -0.58];
+    let bestA = null, bestScore = -1e9;
+    for (let k = 0; k < cands.length; k++) {
+      const a = desired + cands[k];
+      if (Math.abs(angDiff(a, heading)) > profile.maxTurn) continue;
+      const px = x + Math.cos(a) * ahead, py = y + Math.sin(a) * ahead;
+      const sd = cellSDF(cell, px, py);
+      if (sd > -res * 0.8) continue;
+      const free = isFree(px, py) ? 1 : 0;
+      const band = (sd > -wallBand) ? 1 : 0;
+      const score = free * 3.2 + band * S.wallAff * 0.5 - Math.abs(cands[k]) * 0.9;
+      if (score > bestScore) { bestScore = score; bestA = a; }
+    }
+
+    if (bestA === null) { heading += (rng() < 0.5 ? 1 : -1) * 0.55; stuck++; continue; }
+
+    heading = bestA;
+    const nx2 = x + Math.cos(heading) * stepLen;
+    const ny2 = y + Math.sin(heading) * stepLen;
+    if (cellSDF(cell, nx2, ny2) > -0.8) { stuck++; continue; }
+
+    x = nx2; y = ny2;
+    pts.push({ x, y });
+    mark(x, y, markR);
+    stuck = 0;
+  }
+
+  const simp = simplify(pts, Math.max(0.15, stepLen * 0.12));
+  let length = 0;
+  const cum = [0];
+  for (let i = 1; i < simp.length; i++) {
+    length += Math.hypot(simp[i].x - simp[i - 1].x, simp[i].y - simp[i - 1].y);
+    cum.push(length);
+  }
+  const ptsU = simp.map((p, i) => ({
+    x: +p.x.toFixed(2), y: +p.y.toFixed(2),
+    u: length ? +(cum[i] / length).toFixed(4) : 0,
+  }));
+
+  return {
+    cell: cell.id, stratum, worm: wormIdx + 1,
+    pts: ptsU, cum, length,
+    coverage: occN / g.count,
+  };
+}
+
+/* ================= 折线简化 ================= */
+function simplify(pts, tol) {
+  if (pts.length < 3) return pts;
+  const keep = new Uint8Array(pts.length);
+  keep[0] = 1; keep[pts.length - 1] = 1;
+  const stack = [[0, pts.length - 1]];
+  while (stack.length) {
+    const seg = stack.pop();
+    const a = seg[0], b = seg[1];
+    let maxD = -1, maxI = -1;
+    const ax = pts[a].x, ay = pts[a].y, bx = pts[b].x, by = pts[b].y;
+    const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1;
+    for (let i = a + 1; i < b; i++) {
+      const d = Math.abs((pts[i].x - ax) * dy - (pts[i].y - ay) * dx) / L;
+      if (d > maxD) { maxD = d; maxI = i; }
+    }
+    if (maxD > tol && maxI > 0) {
+      keep[maxI] = 1;
+      stack.push([a, maxI], [maxI, b]);
+    }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+
+/* ================= 等值线（marching squares） ================= */
+function contourPolylines(cell, step) {
+  const x0 = cell.x - 1.2, y0 = cell.y - 1.2;
+  const x1 = cell.x + cell.w + 1.2, y1 = cell.y + cell.h + 1.2;
+  const nx = Math.ceil((x1 - x0) / step) + 1;
+  const ny = Math.ceil((y1 - y0) / step) + 1;
+  const v = new Float32Array(nx * ny);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      v[j * nx + i] = cellSDF(cell, x0 + i * step, y0 + j * step);
+    }
+  }
+  const segs = [];
+  const P = (i, j) => ({ x: x0 + i * step, y: y0 + j * step });
+  const ip = (a, b, va, vb) => {
+    const t = va / (va - vb);
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  };
+  for (let j = 0; j < ny - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const v00 = v[j * nx + i], v10 = v[j * nx + i + 1];
+      const v01 = v[(j + 1) * nx + i], v11 = v[(j + 1) * nx + i + 1];
+      let code = 0;
+      if (v00 < 0) code |= 1;
+      if (v10 < 0) code |= 2;
+      if (v11 < 0) code |= 4;
+      if (v01 < 0) code |= 8;
+      if (code === 0 || code === 15) continue;
+      const a = P(i, j), b = P(i + 1, j), c = P(i + 1, j + 1), d = P(i, j + 1);
+      const top = () => ip(a, b, v00, v10);
+      const right = () => ip(b, c, v10, v11);
+      const bottom = () => ip(d, c, v01, v11);
+      const left = () => ip(a, d, v00, v01);
+      switch (code) {
+        case 1: case 14: segs.push([left(), top()]); break;
+        case 2: case 13: segs.push([top(), right()]); break;
+        case 3: case 12: segs.push([left(), right()]); break;
+        case 4: case 11: segs.push([right(), bottom()]); break;
+        case 6: case 9: segs.push([top(), bottom()]); break;
+        case 7: case 8: segs.push([left(), bottom()]); break;
+        case 5: {
+          const cen = (v00 + v10 + v11 + v01) / 4;
+          if (cen < 0) { segs.push([left(), top()]); segs.push([right(), bottom()]); }
+          else { segs.push([top(), right()]); segs.push([bottom(), left()]); }
+          break;
+        }
+        case 10: {
+          const cen = (v00 + v10 + v11 + v01) / 4;
+          if (cen < 0) { segs.push([top(), right()]); segs.push([bottom(), left()]); }
+          else { segs.push([left(), top()]); segs.push([right(), bottom()]); }
+          break;
+        }
+      }
+    }
+  }
+  return chainSegs(segs);
+}
+
+function chainSegs(segs) {
+  if (!segs.length) return [];
+  const key = p => `${Math.round(p.x * 16)}:${Math.round(p.y * 16)}`;
+  const map = new Map();
+  segs.forEach((s, i) => {
+    [s[0], s[1]].forEach(p => {
+      const k = key(p);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(i);
+    });
+  });
+  const used = new Uint8Array(segs.length);
+  const out = [];
+  for (let i = 0; i < segs.length; i++) {
+    if (used[i]) continue;
+    used[i] = 1;
+    const line = [segs[i][0], segs[i][1]];
+    for (let guard = 0; guard < 300; guard++) {
+      const endK = key(line[line.length - 1]);
+      const cands = (map.get(endK) || []).filter(j => !used[j]);
+      if (!cands.length) break;
+      const j = cands[0];
+      used[j] = 1;
+      const s = segs[j];
+      line.push(key(s[0]) === endK ? s[1] : s[0]);
+    }
+    for (let guard = 0; guard < 300; guard++) {
+      const startK = key(line[0]);
+      const cands = (map.get(startK) || []).filter(j => !used[j]);
+      if (!cands.length) break;
+      const j = cands[0];
+      used[j] = 1;
+      const s = segs[j];
+      line.unshift(key(s[0]) === startK ? s[1] : s[0]);
+    }
+    if (line.length > 1) out.push(simplify(line, 0.3));
+  }
+  return out;
+}
+
+/* ================= 渲染 ================= */
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let scene = null;
+let rafId = 0;
+let lastTick = 0;
+
+function fitCanvas(cssW, cssH) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(2, Math.floor(cssW));
+  const h = Math.max(2, Math.floor(cssH));
+  if (cv.width !== Math.floor(w * dpr) || cv.height !== Math.floor(h * dpr)) {
+    cv.width = Math.floor(w * dpr);
+    cv.height = Math.floor(h * dpr);
+    cv.style.width = w + 'px';
+    cv.style.height = h + 'px';
+  }
+}
+
+function resizedPreview() {
+  if (!scene) return;
+  const host = cv.parentElement;
+  const availW = host.clientWidth - 24;
+  const availH = host.clientHeight - 24;
+  const ar = scene.W / scene.H;
+  let w = availW, h = w / ar;
+  if (h > availH) { h = availH; w = h * ar; }
+  fitCanvas(w, h);
+  render();
+}
+
+function drawPolyline(pts, cum, upto, alpha, widthMM, scale) {
+  if (!pts.length) return;
+  ctx.beginPath();
+  let started = false;
+  for (let i = 0; i < pts.length; i++) {
+    if (upto != null && cum[i] > upto) {
+      if (!started) return;
+      break;
+    }
+    const px = pts[i].x * scale, py = pts[i].y * scale;
+    if (!started) { ctx.moveTo(px, py); started = true; }
+    else ctx.lineTo(px, py);
+  }
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = Math.max(0.7, widthMM * scale);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function render() {
+  if (!scene) return;
+  const scale = cv.width / scene.W;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#05070A';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  if (S.showWalls) {
+    ctx.strokeStyle = 'rgba(158,176,168,0.10)';
+    ctx.lineWidth = Math.max(0.4, 0.4 * scale);
+    scene.cells.forEach(cell => {
+      cell.contour.forEach(line => {
+        ctx.beginPath();
+        for (let i = 0; i < line.length; i++) {
+          const px = line[i].x * scale, py = line[i].y * scale;
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      });
+    });
+  }
+
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(230,238,232,1)';
+  scene.strata.forEach(st => {
+    st.paths.forEach(p => {
+      const widthMM = (2.2 + st.index * 0.35) * S.pitchMM;
+      drawPolyline(p.pts, p.cum, S.progress * p.length, st.alpha, widthMM, scale);
+    });
+  });
+
+  const hud = document.getElementById('hud');
+  if (hud) {
+    hud.textContent = `预览 ${cv.width}×${cv.height} px · 场地 ${scene.W.toFixed(0)}×${scene.H.toFixed(0)} mm · 进度 ${(S.progress * 100).toFixed(0)}%`;
+  }
+}
+
+/* ================= 播放 ================= */
+function loop(ts) {
+  if (!S.playing) return;
+  if (!lastTick) lastTick = ts;
+  const dt = (ts - lastTick) / 1000;
+  lastTick = ts;
+  S.progress += dt / S.duration;
+  if (S.progress >= 1) S.progress = 0;
+  const prog = document.getElementById('prog');
+  prog.value = String(S.progress);
+  document.getElementById('progVal').textContent = S.progress.toFixed(2);
+  render();
+  rafId = requestAnimationFrame(loop);
+}
+
+function setPlaying(on) {
+  S.playing = on;
+  document.getElementById('play').textContent = on ? '暂停' : '播放';
+  if (on) { lastTick = 0; S.progress = 0; rafId = requestAnimationFrame(loop); }
+  else { cancelAnimationFrame(rafId); render(); }
+}
+
+/* ================= 参数绑定 ================= */
+function ranged(id, key, fmt, isInt) {
+  const el = document.getElementById(id);
+  const out = document.getElementById(id + 'Val');
+  el.addEventListener('input', () => {
+    const v = isInt ? parseInt(el.value, 10) : parseFloat(el.value);
+    S[key] = v;
+    if (out) out.textContent = fmt ? fmt(v) : v;
+    schedule();
+  });
+}
+
+let timer = 0;
+function schedule() {
+  clearTimeout(timer);
+  timer = setTimeout(() => regenerate(), 260);
+}
+
+function applyAspect() {
+  const sel = document.getElementById('aspectSel').value;
+  if (sel !== 'custom') {
+    const parts = sel.split(':');
+    S.aspectW = parseFloat(parts[0]);
+    S.aspectH = parseFloat(parts[1]);
+    document.getElementById('aspectW').value = String(S.aspectW);
+    document.getElementById('aspectH').value = String(S.aspectH);
+  }
+  schedule();
+}
+
+function screenBlock() {
+  const areaMM = S.areaM2 * 1e6;
+  const aspect = S.aspectW / S.aspectH;
+  const W = Math.sqrt(areaMM * aspect), H = W / aspect;
+  return {
+    areaM2: S.areaM2, aspect: [S.aspectW, S.aspectH],
+    pitchMM: S.pitchMM,
+    widthMM: +W.toFixed(1), heightMM: +H.toFixed(1),
+    nativePx: [Math.round(W / S.pitchMM), Math.round(H / S.pitchMM)],
+  };
+}
+
+function updateScreenStat() {
+  const b = screenBlock();
+  const pxW = b.nativePx[0], pxH = b.nativePx[1];
+  document.getElementById('resStat').textContent =
+    `屏体 ${(b.widthMM / 1000).toFixed(2)} × ${(b.heightMM / 1000).toFixed(2)} m\n原生 ${pxW} × ${pxH} px（${(pxW * pxH / 1e6).toFixed(2)} MP）`;
+  document.getElementById('screenNote').textContent = `${pxW}×${pxH} @ P${S.pitchMM}`;
+}
+
+function regenerate() {
+  updateScreenStat();
+  scene = buildScene();
+  resizedPreview();
+  render();
+  updateStats();
+}
+
+function updateStats() {
+  const st = scene.stats;
+  const prof = S.profile;
+  document.getElementById('runStat').textContent =
+    `格 ${st.cells} · 层 ${st.strata} · 每层蚕 ${st.worms}\n` +
+    `点 ${st.points.toLocaleString()} · 丝长 ${(st.lengthMM / 1000).toFixed(2)} m\n` +
+    `平均覆盖 ${(st.coverageAvg * 100).toFixed(1)}% · 生成 ${st.ms} ms`;
+  document.getElementById('profileStat').textContent =
+    `${prof.label}\n步长 ${prof.stepMean.toFixed(2)} mm · 环幅度 ${(prof.curveAmp).toFixed(2)} rad/步\n环数参考 ${(prof.loopsHint || 0).toFixed(1)} · 最大转角 ${prof.maxTurn.toFixed(2)}`;
+}
+
+/* ================= 指纹：从实测轨迹统计 ================= */
+function profileFromPoints(points, label, calibrated) {
+  const pts = points.filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+  if (pts.length < 8) return null;
+  const steps = [], turns = [];
+  for (let i = 1; i < pts.length; i++) {
+    steps.push(Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    if (i > 1) {
+      const a1 = Math.atan2(pts[i - 1].y - pts[i - 2].y, pts[i - 1].x - pts[i - 2].x);
+      const a2 = Math.atan2(pts[i].y - pts[i - 1].y, pts[i].x - pts[i - 1].x);
+      turns.push(Math.abs(angDiff(a2, a1)));
+    }
+  }
+  const med = arr => {
+    const s = arr.slice().sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)] || 0;
+  };
+  const pct = (arr, p) => {
+    const s = arr.slice().sort((a, b) => a - b);
+    return s[Math.min(s.length - 1, Math.floor(s.length * p))] || 0;
+  };
+  const stepMean = med(steps) || 1.8;
+  const turnMed = med(turns) || 0.22;
+  return {
+    id: 'profile-' + Date.now(),
+    label: (calibrated ? '实测指纹 · ' : '未标定（px）· ') + label,
+    stepMean: +clamp(stepMean, 0.4, 12).toFixed(3),
+    stepSD: +(pct(steps, 0.2) || 0).toFixed(3),
+    curveAmp: +clamp(turnMed, 0.06, 0.5).toFixed(3),
+    maxTurn: +clamp(pct(turns, 0.95), 0.2, 1.2).toFixed(3),
+    phaseStep: 0.020,
+    noise: 0.045,
+    loopsHint: +(TAU / Math.max(0.3, turnMed * 30)).toFixed(2),
+  };
+}
+
+function loadProfileFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data = null;
+    try { data = JSON.parse(reader.result); } catch (e) { alert('JSON 解析失败'); return; }
+    const series = [];
+    let calibrated = false;
+
+    if (Array.isArray(data.silkworms)) {
+      data.silkworms.forEach(sw => {
+        const pts = (sw.points || []).map(p => {
+          const x = Number.isFinite(p.x_mm) ? p.x_mm : p.x_px;
+          const y = Number.isFinite(p.y_mm) ? p.y_mm : p.y_px;
+          if (Number.isFinite(p.x_mm)) calibrated = true;
+          return { x, y };
+        });
+        if (pts.length) series.push({ pts, id: sw.id });
+      });
+    }
+    if (!series.length && Array.isArray(data.curves)) {
+      data.curves.forEach((c, i) => {
+        const pts = (c.points || []).map(p => ({ x: p.x_mm, y: p.y_mm }));
+        if (pts.length) { series.push({ pts, id: c.name || i + 1 }); calibrated = true; }
+      });
+    }
+    if (!series.length && Array.isArray(data.unifiedTrajectories)) {
+      data.unifiedTrajectories.forEach((t, i) => {
+        const pts = (t.points || []).map(p => ({ x: p.x_mm, y: p.y_mm }));
+        if (pts.length) { series.push({ pts, id: t.wormId || i + 1 }); calibrated = true; }
+      });
+    }
+    if (!series.length) { alert('未找到 silkworms / curves / unifiedTrajectories 轨迹'); return; }
+
+    series.sort((a, b) => b.pts.length - a.pts.length);
+    const prof = profileFromPoints(series[0].pts, `蚕 ${series[0].id}（${series[0].pts.length} 点）`, calibrated);
+    if (!prof) { alert('轨迹点太少（<8），无法统计指纹'); return; }
+    S.profile = prof;
+    S.loopAmp = prof.curveAmp;
+    document.getElementById('loopAmp').value = String(prof.curveAmp);
+    document.getElementById('loopAmpVal').textContent = prof.curveAmp.toFixed(2);
+    regenerate();
+    document.getElementById('profileNote').textContent = calibrated
+      ? `已载入 ${series.length} 条曲线，指纹来自最长一条。可继续换文件对比。`
+      : `已载入 ${series.length} 条曲线，但没有标定：数值仍是像素，只能联调，不能进论文。`;
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+/* ================= 导出 ================= */
+function download(name, text, mime) {
+  const blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+
+function exportSVG() {
+  if (!scene) return;
+  const wallPaths = [];
+  scene.cells.forEach(cell => {
+    cell.contour.forEach(line => {
+      wallPaths.push(line.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(2) + ' ' + p.y.toFixed(2)).join(' '));
+    });
+  });
+  const silkGroups = scene.strata.map(st => {
+    const paths = st.paths.map(p => {
+      const d = p.pts.map((q, i) => (i ? 'L' : 'M') + q.x.toFixed(2) + ' ' + q.y.toFixed(2)).join(' ');
+      return `<path d="${d}" fill="none" stroke="#E4EEE8" stroke-width="1" stroke-linecap="round"/>`;
+    }).join('\n');
+    return `<g opacity="${st.alpha.toFixed(2)}">\n${paths}\n</g>`;
+  }).join('\n');
+  const walls = `<g opacity="0.35" stroke="#9EB0A8" stroke-width="0.8" fill="none">\n${wallPaths.map(d => `<path d="${d}"/>`).join('\n')}\n</g>`;
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${scene.W.toFixed(1)}mm" height="${scene.H.toFixed(1)}mm" viewBox="0 0 ${scene.W.toFixed(1)} ${scene.H.toFixed(1)}">
+<metadata>${JSON.stringify({
+    schema: 'silkworm-weave-svg/v1', generator: 'weave-lab', seed: S.seed,
+    note: '单位 mm；原点在屏体左上角', profile: S.profile.label,
+  }).replace(/</g, '&lt;')}</metadata>
+${walls}
+${silkGroups}
+</svg>`;
+  download('weave-curves.svg', svg, 'image/svg+xml');
+}
+
+function exportCurves() {
+  if (!scene) return;
+  const curves = [];
+  scene.strata.forEach(st => st.paths.forEach(p => {
+    curves.push({
+      id: `${p.cell}-s${p.stratum}-w${p.worm}`,
+      cell: p.cell, stratum: p.stratum, worm: p.worm,
+      unit: 'mm', length_mm: +p.length.toFixed(2),
+      width_mm: +((2.2 + p.stratum * 0.35) * S.pitchMM).toFixed(2),
+      coverage: +p.coverage.toFixed(3),
+      points: p.pts,
+    });
+  }));
+  download('weave-curves.json', JSON.stringify({
+    schema: 'silkworm-weave-curves/v1',
+    generator: 'weave-lab',
+    profile: {
+      id: S.profile.id, label: S.profile.label, stepMean: S.profile.stepMean,
+      curveAmp: S.profile.curveAmp, maxTurn: S.profile.maxTurn,
+    },
+    screen: screenBlock(),
+    seed: S.seed, strata: S.strata,
+    note: 'x/y 为 mm；u 为弧长参数 0→1；width_mm 仅供 sweep/tube。',
+    curves,
+  }, null, 2), 'application/json');
+}
+
+function exportScene() {
+  if (!scene) return;
+  const cells = scene.cells.map(c => ({
+    id: c.id, x: +c.x.toFixed(2), y: +c.y.toFixed(2),
+    w: +c.w.toFixed(2), h: +c.h.toFixed(2), type: c.type,
+    notch: c.notch || null, island: c.island || null,
+    targetCoverage: +c.target.toFixed(3), seed: c.seed,
+    contourPoints: c.contour.reduce((n, l) => n + l.length, 0),
+  }));
+  download('weave-scene.json', JSON.stringify({
+    schema: 'silkworm-weave-scene/v1',
+    generator: 'weave-lab',
+    config: {
+      areaM2: S.areaM2, aspectW: S.aspectW, aspectH: S.aspectH,
+      pitchMM: S.pitchMM, cols: S.cols, rows: S.rows,
+      marginPct: S.marginPct, strata: S.strata, coverage: S.coverage,
+      worms: S.worms, seed: S.seed, loopAmp: S.loopAmp, wallAff: S.wallAff,
+      duration: S.duration,
+    },
+    profile: S.profile,
+    screen: screenBlock(),
+    cells,
+    note: 'cells 为几何真源（mm）；同一 config+seed 可像素级复现；SDF 由 cells 派生。',
+  }, null, 2), 'application/json');
+}
+
+function exportPng() {
+  if (!scene) return;
+  cv.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `weave-frame-p${Math.round(S.progress * 100)}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  }, 'image/png');
+}
+
+function cfgB64() {
+  const cfg = {
+    areaM2: S.areaM2, aspectW: S.aspectW, aspectH: S.aspectH, pitchMM: S.pitchMM,
+    cols: S.cols, rows: S.rows, marginPct: S.marginPct, strata: S.strata,
+    coverage: S.coverage, worms: S.worms, seed: S.seed, loopAmp: S.loopAmp,
+    wallAff: S.wallAff, profile: S.profile,
+  };
+  return btoa(unescape(encodeURIComponent(JSON.stringify(cfg))));
+}
+
+function copyCmd() {
+  const b = screenBlock();
+  const cmd = `powershell -ExecutionPolicy Bypass -File "scripts\\render_led_frames.ps1" -Native "${b.nativePx[0]}x${b.nativePx[1]}" -Frames 900 -Fps 30 -Cfg "${cfgB64()}"`;
+  navigator.clipboard.writeText(cmd).then(
+    () => alert('已复制渲染命令（在仓库根目录执行）'),
+    () => alert('复制失败，请手动选中：\n' + cmd)
+  );
+}
+
+/* ================= 原生分辨率渲染（供无头 Chrome 抓帧） ================= */
+function nativeMode(query) {
+  const cfg = query.get('cfg');
+  if (cfg) {
+    try {
+      const o = JSON.parse(decodeURIComponent(escape(atob(cfg))));
+      Object.keys(o).forEach(k => {
+        if (k === 'profile') S.profile = o.profile;
+        else if (typeof S[k] === 'number') S[k] = o[k];
+      });
+    } catch (e) { /* 配置坏了就用默认 */ }
+  }
+  const frame = Math.max(0, parseInt(query.get('frame') || '0', 10));
+  const total = Math.max(1, parseInt(query.get('total') || '1', 10));
+  S.progress = total > 1 ? frame / (total - 1) : 1;
+
+  document.body.classList.add('render');
+  scene = buildScene();
+  const pxW = Math.round(scene.W / S.pitchMM);
+  const pxH = Math.round(scene.H / S.pitchMM);
+  cv.width = pxW; cv.height = pxH;
+  cv.style.width = pxW + 'px'; cv.style.height = pxH + 'px';
+  render();
+  window.__renderReady = true;
+}
+
+/* ================= 启动 ================= */
+function boot() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('native')) { nativeMode(q); return; }
+
+  document.getElementById('area').addEventListener('input', e => {
+    S.areaM2 = parseFloat(e.target.value) || 7.4; schedule();
+  });
+  document.getElementById('pitch').addEventListener('input', e => {
+    S.pitchMM = parseFloat(e.target.value) || 1.5; schedule();
+  });
+  document.getElementById('aspectSel').addEventListener('change', applyAspect);
+  ['aspectW', 'aspectH'].forEach(id => {
+    document.getElementById(id).addEventListener('input', e => {
+      const v = parseFloat(e.target.value);
+      if (Number.isFinite(v) && v > 0) S[id === 'aspectW' ? 'aspectW' : 'aspectH'] = v;
+      schedule();
+    });
+  });
+  document.getElementById('cols').addEventListener('input', e => {
+    S.cols = clamp(parseInt(e.target.value, 10) || 10, 2, 24); schedule();
+  });
+  document.getElementById('rows').addEventListener('input', e => {
+    S.rows = clamp(parseInt(e.target.value, 10) || 6, 2, 18); schedule();
+  });
+  document.getElementById('seed').addEventListener('input', e => {
+    S.seed = parseInt(e.target.value, 10) || 1; schedule();
+  });
+  document.getElementById('reseed').addEventListener('click', () => {
+    S.seed = Math.floor(Math.random() * 1e9);
+    document.getElementById('seed').value = String(S.seed);
+    schedule();
+  });
+
+  ranged('margin', 'marginPct', v => v.toFixed(1) + '%');
+  ranged('strata', 'strata', v => String(v), true);
+  ranged('coverage', 'coverage', v => v.toFixed(2));
+  ranged('worms', 'worms', v => String(v), true);
+  ranged('wallAff', 'wallAff', v => v.toFixed(2));
+  ranged('dur', 'duration', v => v + 's', true);
+
+  const loopEl = document.getElementById('loopAmp');
+  const loopOut = document.getElementById('loopAmpVal');
+  loopEl.addEventListener('input', () => {
+    S.loopAmp = parseFloat(loopEl.value);
+    S.profile = { ...S.profile, curveAmp: S.loopAmp };
+    loopOut.textContent = S.loopAmp.toFixed(2);
+    schedule();
+  });
+
+  document.getElementById('prog').addEventListener('input', e => {
+    S.progress = parseFloat(e.target.value);
+    document.getElementById('progVal').textContent = S.progress.toFixed(2);
+    render();
+  });
+  document.getElementById('play').addEventListener('click', () => setPlaying(!S.playing));
+  document.getElementById('regen').addEventListener('click', () => regenerate());
+  document.getElementById('fileProfile').addEventListener('change', e => {
+    if (e.target.files && e.target.files[0]) loadProfileFile(e.target.files[0]);
+    e.target.value = '';
+  });
+  document.getElementById('expSvg').addEventListener('click', exportSVG);
+  document.getElementById('expCurves').addEventListener('click', exportCurves);
+  document.getElementById('expScene').addEventListener('click', exportScene);
+  document.getElementById('expPng').addEventListener('click', exportPng);
+  document.getElementById('copyCmd').addEventListener('click', copyCmd);
+
+  window.addEventListener('resize', () => {
+    clearTimeout(timer);
+    timer = setTimeout(resizedPreview, 160);
+  });
+
+  regenerate();
+}
+
+boot();

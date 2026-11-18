@@ -1,0 +1,307 @@
+# -*- coding: utf-8 -*-
+"""r34 使用说明：一次生成网页版（深色，线上看）+ 打印版（白底 A4，出 PDF）"""
+import base64, io, os
+
+TMP = os.environ.get('TEMP', r'C:\Users\54364\AppData\Local\Temp')
+ROOT = r"H:\tool\silkworm-trajectory"
+IMGS = {
+    'home': os.path.join(TMP, 'guide33-home.png'),
+    'edit': os.path.join(TMP, 'guide33-edit.png'),
+    'menu': os.path.join(TMP, 'guide33-menu.png'),
+}
+B64 = {}
+for k, p in IMGS.items():
+    B64[k] = 'data:image/png;base64,' + base64.b64encode(io.open(p, 'rb').read()).decode()
+
+
+def fig(key, cap, narrow=False):
+    return '<figure class="%s"><img alt="" src="%s"><figcaption>%s</figcaption></figure>' % (
+        'shot narrow' if narrow else 'shot', B64[key], cap)
+
+
+BODY = []
+A = BODY.append
+
+A('<header class="cover"><div class="kick">Digital Habitat · 织网展陈</div>'
+  '<h1>蚕轨迹描图器 &amp; 数字蚕室<br>使用说明</h1>'
+  '<p class="sub">这份说明是给“操作者”看的：不需要懂代码，照着点就行。<br>'
+  '网页地址：<b>yuculikedogandfish-droid.github.io/silkworm-trajectory/</b>　'
+  '版本：<b>r36</b></p>'
+  '<div class="toc"><b>目录</b>'
+  '<ol><li>三分钟上手</li><li>界面地图</li><li>点一下就进编辑</li><li>改形状的手感</li>'
+  '<li>把蚕放进来</li><li>让丝好看</li><li>存盘与恢复</li><li>导出视频 / 图片 / 母版</li>'
+  '<li>名词表</li><li>常见问题</li></ol></div></header>')
+
+# 1
+A('<section class="card"><h2><span>01</span>三分钟上手</h2>'
+  '<p class="lead">整个流程就四步：<b>放块 → 改形状 → 放蚕 → 导出</b>。</p>'
+  '<ol class="steps">'
+  '<li><b>放一块“织网单元”</b><br>点右栏「添加织网单元」。场地上出现一个方块，里面已经在织丝了。</li>'
+  '<li><b>点它一下，就地改形状</b><br>点格子＝进入这一格的编辑（右上角按钮会变成「退出编辑」）。想改别的格，直接点别的格；点场地空白处就退出。</li>'
+  '<li><b>把蚕指定进来</b><br>先在左边描图器里描好轨迹，点「重新同步实测轨迹」，蚕就进场了。再在右栏选“这一格用哪只蚕”。</li>'
+  '<li><b>导出</b><br>左栏底部选分辨率 →「导出视频」或「导出当前画面 PNG」。要拿去给母版软件用的，点「导出母版场景 JSON」。</li>'
+  '</ol>'
+  '<div class="tip"><b>先别记细节</b>：操作顺序永远是“先选材料、再改形状、最后导出”。任何时候按 <b>Ctrl+Z</b> 可以退回上一步。</div>'
+  '</section>')
+
+# 2
+A('<section class="card"><h2><span>02</span>界面地图</h2>'
+  '<p class="lead">屏幕分成四块，各管一件事。</p>'
+  '<table><colgroup><col style="width:22%"><col style="width:78%"></colgroup>'
+  '<tr><th>位置</th><th>管什么</th></tr>'
+  '<tr><td>左栏</td><td>温度/湿度（只影响演示动画的手感）、场地形状、丝线与蚕的观感、实测轨迹入室、存盘、导出。</td></tr>'
+  '<tr><td>中间</td><td>场地本身。所有格子、蚕、丝都在这里长出来。滚轮缩放、按住空白拖动画布。</td></tr>'
+  '<tr><td>右栏</td><td>个体列表（每块格子、每只蚕都能单独暂停/拖动/隐藏）；选中之后出现的「选中调整」滑条。</td></tr>'
+  '<tr><td>底部</td><td>时间轴：「开始 / 暂停 / 继续」＋一条可以拖的进度条，拖到哪儿就停在哪儿。</td></tr>'
+  '</table>' +
+  fig('home', '整体界面：左边环境与观感、中间场地、右边个体与选中调整、最下面时间轴。') +
+  '<div class="tip">右边两栏（左栏、右栏）内容多，<b>鼠标移到栏上滚轮就能上下翻</b>；中间场地永远完整显示，不用滚。</div>'
+  '</section>')
+
+# 3
+A('<section class="card"><h2><span>03</span>点一下就进编辑（不用先点按钮）</h2>'
+  '<p class="lead">在场地里<b>点哪个格子，就在改哪个格子</b>。这就是编辑状态的全部开关。</p>'
+  '<p>想删掉一整块：格内右键最下面的「删除这一块织网单元」，或者选中这块之后按右栏「删除这一块」——两个入口做的是同一件事，删错都能 Ctrl+Z 撤回。</p>'
+  '<table><colgroup><col style="width:30%"><col style="width:70%"></colgroup>'
+  '<tr><th>你做的事</th><th>会发生什么</th></tr>'
+  '<tr><td>点一个格子</td><td>进入这一格的编辑，右上面板出现这条格子的尺寸/旋转等滑条，格子四角四边出现白色手柄。</td></tr>'
+  '<tr><td>编辑中再点另一个格子</td><td>直接切过去改那一格（不用先“退出编辑”）。</td></tr>'
+  '<tr><td>点场地空白处</td><td>退出编辑，手柄和虚线提示都消失。</td></tr>'
+  '<tr><td>点右栏「退出编辑」</td><td>同上，退出编辑。</td></tr>'
+  '</table>'
+  '<h3>格内右键：想加什么，菜单里直接有</h3>'
+  '<p>在格子里的“空白处”按右键，菜单就是一份<b>添加清单</b>，点哪条就从那儿开始画（下图）：</p>'
+  '<table><colgroup><col style="width:34%"><col style="width:66%"></colgroup>'
+  '<tr><th>菜单项</th><th>干什么</th></tr>'
+  '<tr><td>添加孔洞（放在这一点）</td><td>在点的位置开一个圆孔，丝会绕开它。</td></tr>'
+  '<tr><td><b>添加缺口（放在这一点）</b></td><td>立刻在你点的位置生成一个缺口（先给一个六边形，看得见、能马上改），拖白点就能变成你要的形状。</td></tr>'
+  '<tr><td><b>重画缺口（点几下围一圈）</b></td><td>把这一格旧的缺口清掉，自己点几下围一圈，双击收尾，首尾接成光滑曲线。</td></tr>'
+  '<tr><td>添加壁（从这里起笔）</td><td>画一道看不见的墙：丝不穿过去，蚕会绕路；壁只在编辑时才显虚线。</td></tr>'
+  '<tr><td>添加丝路（从这里起笔）</td><td>画一条“大路”，蚕会沿着它多绕几圈，所以那一段会更密。</td></tr>'
+  '<tr><td>重设整块外框（点几下围一圈）</td><td>把这一块格子的外形整个换掉（可以做成一圈不规则的外形）。</td></tr>'
+  '<tr><td>清掉这一格的形状（孔/缺口/壁/丝路）</td><td>这一格的所有自定义形状清空，回到默认。</td></tr>'
+  '<tr><td><b>删除这一块织网单元（整块消失）</b></td><td>把这一整块从场地里删掉（不是只删形状）。删错按 <b>Ctrl+Z</b> 撤回。</td></tr>'
+  '</table>' +
+  fig('menu', '格内右键菜单：添加孔洞 / 添加缺口 / 重画缺口 / 添加壁 / 添加丝路 / 重设外框 / 清除形状 / 删除这一块织网单元 / 退出编辑。') +
+  '<h3>右键压在手柄上：出的是删除菜单</h3>'
+  '<p>鼠标正好压在白点（锚点）或孔上按右键，菜单会变成 <b>「删除这个锚点 / 删除整个缺口 / 删除这个孔」</b>。'
+  '压锚点只删一个点，压孔心才删整个孔——不会误删。</p>'
+  '</section>')
+
+# 4
+A('<section class="card"><h2><span>04</span>改形状的手感（照平面软件的老规矩来）</h2>'
+  '<p class="lead">一句话：<b>点线加锚点，拖点挪位置，右键删东西</b>。不需要先选工具再点按钮。</p>'
+  '<table><colgroup><col style="width:34%"><col style="width:66%"></colgroup>'
+  '<tr><th>你的动作</th><th>结果</th></tr>'
+  '<tr><td>拖白色方点</td><td>挪这个锚点，缺口跟着它变形（始终光滑，不会变折线）。</td></tr>'
+  '<tr><td>孔洞圈上的青点</td><td>拖它就改孔径，<b>大小不设上限</b>——可以一直拉到几乎占满整格。</td></tr>'
+  '<tr><td><b>点在这条缺口的线上</b></td><td>就在你点的位置<b>插一个锚点</b>，手不松就能直接拖着走（跟钢笔工具一样）。点歪了不会乱加点。</td></tr>'
+  '<tr><td>拖边中间的小空心方点</td><td>同样是在这一段上加一个锚点。</td></tr>'
+  '<tr><td>右键压在白点</td><td>菜单：删这个锚点 / 删整个缺口。</td></tr>'
+  '<tr><td>双击</td><td>画线时＝收尾；编辑时＝结束这一轮的造型。</td></tr>'
+  '<tr><td>点「重画缺口」</td><td>清掉这一格的缺口，重新点几下围一圈。</td></tr>'
+  '</table>' +
+  fig('edit', '编辑中的一格：白色方点是锚点，空心小方点是边中点，虚线就是缺口（编辑时才显示的辅助线）。') +
+  '<h3>画的时候就是曲线，不是先折线后变曲线</h3>'
+  '<p>点第一下、第二下……屏幕上那条虚线已经按光滑曲线显示；收尾时形状和你在画的时候看到的一致。</p>'
+  '<p>曲线本身也做了加固：锚点疏密不均、甚至两个点挤在一起，也不会鼓出自交的小圈或尖角。'
+  '点线上加锚点时，如果离已有锚点太近（小于约 10px）会<b>不再插入</b>，避免锚点叠在一起把形状搞乱。</p>'
+  '<h3>画出来是个三角形？</h3>'
+  '<p>点 3 下再收尾，形状本来就是个三角。要圆一点、要不规则，就多点几下（5–6 个点最自然）；'
+  '或者直接用「添加缺口」先拿到一个六边形，再逐个拖锚点。想彻底重来就点「重画缺口」。</p>'
+  '<h3>四个形状分别是什么感觉</h3>'
+  '<table><colgroup><col style="width:20%"><col style="width:80%"></colgroup>'
+  '<tr><th>形状</th><th>作用与观感</th></tr>'
+  '<tr><td>孔洞</td><td>圆形空洞，边缘干净，丝全部绕开。大小可以拉。</td></tr>'
+  '<tr><td>缺口</td><td>任意形状的空洞：不圆、可大可小、按你点的点连成光滑闭合曲线。丝绕开，蚕不会钻进去。</td></tr>'
+  '<tr><td>壁</td><td>看不见的墙（只在编辑时显示虚线）。蚕碰到会沿墙绕行，不会穿过去。</td></tr>'
+  '<tr><td>丝路</td><td>蚕要走的“主干道”。走过的地方丝会叠得更密，形成一条明显的路径。</td></tr>'
+  '</table>'
+  '<div class="tip">格子最大可以拉到 <b>1200×1200</b>，孔洞和缺口都不限大小，想做一块很大的织片就先把格子拉大再造型。</div>'
+  '</section>')
+
+# 5
+A('<section class="card"><h2><span>05</span>把蚕放进来</h2>'
+  '<p class="lead">蚕来自左边的描图器：<b>描好 → 同步 → 指定给哪一格</b>。</p>'
+  '<ol class="steps">'
+  '<li><b>在描图器里描轨迹</b><br>左上角「载入视频」，标定，然后顺着蚕按住拖动画线（或轻点记点），一条一条描。可以给每条起编号。</li>'
+  '<li><b>回蚕室同步</b><br>左栏「实测轨迹入室」→「重新同步实测轨迹」，蚕和它的丝就进场了。描图器新增/改过的，再按一次即可。</li>'
+  '<li><b>指定这一格用哪只蚕</b><br>选中格子后，右栏最下面「这一格用哪只蚕」：默认「合并丝路」，也可以只选某一只。'
+  '<b>一只蚕可以同时用在不同格子</b>——它只是一种“蚕”，不是被搬走的一只，所以不会从别的格子里消失。</li>'
+  '<li><b>决定从哪儿起步</b><br>把蚕拖到格子里放手，它就从你放手的位置开始；不拖的话按随机的点起步，不会排成一排。</li>'
+  '</ol>'
+  '<div class="tip">没有真实数据也能先做效果：右栏「添加辅块群」会用演示丝路铺一片格子，用来试版面。<b>演示蚕只是占位，最终成品请用实测数据。</b></div>'
+  '</section>')
+
+# 6
+A('<section class="card"><h2><span>06</span>让丝好看、把不想看的藏起来</h2>'
+  '<p class="lead">左栏「丝线与蚕的观感」四个滑条 + 一个下拉，都是实时生效的。</p>'
+  '<table><colgroup><col style="width:24%"><col style="width:76%"></colgroup>'
+  '<tr><th>控制</th><th>调大 / 调小会怎样</th></tr>'
+  '<tr><td>蚕大小</td><td>改蚕的体型。格子里显得太大或太小，就调这个。</td></tr>'
+  '<tr><td>重复密度</td><td>同一段路走几遍，越大越密。</td></tr>'
+  '<tr><td>丝线粗细</td><td>丝的线宽，默认 0.7；要更明显就拉到 1.2 以上。</td></tr>'
+  '<tr><td>丝线亮度</td><td>丝的明暗，配合屏体亮度调。</td></tr>'
+  '<tr><td>丝线观感</td><td>真丝（默认）/ 其他几种材质气质，仅供观感。</td></tr>'
+  '</table>'
+  '<h3>隐藏</h3>'
+  '<ul class="dots">'
+  '<li>左栏勾「隐藏所有蚕体（只留丝）」：只留下丝，不看蚕。</li>'
+  '<li>左栏勾「隐藏所有丝迹（只留蚕）」：只看蚕怎么爬。</li>'
+  '<li>右栏每只个体卡片上有「蚕：显示中 / 丝：显示中」，点一下单独隐藏这一只的蚕或丝。</li>'
+  '<li>隐藏只影响屏幕预览与导出画面，工程数据不会丢，取消勾选就回来。</li>'
+  '</ul>'
+  '</section>')
+
+# 7
+A('<section class="card"><h2><span>07</span>存盘与恢复（不会白干）</h2>'
+  '<p class="lead">三重保险：<b>自动存 → 存工程文件 → 换机器载入</b>。</p>'
+  '<table><colgroup><col style="width:28%"><col style="width:72%"></colgroup>'
+  '<tr><th>方式</th><th>说明</th></tr>'
+  '<tr><td>自动保存</td><td>每 3 秒存一次，关页面/切标签页前再存一次；下次打开同一个网页，500 毫秒后自动接着上次。左栏能看到“自动保存：时间 已存”。</td></tr>'
+  '<tr><td>保存工程（.json）</td><td>把整场（格子、形状、蚕、参数）存成一个文件，可备份、可发给别人。</td></tr>'
+  '<tr><td>载入工程（.json）</td><td>把工程文件重新装回来，换电脑也能继续。</td></tr>'
+  '</table>'
+  '<div class="tip">画到一半可以随时停：改到一半也不算“未完成”，自动保存照旧。要在两个方案之间来回比，就先「保存工程」存成 A、B 两个文件。</div>'
+  '</section>')
+
+# 8
+A('<section class="card"><h2><span>08</span>导出：视频 / 图片 / 母版</h2>'
+  '<p class="lead">全部在网页里完成，不需要再回本地软件加工。</p>'
+  '<h3>① 视频</h3>'
+  '<p>左栏「视频导出」区：先选分辨率，再选时长、帧率、码率，然后点「录制」。</p>'
+  '<table><colgroup><col style="width:34%"><col style="width:66%"></colgroup>'
+  '<tr><th>分辨率（按屏体选）</th><th>适合</th></tr>'
+  '<tr><td>854×480（16:9 快）</td><td>先看动态、快速试片</td></tr>'
+  '<tr><td>1280×720 / 1920×1080（16:9）</td><td>横屏展示、投影</td></tr>'
+  '<tr><td>1280×960 / 1920×1440（4:3）</td><td>4:3 屏体，1280×960 用于快速预览</td></tr>'
+  '<tr><td><b>2048×1536（4:3 交付）</b></td><td>默认交付档，约 3.14 m × 2.36 m 屏体实拍够用</td></tr>'
+  '<tr><td>2093×1573（4:3 屏体理论）</td><td>屏体物理点数，1:1 对点</td></tr>'
+  '<tr><td>2560×1920 / 3840×2880（4:3 2K/4K）</td><td>要留放大余量、做素材存档</td></tr>'
+  '<tr><td>2419×1360（旧母版 16:9）</td><td>沿用旧母版工程时用</td></tr>'
+  '<tr><td>自定义…</td><td>自己填宽高和比例，右侧会提示当前比例</td></tr>'
+  '</table>'
+  '<p>时长 <b>5–120 秒</b>，帧率 <b>24 / 30 / 60</b>，码率 <b>8 / 16 / 28 / 40 Mbps</b>。'
+  '要更长更清楚：时长按片子定、帧率 30 或 60、码率 28–40，分辨率不低于 2048×1536。</p>'
+  '<h3>② 图片（PNG）</h3>'
+  '<p>左栏「导出当前画面 PNG」，<b>跟视频用同一套分辨率选择</b>（含自定义）。先把时间轴拖到想要的那一帧，再点导出，得到的就是那一刻的静帧。</p>'
+  '<h3>③ 给母版软件（后期/上屏机）</h3>'
+  '<table><colgroup><col style="width:30%"><col style="width:70%"></colgroup>'
+  '<tr><th>导出项</th><th>用途</th></tr>'
+  '<tr><td>母版场景 JSON</td><td>母版渲染的输入：曲线 + 单元几何，喂给 Rhino / Blender / TouchDesigner 都行</td></tr>'
+  '<tr><td>导出曲线 JSON / 单元几何 SVG / DXF</td><td>只要曲线或只要几何时用</td></tr>'
+  '<tr><td>复制母版渲染命令</td><td>把命令文本拷到剪贴板，给跑母版的人</td></tr>'
+  '</table>'
+  '<div class="tip">导出前把要隐藏的蚕/丝藏好——<b>隐藏会如实进入导出画面</b>，但虚线框、锚点这些编辑辅助线不会出现在成品里。</div>'
+  '</section>')
+
+# 9
+A('<section class="card"><h2><span>09</span>名词表（这些词在界面里出现）</h2>'
+  '<table><colgroup><col style="width:20%"><col style="width:80%"></colgroup>'
+  '<tr><th>词</th><th>意思</th></tr>'
+  '<tr><td>织网单元</td><td>场地里的一块方形“织片”，里面自己会长丝、放蚕。一整场由若干块拼成。</td></tr>'
+  '<tr><td>辅块群</td><td>一次铺出很多块，用演示丝路做版面试验。</td></tr>'
+  '<tr><td>孔洞</td><td>圆形的空洞。</td></tr>'
+  '<tr><td>缺口</td><td>任意形状的空洞（你点几下围出来的那块）。</td></tr>'
+  '<tr><td>壁</td><td>看不见的墙，只挡蚕和丝，编辑时显示虚线。</td></tr>'
+  '<tr><td>丝路</td><td>蚕的主干道，沿着它多走几圈，那一段更密。</td></tr>'
+  '<tr><td>外框</td><td>整块格子的外形轮廓。</td></tr>'
+  '<tr><td>锚点</td><td>形状上的白色方点，拖动它就是改形状。</td></tr>'
+  '<tr><td>蚕 / 丝迹</td><td>蚕是会动的主体；丝迹是它走过留下的丝。</td></tr>'
+  '<tr><td>母版</td><td>最终上屏播放的那份成品文件。</td></tr>'
+  '</table>'
+  '</section>')
+
+# 10
+A('<section class="card"><h2><span>10</span>常见问题</h2>'
+  '<dl class="faq">'
+  '<dt>点格子没反应？</dt><dd>先确认没在别的地方画线（比如正画着缺口）。按 Esc 或点一下场地空白，再点格子。</dd>'
+  '<dt>缺口越点越复杂，想重来？</dt><dd>在这一格里右键 →「重画缺口（点几下围一圈）」，旧的清掉，重新点几下围一圈。</dd>'
+  '<dt>缺口画出来是个角很尖的三角形？</dt><dd>只有 3 个点就会是三角：多点两下，或者先用「添加缺口」生成六边形再拖锚点改形。</</dd>'
+  '<dt>丝跑出格子外面了？</dt><dd>把格子拉大（最大 1200），或把丝线粗细/蚕大小调小；导出前可以把看不到的部分用缺口/壁裁掉。</dd>'
+  '<dt>蚕在格子里显得太大？</dt><dd>左栏「蚕大小」往小调，或右栏「缩放」单独调这一块。</dd>'
+  '<dt>关闭网页后再打开，东西还在吗？</dt><dd>在。自动保存会恢复上一场。要长期保留就「保存工程（.json）」存成文件。</dd>'
+  '<dt>导出视频很慢？</dt><dd>分辨率、帧率、时长一起决定时长。先用 854×480 / 30 秒试片，定稿再上 2048×1536。</dd>'
+  '</dl>'
+  '</section>')
+
+A('<footer class="foot"><p>蚕轨迹描图器 &amp; 数字蚕室 · 使用说明 · r36</p>'
+  '<p>这份说明随版本更新；界面文字与截图以当前线上版本为准。</p></footer>')
+
+BODY_HTML = '\n'.join(BODY)
+
+WEB_CSS = """
+:root{--bg:#080a09;--panel:#0e1211;--line:#1e2724;--ink:#e8eee9;--dim:#9aa8a2;--acc:#79cbb6;--warm:#e8c98a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.75 "PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:56px 28px 96px}
+.cover{border-bottom:1px solid var(--line);padding-bottom:36px;margin-bottom:8px}
+.kick{color:var(--acc);letter-spacing:.16em;font-size:12px;text-transform:uppercase}
+h1{font-size:38px;line-height:1.3;margin:14px 0 18px;font-weight:600}
+.sub{color:var(--dim);font-size:14px}
+.sub b{color:var(--ink);font-weight:500}
+.toc{margin-top:28px;font-size:13px;color:var(--dim)}
+.toc ol{columns:2;margin:10px 0 0;padding-left:20px}
+.card{padding:42px 0 30px;border-bottom:1px solid var(--line)}
+h2{font-size:23px;margin:0 0 14px;font-weight:600;display:flex;gap:12px;align-items:baseline}
+h2 span{color:var(--acc);font-size:13px;font-variant-numeric:tabular-nums}
+h3{font-size:16px;margin:26px 0 8px;font-weight:600;color:var(--warm)}
+p.lead{color:var(--dim);margin:0 0 18px}
+table{width:100%;border-collapse:collapse;table-layout:fixed;margin:14px 0;font-size:14px}
+th,td{border:1px solid var(--line);padding:10px 12px;vertical-align:top}
+th{background:#151b19;text-align:left;font-weight:600;color:var(--acc)}
+td b{color:#fff;font-weight:600}
+ul.dots li,ol.steps li{margin:8px 0}
+ol.steps{padding-left:20px}
+figure.shot{margin:18px 0;background:#0b0f0e;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+figure.shot img{display:block;width:100%;height:auto}
+figcaption{font-size:12.5px;color:var(--dim);padding:9px 12px;border-top:1px solid var(--line)}
+.tip{border-left:2px solid var(--acc);background:#0f1614;padding:12px 14px;font-size:14px;color:#cfe0da;margin:16px 0}
+dl.faq dt{color:var(--warm);margin-top:14px;font-weight:600}
+dl.faq dd{margin:4px 0 0;color:#d5ded9;font-size:14.5px}
+.foot{color:#66736d;font-size:12.5px;padding-top:30px}
+"""
+
+PRINT_CSS = """
+@page{size:A4;margin:16mm 15mm 15mm}
+body{margin:0;background:#fff;color:#111;font:10.1pt/1.6 "PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:none;padding:0}
+.cover{border-bottom:1px solid #d8d8d8;padding-bottom:10pt;margin-bottom:6pt}
+.kick{color:#3f7a6b;letter-spacing:.12em;font-size:8pt;text-transform:uppercase}
+h1{font-size:21pt;line-height:1.3;margin:6pt 0 8pt;font-weight:600}
+.sub{color:#555;font-size:9pt}
+.toc{margin-top:10pt;font-size:8.5pt;color:#444}
+.toc ol{columns:2;margin:4pt 0 0;padding-left:14pt}
+.card{padding:12pt 0 8pt;border-bottom:1px solid #e6e6e6;break-inside:auto}
+h2{font-size:14pt;margin:0 0 6pt;font-weight:600;color:#111;border-left:3pt solid #3f7a6b;padding-left:7pt}
+h2 span{color:#3f7a6b;font-size:8.5pt;margin-right:5pt}
+h3{font-size:10.5pt;margin:10pt 0 4pt;color:#2f6154;font-weight:600}
+p.lead{color:#555;margin:0 0 8pt}
+table{width:100%;border-collapse:collapse;table-layout:fixed;margin:6pt 0;font-size:8.8pt;break-inside:avoid}
+tr{break-inside:avoid}
+th,td{border:1px solid #dcdcdc;padding:4pt 6pt;vertical-align:top}
+th{background:#f3f7f5;text-align:left;font-weight:600;color:#255a4c}
+ul.dots li,ol.steps li{margin:3pt 0}
+ol.steps{padding-left:14pt}
+figure.shot{margin:8pt 0;border:1px solid #ddd;border-radius:3pt;break-inside:avoid}
+figure.shot img{display:block;width:100%;height:auto;max-height:97mm;object-fit:contain}
+figcaption{font-size:8pt;color:#666;padding:4pt 6pt;border-top:1px solid #eee}
+.tip{border-left:2pt solid #3f7a6b;background:#f5faf8;padding:6pt 8pt;font-size:9pt;margin:8pt 0;break-inside:avoid}
+dl.faq dt{color:#255a4c;margin-top:6pt;font-weight:600}
+dl.faq dd{margin:1pt 0 0;color:#333;font-size:9pt}
+.foot{color:#777;font-size:8pt;padding-top:8pt}
+"""
+
+WEB = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>蚕轨迹描图器 &amp; 数字蚕室 · 使用说明 r36</title>
+<style>%s</style></head><body><main class="wrap">%s</main></body></html>""" % (WEB_CSS, BODY_HTML)
+
+PRINT = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>蚕轨迹描图器 &amp; 数字蚕室 · 使用说明 r36</title>
+<style>%s</style></head><body><main class="wrap">%s</main></body></html>""" % (PRINT_CSS, BODY_HTML)
+
+io.open(os.path.join(ROOT, 'docs', '使用说明.html'), 'w', encoding='utf-8').write(WEB)
+print('web', len(WEB))
+io.open(os.path.join(TMP, 'guide-print.html'), 'w', encoding='utf-8').write(PRINT)
+print('print', len(PRINT))

@@ -1,0 +1,10 @@
+p = r"_backup\gen_r34_qa.py"
+s = open(p, encoding="utf-8").read()
+s = s.replace("tap(55, -200);", "tap(175, -85);")
+s = s.replace("ev('pointerdown', 55, -200, 1);", "ev('pointerdown', 175, -85, 1);")
+s = s.replace("ev('pointermove', 95, -140, 1);", "ev('pointermove', 235, -45, 1);")
+s = s.replace("ev('pointermove', 105, -130, 1);", "ev('pointermove', 250, -30, 1);")
+s = s.replace("ev('pointerup', 105, -130, 0);", "ev('pointerup', 250, -30, 0);")
+s = s.replace("say('3 拖完 第4点='", "say('3 拖完 锚点=' + pts().length + ' 第4点='")
+open(p, "w", encoding="utf-8").write(s)
+print('qa adjusted')
