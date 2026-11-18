@@ -346,6 +346,13 @@
   #habitat input[type=&quot;checkbox&quot;]:disabled { opacity: 0.35; cursor: not-allowed; }
   #habitat label.row:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
   .agent-card.on { border-color: rgba(230,236,233,0.45); }
+  .mini-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .mini {
+    font-size: 11px; line-height: 1; padding: 5px 8px; border-radius: 4px; cursor: pointer;
+    background: rgba(240,180,90,0.14); border: 1px solid rgba(240,180,90,0.5); color: #f3dfc1;
+  }
+  .mini:hover { background: rgba(240,180,90,0.24); }
+  .mini.off { background: rgba(120,132,128,0.16); border-color: rgba(150,164,158,0.4); color: #9fb1ab; }
   .agent-card .tag { display: inline-block; font-size: 10px; color: #9BB0A4; border: 1px solid rgba(230,236,233,0.22); border-radius: 3px; padding: 0 5px; margin-left: 6px; }
   .hab-adj-val { flex: 0 0 46px; text-align: right; font-size: 11px; color: #9BB0A4; font-variant-numeric: tabular-nums; }
   .hab-side .row input[type="checkbox"] { flex: 0 0 auto; }
@@ -2937,6 +2944,8 @@ if (window.parent !== window) {
         <button type="button" data-shape="circle">圆形</button>
       </div>
       <label class="row"><input type="checkbox" id="habGridToggle" checked> 显示场地格线</label>
+      <label class="row"><input type="checkbox" id="habHideAllBody"> 隐藏所有蚕体（只留丝）</label>
+      <label class="row"><input type="checkbox" id="habHideAllSilk"> 隐藏所有丝迹（只留蚕）</label>
       <h3>实测轨迹入室</h3>
       <p class="hab-note">描图器里描好的蚕会自动进场地；拖进某一格，它就只在这一格里爬。</p>
       <button type="button" id="habImportTraj">重新同步实测轨迹</button>
@@ -2970,13 +2979,15 @@ if (window.parent !== window) {
       <button type="button" id="habLedCmd">复制母版渲染命令</button>
       <h3>网页端导出视频</h3>
       <p class="hab-note">直接在这里录一段循环片（WebM），不用回本地跑渲染脚本。超过 30 秒或选母版分辨率时会边录边写盘，不占内存也不会断。</p>
+      <p class="hab-note">导出分辨率（视频和图片共用）：</p>
       <div class="hab-vid-row">
         <select id="habVidRes">
           <option value="854x480">854×480（16:9 快）</option>
           <option value="1280x720">1280×720（16:9）</option>
           <option value="1920x1080">1920×1080（16:9）</option>
-          <option value="1920x1440" selected>1920×1440（4:3）</option>
-          <option value="2048x1536">2048×1536（4:3 交付）</option>
+          <option value="1920x1440">1920×1440（4:3）</option>
+          <option value="1280x960">1280×960（4:3 快）</option>
+          <option value="2048x1536" selected>2048×1536（4:3 交付）</option>
           <option value="2093x1573">2093×1573（4:3 屏体理论）</option>
           <option value="2560x1920">2560×1920（4:3 2K）</option>
           <option value="3840x2880">3840×2880（4:3 4K）</option>
@@ -3015,6 +3026,10 @@ if (window.parent !== window) {
       <p class="hab-note" id="habVidRatioNote">屏体是 4:3（约 3.14 m × 2.36 m）。按 4:3 录，上屏才不会左右加黑边。</p>
       <button type="button" id="habVidRecord">录制并下载视频（WebM）</button>
       <p class="hab-note" id="habVidStatus">还没录制。画面越密、分辨率越高，录制越容易掉帧。</p>
+      <h3>网页端导出图片</h3>
+      <p class="hab-note">用上面同一个分辨率，导出当前这一帧（成品块群，不含蚕体和编辑手柄）。</p>
+      <button type="button" id="habImgExport">导出当前画面 PNG</button>
+      <p class="hab-note" id="habImgStatus">还没导出。</p>
     </aside>
     <div class="hab-world" id="habWorldWrap">
       <canvas id="habBg"></canvas>
@@ -7935,12 +7950,25 @@ showSplitPreview();
     habitat.agents.forEach(agent => {
       if (agent.mode === 'bench') return;
       if (agent.kind === 'weave') {
+        // 丝被隐藏时，只留一圈很淡的虚线框，方便找回这一块在哪
+        const hideSilk = habitat.hideSilkAll || agent.hideSilk;
+        if (hideSilk) {
+          ctx.save();
+          ctx.strokeStyle = 'rgba(226,232,228,0.16)';
+          ctx.setLineDash([6, 6]);
+          ctx.strokeRect(
+            v.px(agent.x - agent.w / 2), v.py(agent.y - agent.h / 2),
+            agent.w * v.s, agent.h * v.s
+          );
+          ctx.restore();
+        } else {
         // 编辑某一块时，其余块压暗到 42%，一眼就知道"现在在改哪一块"
         const dimOther = editAgent && editAgent.id !== agent.id;
         if (dimOther) ctx.save();
         if (dimOther) ctx.globalAlpha = 0.42;
         drawWeave(ctx, agent, v);
         if (dimOther) ctx.restore();
+        }
         if (agent.id === habitat.selected) {
           ctx.strokeStyle = 'rgba(230,236,233,0.35)';
           ctx.strokeRect(
@@ -7967,13 +7995,17 @@ showSplitPreview();
       }
       if (agent.kind === 'route') {
         const unit = agent.scope === 'cell' ? weaveUnitFor(agent) : null;
+        const hideSilk = habitat.hideSilkAll || agent.hideSilk;
+        const hideBody = habitat.hideBodies || agent.hideBody;
         // 收进格子的蚕：丝迹逐点夹在格内（不依赖 canvas clip，边界一定干净）
-        if (unit) drawSilkInRect(ctx, agent.silk, v, env.silkAlpha, unit);
-        else drawSilk(ctx, agent.silk, v, env.silkAlpha);
-        drawHabitatWorm(ctx, agent, v);
+        if (!hideSilk) {
+          if (unit) drawSilkInRect(ctx, agent.silk, v, env.silkAlpha, unit);
+          else drawSilk(ctx, agent.silk, v, env.silkAlpha);
+        }
+        if (!hideBody) drawHabitatWorm(ctx, agent, v);
       } else {
-        drawSilk(ctx, agent.silk, v, env.silkAlpha);
-        drawHabitatWorm(ctx, agent, v);
+        if (!(habitat.hideSilkAll || agent.hideSilk)) drawSilk(ctx, agent.silk, v, env.silkAlpha);
+        if (!(habitat.hideBodies || agent.hideBody)) drawHabitatWorm(ctx, agent, v);
       }
       if (agent.id === habitat.selected) {
         ctx.strokeStyle = 'rgba(230,236,233,0.35)';
@@ -8057,7 +8089,15 @@ showSplitPreview();
         : (a.kind === 'weave'
           ? '<span class="drag-tip">可拖动改位置</span>'
           : (a.mode === 'bench' ? '<span class="drag-tip">按住拖到场地放入</span>' : '<span class="drag-tip">可拖动改位置</span>'));
-      return '<div class="agent-card' + (a.id === habitat.selected ? ' on' : '') + '" data-id="' + a.id + '"><b>' + disp + '</b>' + tag + '<br><span class="hab-note">' + label + (a.bodyVisible ? '' : ' · 身体已隐藏') + '</span>' + tip + '</div>';
+      const bodyOff = habitat.hideBodies || a.hideBody;
+      const silkOff = habitat.hideSilkAll || a.hideSilk;
+      const minis = a.kind === 'weave'
+        ? '<div class="mini-row"><button type="button" class="mini' + (silkOff ? ' off' : '') + '" data-act="silk">丝' + (silkOff ? '：已隐藏' : '：显示中') + '</button></div>'
+        : '<div class="mini-row">' +
+          '<button type="button" class="mini' + (bodyOff ? ' off' : '') + '" data-act="body">蚕' + (bodyOff ? '：已隐藏' : '：显示中') + '</button>' +
+          '<button type="button" class="mini' + (silkOff ? ' off' : '') + '" data-act="silk">丝' + (silkOff ? '：已隐藏' : '：显示中') + '</button>' +
+          '</div>';
+      return '<div class="agent-card' + (a.id === habitat.selected ? ' on' : '') + '" data-id="' + a.id + '"><b>' + disp + '</b>' + tag + '<br><span class="hab-note">' + label + (a.bodyVisible ? '' : ' · 身体已隐藏') + '</span>' + tip + minis + '</div>';
     }).join('');
     syncFieldStatus();
     syncRoutePanel();
@@ -8420,6 +8460,16 @@ showSplitPreview();
     const gridToggle = document.getElementById('habGridToggle');
     if (gridToggle) gridToggle.addEventListener('change', () => {
       habitat.showGrid = !!gridToggle.checked;
+    });
+    const hideAllBody = document.getElementById('habHideAllBody');
+    if (hideAllBody) hideAllBody.addEventListener('change', () => {
+      habitat.hideBodies = !!hideAllBody.checked;
+      renderList();
+    });
+    const hideAllSilk = document.getElementById('habHideAllSilk');
+    if (hideAllSilk) hideAllSilk.addEventListener('change', () => {
+      habitat.hideSilkAll = !!hideAllSilk.checked;
+      renderList();
     });
     const shapeSel = document.getElementById('habWeaveShape');
     if (shapeSel) shapeSel.addEventListener('change', () => {
@@ -8790,6 +8840,19 @@ showSplitPreview();
     if (ghost) { ghost.style.display = 'none'; ghost.className = ''; }
     world.classList.remove('drop-ready', 'drop-fail');
   }
+
+  document.getElementById('habAgents').addEventListener('pointerdown', (ev) => {
+    const btn = ev.target.closest('.mini');
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const card = btn.closest('.agent-card');
+    const agent = card ? habitat.agents.find(a => a.id === card.dataset.id) : null;
+    if (!agent) return;
+    if (btn.dataset.act === 'body') agent.hideBody = !agent.hideBody;
+    else agent.hideSilk = !agent.hideSilk;
+    renderList();
+  }, true);
 
   document.getElementById('habAgents').addEventListener('pointerdown', (ev) => {
     const card = ev.target.closest('.agent-card');
@@ -9938,7 +10001,9 @@ showSplitPreview();
     const bw = Math.max(1, b.x1 - b.x0), bh = Math.max(1, b.y1 - b.y0);
     // 母版取景按目标像素算：整片块群占画面 92%，四周留安全边（LED 柜体拼缝）
     const s = Math.min(r.w * 0.92 / bw, r.h * 0.92 / bh);
-    const units = habitat.agents.filter(a => a.kind === 'weave').map((a, i) => ({
+    const weaveAll = habitat.agents.filter(a => a.kind === 'weave');
+    const weaveShown = weaveAll.filter(a => !(a.hideSilk || habitat.hideSilkAll));
+    const units = (weaveShown.length ? weaveShown : weaveAll).map((a, i) => ({
       order: i,
       x: +a.x.toFixed(2), y: +a.y.toFixed(2),
       w: +a.w.toFixed(2), h: +a.h.toFixed(2),
@@ -9971,7 +10036,9 @@ showSplitPreview();
   }
 
   function ledBounds() {
-    const units = habitat.agents.filter(a => a.kind === 'weave');
+    const all = habitat.agents.filter(a => a.kind === 'weave');
+    const shown = all.filter(a => !(a.hideSilk || habitat.hideSilkAll));
+    const units = shown.length ? shown : all;
     if (!units.length) return { x0: -200, y0: -200, x1: 200, y1: 200 };
     const xs = [], ys = [];
     units.forEach(a => {
@@ -10144,6 +10211,7 @@ showSplitPreview();
       } else { hint(cmd); toast('命令已显示在提示条，手动复制。', 'err'); }
     });
     on('habVidRecord', () => { ledRecordWebVideo(); });
+    on('habImgExport', () => { ledExportImage(); });
     const vidResSel = document.getElementById('habVidRes');
     const vidCustomRow = document.getElementById('habVidCustomRow');
     const vidWInput = document.getElementById('habVidW');
@@ -10319,6 +10387,50 @@ showSplitPreview();
     W = Math.max(320, Math.min(3840, W));
     H = Math.max(240, Math.min(2880, H));
     return { W, H };
+  }
+
+  function ledExportImage() {
+    if (!habitat.agents.some(a => a.kind === 'weave')) {
+      toast('还没有织网单元，先放一块再导出图片。', 'err');
+      return;
+    }
+    const dims = habVidDims();
+    const W = dims.W, H = dims.H;
+    const scene = ledScene();
+    scene.loop = false;
+    const frames = Math.max(1, scene.frames || 900);
+    const fps = Math.max(1, scene.fps || 30);
+    const span = frames / fps;
+    const T = Math.max(0, Math.min(1, (habitat.simTime || 0) / span));
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d', { alpha: false });
+    try {
+      ledComposeFrame(g, scene, T, false, W, H, []);
+    } catch (err) {
+      const msg = '导出失败：' + (err && err.message ? err.message : String(err));
+      const st = document.getElementById('habImgStatus');
+      if (st) st.textContent = msg;
+      toast(msg, 'err');
+      return;
+    }
+    const name = 'weave_still_' + W + 'x' + H + '_' + Math.round(T * span) + 's.png';
+    cv.toBlob((blob) => {
+      const st = document.getElementById('habImgStatus');
+      if (!blob) {
+        if (st) st.textContent = '导出失败：这张图没生成出来，换个分辨率再试。';
+        toast('导出失败：没有图片数据。', 'err');
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 6000);
+      const msg = '已导出 ' + name + '（' + W + '×' + H + '，' + (blob.size / 1048576).toFixed(1) + ' MB）';
+      if (st) st.textContent = msg;
+      toast('图片已导出：' + name, 'ok');
+    }, 'image/png');
   }
 
   async function ledRecordWebVideo() {
@@ -10546,6 +10658,7 @@ showSplitPreview();
     ledDxf: ledDxf,
     ledRenderCommand: ledRenderCommand,
     ledComposeFrame: ledComposeFrame,
+    ledExportImage: ledExportImage,
     ledRecordWebVideo: ledRecordWebVideo,
     seekTo: seekTo,
     undoStep: undoStep,
@@ -10583,3 +10696,4 @@ showSplitPreview();
 </script>
 </body>
 </html>
+
