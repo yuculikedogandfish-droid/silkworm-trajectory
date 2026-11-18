@@ -9116,7 +9116,7 @@ showSplitPreview();
         return true;
       }
     }
-    hint('右键点在顶点、壁、丝路或孔洞/缺口上就能删；点空白处不删东西。');
+    hint('右键任意位置都会开菜单；压到锚点 / 孔 / 缺口时，菜单第一项就是「删除这个锚点」「删除整个缺口」。');
     return false;
   }
 
@@ -9160,7 +9160,6 @@ showSplitPreview();
       if (window.__weaveHooks && window.__weaveHooks.enter) window.__weaveHooks.enter(hit0.id);
     } else {
       ev.preventDefault();
-      if (weaveDeleteAt(p) === true) return;
       const a0 = habitat.agents.find(z => z.kind === 'weave' &&
         Math.abs(z.x - p.x) <= z.w / 2 && Math.abs(z.y - p.y) <= z.h / 2);
       if (!a0) { hideCtxMenu(); return; }
@@ -9175,7 +9174,53 @@ showSplitPreview();
     const ci = weaveCellAt(a, p);
     e.ix = ci.ix; e.iy = ci.iy;
     const lx = ci.lx, ly = ci.ly;
-    showCtxMenu(ev.clientX, ev.clientY, [
+    // 右键压在哪个可删的东西上：不立刻删，先把"删什么"做成菜单项
+    const v = view();
+    const tol = 16 / v.s;
+    const delKinds = { islandMove: 3, islandR: 3, notchMove: 3, notchR: 3, notchV: 3, wallV: 2, pathV: 2, outlineV: 2, outlineMid: 1 };
+    let hit = null, hd = Infinity, hw = 0;
+    weaveHandles(a, e.ix, e.iy).forEach(h => {
+      if (!delKinds[h.kind]) return;
+      const d = Math.hypot(h.x - p.x, h.y - p.y);
+      if (d > tol) return;
+      const wgt = delKinds[h.kind];
+      if (wgt > hw || (wgt === hw && d < hd)) { hw = wgt; hd = d; hit = h; }
+    });
+    const deleteWholeNotch = () => {
+      pushUndo();
+      const sh = ensureShapeOverride(a, e.ix, e.iy);
+      delete sh.notchPts;
+      delete sh.notch;
+      if (a.cache && a.cache.delete) a.cache.delete(e.ix + ',' + e.iy);
+      weaveCellContent(a, e.ix, e.iy);
+      syncEditNote();
+      toast('这一格的缺口整个删掉了。', 'ok');
+    };
+    const deleteIsland = (i) => {
+      pushUndo();
+      const sh = ensureShapeOverride(a, e.ix, e.iy);
+      if (sh.islands && sh.islands[i]) {
+        sh.islands.splice(i, 1);
+        if (a.cache && a.cache.delete) a.cache.delete(e.ix + ',' + e.iy);
+        weaveCellContent(a, e.ix, e.iy);
+        syncEditNote();
+        toast('这个孔删掉了。', 'ok');
+      }
+    };
+    const hitItems = [];
+    if (hit) {
+      if (hit.kind === 'notchV') {
+        hitItems.push({ label: '删除这个锚点', danger: true, run: () => { deleteWeaveHandleVertex(hit); } });
+        hitItems.push({ label: '删除整个缺口', danger: true, run: deleteWholeNotch });
+      } else if (hit.kind === 'notchMove' || hit.kind === 'notchR') {
+        hitItems.push({ label: '删除整个缺口', danger: true, run: deleteWholeNotch });
+      } else if (hit.kind === 'islandMove' || hit.kind === 'islandR') {
+        hitItems.push({ label: '删除这个孔', danger: true, run: () => deleteIsland(hit.i) });
+      } else {
+        hitItems.push({ label: '删除这个锚点', danger: true, run: () => { deleteWeaveHandleVertex(hit); } });
+      }
+    }
+    showCtxMenu(ev.clientX, ev.clientY, hitItems.concat([
       { label: '在这里开一个孔', run: () => {
           pushUndo();
           const sh = ensureShapeOverride(a, e.ix, e.iy);
@@ -9219,7 +9264,7 @@ showSplitPreview();
           toast('这一格回到默认形状。', 'ok');
         } },
       { label: '退出编辑', run: () => { if (window.__weaveHooks && window.__weaveHooks.exit) window.__weaveHooks.exit(); } },
-    ]);
+    ]));
   });
 
   world.addEventListener('pointermove', (ev) => {
@@ -9455,7 +9500,7 @@ showSplitPreview();
       return;
     }
     if (tool === 'hole') { el.textContent = '正在改孔洞 · 拖青色实点挪位置、拖青色圈改大小；直接点格内空白也能把孔挪过去。'; return; }
-    if (tool === 'notch') { el.textContent = '正在改缺口 · 已有缺口时点格内不会再加点：拖白点改形状、拖边中小方点加顶点、右键删点；想推倒重画点「重画缺口」，或在格内右键选菜单。'; return; }
+    if (tool === 'notch') { el.textContent = '正在改缺口 · 已有缺口时点格内不会再加点：拖白点改形状、拖边中小方点加顶点；右键压到锚点上会列出「删除这个锚点 / 删除整个缺口」，想重画点「重画缺口」。'; return; }
     el.textContent = '正在改形状 · 拖橙色方点改整块大小、橙色十字挪整块；青色点挪孔、青色圈改孔径。';
   }
 
@@ -9464,7 +9509,7 @@ showSplitPreview();
   const WT_HINT = {
     shape: '拖四角＝改整块大小 · 拖四条边中点＝只改宽或只改高 · 拖中间十字＝整块挪位 · 拖青点/青圈＝挪孔/改孔径',
     hole: '拖青点＝挪孔 · 拖青圈＝改孔径 · 点格内空白＝把孔挪到那里 · 没有孔时点一下会新建一个孔',
-    notch: '点几下围一圈＝缺口（首尾自动接成光滑曲线，不是折线）· 双击收尾 · 拖白点改形状 · 拖边小方点加顶点 · 右键删点 · 右键空白＝菜单',
+    notch: '点几下围一圈＝缺口（首尾自动接成光滑曲线，不是折线）· 双击收尾 · 拖白点改形状 · 拖边小方点加顶点 · 右键＝菜单（在锚点上会给出「删除这个锚点 / 删除整个缺口」）',
     wall: '在格内连点几下画一条壁，双击收尾 · 白点可拖 · Alt+点删顶点',
     path: '在格内连点几下画一条丝路（蚕会沿它走），双击收尾 · 白点可拖 · Alt+点删顶点',
     outline: '连点画出单元外框，双击封闭 · 白点可拖 · Alt+点删顶点',
