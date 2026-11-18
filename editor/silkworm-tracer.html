@@ -2939,7 +2939,10 @@ if (window.parent !== window) {
       <p class="hab-note">描图器里描好的蚕会自动进场地；拖进某一格，它就只在这一格里爬。</p>
       <button type="button" id="habImportTraj">重新同步实测轨迹</button>
       <h3>记录</h3>
-      <button type="button" id="habSave">保存场景 JSON</button>
+      <button type="button" id="habSave">保存工程（.json）</button>
+      <button type="button" id="habLoad">载入工程（.json）</button>
+      <input type="file" id="habSceneFile" accept=".json" hidden>
+      <p class="hab-note" id="habAutoStat">自动保存：每 3 秒存一次到本机浏览器，关掉网页也不会丢；下次打开自动接着上次。</p>
       <button type="button" id="habRef">铺入只读预览轨迹</button>
       <button type="button" id="habClearRef">去掉底图</button>
       <h3>母版导出</h3>
@@ -2961,21 +2964,33 @@ if (window.parent !== window) {
       <button type="button" id="habLedDxf">导出单元几何 DXF</button>
       <button type="button" id="habLedCmd">复制母版渲染命令</button>
       <h3>网页端导出视频</h3>
-      <p class="hab-note">直接在这里录一段循环片（WebM），不用回本地跑渲染脚本。录制是实时的，10 秒片大概要 10 秒。</p>
+      <p class="hab-note">直接在这里录一段循环片（WebM），不用回本地跑渲染脚本。超过 30 秒或选母版分辨率时会边录边写盘，不占内存也不会断。</p>
       <div class="hab-vid-row">
         <select id="habVidRes">
-          <option value="1280x720">1280×720</option>
-          <option value="1920x1080">1920×1080（更慢）</option>
-          <option value="2419x1360">2419×1360（最慢）</option>
+          <option value="854x480">854×480（快）</option>
+          <option value="1280x720" selected>1280×720</option>
+          <option value="1920x1080">1920×1080</option>
+          <option value="2419x1360">2419×1360（母版）</option>
+          <option value="2560x1440">2560×1440（更清）</option>
         </select>
         <select id="habVidSec">
           <option value="5">5 秒</option>
           <option value="10" selected>10 秒</option>
+          <option value="20">20 秒</option>
           <option value="30">30 秒</option>
+          <option value="60">60 秒</option>
+          <option value="120">120 秒</option>
         </select>
         <select id="habVidFps">
           <option value="24">24 fps</option>
           <option value="30" selected>30 fps</option>
+          <option value="60">60 fps</option>
+        </select>
+        <select id="habVidBit">
+          <option value="8">画质：标准（8 Mbps）</option>
+          <option value="16" selected>画质：高（16 Mbps）</option>
+          <option value="28">画质：很高（28 Mbps）</option>
+          <option value="40">画质：母版级（40 Mbps）</option>
         </select>
       </div>
       <button type="button" id="habVidRecord">录制并下载视频（WebM）</button>
@@ -9557,7 +9572,85 @@ showSplitPreview();
     link.download = 'habitat-' + Date.now() + '.json';
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1500);
+    syncAutoStat('已存工程文件 ' + link.download);
   });
+  // ===== 载入工程（场地场景）/ 自动保存 / 下次打开自动恢复 =====
+  const AUTO_KEY = 'silkworm-habitat-autosave/v1';
+  let autoSavedAt = 0;
+  function syncAutoStat(msg) {
+    const el = document.getElementById('habAutoStat');
+    if (!el) return;
+    if (msg) { el.textContent = msg; return; }
+    if (!autoSavedAt) { el.textContent = '自动保存：每 3 秒存一次到本机浏览器，关掉网页也不会丢。'; return; }
+    const d = new Date(autoSavedAt);
+    el.textContent = '自动保存：' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) +
+      ':' + ('0' + d.getSeconds()).slice(-2) + ' 已存（关掉网页下次自动接着）。';
+  }
+  function autoSaveNow() {
+    try {
+      const doc = exportHabitat();
+      if (!doc) return;
+      localStorage.setItem(AUTO_KEY, JSON.stringify({ t: Date.now(), doc }));
+      autoSavedAt = Date.now();
+      syncAutoStat();
+    } catch (err) {
+      const el = document.getElementById('habAutoStat');
+      if (el) el.textContent = '自动保存失败（本机浏览器存储满了）：请用「保存工程（.json）」手动存一份。';
+      try { clearInterval(autoTimer); } catch (_) {}
+    }
+  }
+  const autoTimer = setInterval(autoSaveNow, 3000);
+  window.addEventListener('beforeunload', autoSaveNow);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) autoSaveNow(); });
+  document.getElementById('habLoad').addEventListener('click', () => {
+    const inp = document.getElementById('habSceneFile');
+    if (inp) { inp.value = ''; inp.click(); }
+  });
+  document.getElementById('habSceneFile').addEventListener('change', (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      let doc = null;
+      try { doc = JSON.parse(rd.result); } catch (err) {
+        toast('这个文件不是有效的工程 JSON：' + err.message, 'err'); return;
+      }
+      const type = doc && (doc.type || '');
+      if (!/silkworm-habitat/i.test(type)) {
+        toast('这是「' + (type || '未知') + '」文件，不是场地工程。请用「保存工程（.json）」存出来的那份。', 'err');
+        return;
+      }
+      try {
+        importHabitat(doc);
+        habitat.agents.forEach(a => { if (a.kind === 'weave') { a.cache = new Map(); buildWeave(a); } });
+        renderList();
+        syncEditNote();
+        toast('工程已载入：' + habitat.agents.filter(a => a.kind === 'weave').length + ' 个织网单元、' +
+          habitat.agents.filter(a => a.kind === 'route').length + ' 只蚕。', 'ok');
+      } catch (err) {
+        toast('载入失败：' + (err && err.message ? err.message : String(err)), 'err');
+      }
+    };
+    rd.readAsText(f, 'utf-8');
+  });
+  setTimeout(() => {
+    try {
+      const raw = localStorage.getItem(AUTO_KEY);
+      if (!raw) return;
+      const pack = JSON.parse(raw);
+      if (!pack || !pack.doc) return;
+      const ageH = (Date.now() - (pack.t || 0)) / 3600000;
+      if (ageH > 24 * 7) return;
+      importHabitat(pack.doc);
+      habitat.agents.forEach(a => { if (a.kind === 'weave') { a.cache = new Map(); buildWeave(a); } });
+      renderList();
+      autoSavedAt = pack.t;
+      const d = new Date(pack.t);
+      toast('已恢复上次编辑的场地（' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' +
+        ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + '）。', 'ok');
+      syncAutoStat();
+    } catch (err) { /* 损坏就当作没有 */ }
+  }, 500);
   document.getElementById('habImportTraj').addEventListener('click', importMeasuredTrajectories);
   document.getElementById('habRef').addEventListener('click', () => {
     const srcs = measuredSource();
@@ -10178,6 +10271,20 @@ showSplitPreview();
     const secs = Math.max(2, parseInt(secSel ? secSel.value : '10', 10) || 10);
     const fps = Math.max(12, parseInt(fpsSel ? fpsSel.value : '30', 10) || 30);
     const total = Math.round(secs * fps);
+    const bitSel = document.getElementById('habVidBit');
+    const mbps = Math.max(4, Math.min(60, parseFloat(bitSel ? bitSel.value : '16') || 16));
+    const bit = Math.round(mbps * 1e6);
+    // 长片 / 母版分辨率：边录边写盘（File System Access），不把整段压在内存里
+    let fileWriter = null, outName = 'weave_web_' + W + 'x' + H + '_' + secs + 's.webm';
+    if (secs > 30 && typeof window.showSaveFilePicker === 'function') {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: outName,
+          types: [{ description: 'WebM 视频', accept: { 'video/webm': ['.webm'] } }],
+        });
+        fileWriter = await handle.createWritable();
+      } catch (err) { fileWriter = null; }   // 取消选择 → 退回内存方式
+    }
 
     if (btn) { btn.disabled = true; btn.textContent = '录制中…'; }
     let rec = null;
@@ -10193,8 +10300,16 @@ showSplitPreview();
       const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
         .find(m => { try { return MediaRecorder.isTypeSupported(m); } catch (_) { return false; } }) || '';
       const stream = cv.captureStream(fps);
-      rec = new MediaRecorder(stream, { mimeType: mime || undefined, videoBitsPerSecond: 14e6 });
+      rec = new MediaRecorder(stream, { mimeType: mime || undefined, videoBitsPerSecond: bit });
       const chunks = [];
+      let writeChain = Promise.resolve();
+      rec.ondataavailable = (ev) => {
+        if (!ev.data || !ev.data.size) return;
+        if (fileWriter) {
+          writeChain = writeChain.then(() => fileWriter.write(ev.data)).catch(() => {});
+        } else chunks.push(ev.data);
+      };
+      let composedFrames = 0;
       rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
       const stopped = new Promise(resolve => { rec.onstop = resolve; });
       rec.start();
@@ -10208,6 +10323,7 @@ showSplitPreview();
           if (f !== lastFrame) {
             ledComposeFrame(g, scene, f / total, true, W, H, cache);
             lastFrame = f;
+            composedFrames++;
           }
           ledVideoStatus('录制中 ' + Math.min(100, Math.round(el / secs * 100)) + '% · 第 ' +
             Math.max(0, lastFrame) + '/' + total + ' 帧' + (W * H > 2.2e6 ? '（高分辨率，可能掉帧）' : ''));
@@ -10219,18 +10335,30 @@ showSplitPreview();
       await new Promise(r => setTimeout(r, 120));   // 让最后一帧进流
       rec.stop();
       await stopped;
+      if (fileWriter) {
+        await writeChain;
+        await fileWriter.close();
+        const drop = Math.max(0, total - composedFrames);
+        ledVideoStatus('已导出 ' + outName + '（' + W + '×' + H + ' / ' + fps + ' fps / ' + secs + ' 秒 / ' +
+          mbps + ' Mbps）。实际绘制 ' + composedFrames + '/' + total + ' 帧' +
+          (drop ? '，掉了 ' + drop + ' 帧：把分辨率或帧率降一档，或改成 30 fps。' : '，没有掉帧。'));
+        toast('网页端视频已保存：' + outName, 'ok');
+        return;
+      }
       const blob = new Blob(chunks, { type: 'video/webm' });
       if (!blob.size) { toast('录制没有产出数据，换个分辨率再试。', 'err'); ledVideoStatus('录制失败：没有数据。'); return; }
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'weave_web_' + W + 'x' + H + '_' + secs + 's.webm';
+      a.download = outName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 6000);
+      const drop = Math.max(0, total - composedFrames);
       ledVideoStatus('已导出 ' + a.download + '（' + (blob.size / 1048576).toFixed(1) + ' MB，' +
-        W + '×' + H + ' / ' + fps + ' fps / ' + secs + ' 秒）。WebM 播放器都能放；要 ProRes 母版还是走本地渲染脚本。');
+        W + '×' + H + ' / ' + fps + ' fps / ' + secs + ' 秒 / ' + mbps + ' Mbps）。实际绘制 ' +
+        composedFrames + '/' + total + ' 帧' + (drop ? '，掉了 ' + drop + ' 帧：把分辨率或帧率降一档。' : '，没有掉帧。'));
       toast('网页端视频已导出：' + a.download, 'ok');
     } catch (err) {
       ledVideoStatus('录制失败：' + (err && err.message ? err.message : String(err)));
