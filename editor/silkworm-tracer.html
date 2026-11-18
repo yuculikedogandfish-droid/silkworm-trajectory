@@ -266,6 +266,29 @@
 .hab-tool[aria-pressed="true"] { border-color: #f0b45a; color: #f5d3a2; background: #241d12; }
 .hab-tools[aria-disabled="true"] { opacity: .45; pointer-events: none; }
 #habRecOverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:7}
+.hab-rec-bar{padding:6px 14px 0}
+.hab-rec{background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.09);border-radius:10px;padding:0 10px}
+.hab-rec>summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:baseline;padding:8px 2px;font-size:13px}
+.hab-rec>summary::-webkit-details-marker{display:none}
+.hab-rec-sum{opacity:.55;font-size:12px}
+.hab-rec-body{display:grid;grid-template-columns:230px 1fr 1fr;gap:14px;padding:4px 2px 10px;align-items:start}
+.hab-rec-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:112px;border:1.5px dashed rgba(255,255,255,0.22);border-radius:10px;cursor:pointer;text-align:center;font-size:12px;line-height:1.5;color:rgba(255,255,255,0.72);padding:10px}
+.hab-rec-drop:hover,.hab-rec-drop.hi{border-color:rgba(121,203,182,0.85);background:rgba(121,203,182,0.08);color:#fff}
+.hab-rec-drop-ico{font-size:20px;opacity:.75}
+.hab-rec-cols,.hab-rec-act{display:flex;flex-direction:column;gap:6px;min-width:0}
+#habLayerTree{display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;max-height:34vh;overflow:auto}
+.lay-group{display:flex;align-items:center;gap:6px;padding:3px 4px;border-radius:6px;background:rgba(255,255,255,0.05)}
+.lay-group.plain{background:transparent;opacity:.7}
+.lay-caret,.lay-gname{background:none;border:0;color:inherit;font:inherit;cursor:pointer;padding:0}
+.lay-gname{flex:1;text-align:left;font-size:12px}
+.lay-count{font-size:11px;opacity:.5}
+.lay-row{display:flex;align-items:center;gap:6px;padding:2px 4px 2px 18px;border-radius:5px}
+.lay-row:hover{background:rgba(255,255,255,0.06)}
+.lay-row.dim{opacity:.45}
+.lay-chk{display:flex}
+.lay-icon{font-size:10px;width:16px;text-align:center;opacity:.6}
+.lay-name{flex:1;text-align:left;background:none;border:0;color:inherit;font:inherit;font-size:12px;cursor:pointer;padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lay-eye,.lay-caret{font-size:11px;background:rgba(255,255,255,0.08);border:0;color:inherit;border-radius:4px;padding:1px 5px;cursor:pointer}
 #habCtxMenu{position:fixed;z-index:99999;display:none;max-height:calc(100vh - 24px);overflow:auto;min-width:196px;padding:6px;background:#0e1614;border:1px solid #3a4a44;box-shadow:0 10px 28px rgba(0,0,0,.55);border-radius:8px}
 #habCtxMenu button{display:block;width:100%;margin:2px 0;padding:7px 10px;text-align:left;font:13px "Microsoft YaHei",system-ui,sans-serif;color:#e7efeb;background:#16201d;border:1px solid #2b3a35;border-radius:6px;cursor:pointer}
 #habCtxMenu button:hover{background:#1d2a26;border-color:#4d6a60}
@@ -2938,6 +2961,29 @@ if (window.parent !== window) {
     <button type="button" id="habOpenLeft" aria-pressed="false">收起环境</button>
     <button type="button" id="habOpenRight" aria-pressed="false">收起个体</button>
   </div>
+  <div class="hab-rec-bar">
+    <details id="habRecBox" class="hab-rec">
+      <summary><b>从图片识别版式</b><span class="hab-rec-sum">上传一张图，自动找出格子、排数、缺块与格内孔洞／缺口（先预览，再生成）</span></summary>
+      <div class="hab-rec-body">
+        <label class="hab-rec-drop" id="habRecDrop">
+          <input type="file" id="habRecFile" accept="image/*" hidden>
+          <span class="hab-rec-drop-ico">＋</span>
+          <span id="habRecDropText">点击选择图片，或把图片直接拖到这里</span>
+        </label>
+        <div class="hab-rec-cols">
+          <p class="hab-note" id="habRecImageNote">还没选图片。</p>
+          <div class="row"><label>列数</label><input type="number" id="habRecCols" min="0" max="40" step="1" value="0" placeholder="自动" style="width:62px"><label>排数</label><input type="number" id="habRecRows" min="0" max="40" step="1" value="0" placeholder="自动" style="width:62px"><span class="hab-note" style="margin:0">0＝自动估</span></div>
+          <div class="row"><label>格边长上限</label><input type="range" id="habRecCell" min="120" max="900" step="10" value="320" style="width:120px"><span class="hab-adj-val" id="habRecCellVal">320px</span></div>
+          <div class="row"><label><input type="checkbox" id="habRecHoles" checked> 识别孔洞</label><label><input type="checkbox" id="habRecNotches" checked> 识别缺口</label></div>
+        </div>
+        <div class="hab-rec-act">
+          <div class="row"><button type="button" id="habRecRun">识别并预览</button><button type="button" id="habRecClear">清掉预览</button></div>
+          <div class="row"><button type="button" id="habRecApply">生成到场地（新增）</button><button type="button" id="habRecReplace">替换现有块群</button></div>
+          <p class="hab-note" id="habRecNote">只在你点按钮时才会动场地；识别本身不改任何东西。</p>
+        </div>
+      </div>
+    </details>
+  </div>
   <div class="hab-stage">
     <aside class="hab-side left" id="habLeft">
       <h3>气候 · 演示</h3>
@@ -3048,18 +3094,6 @@ if (window.parent !== window) {
       <p class="hab-note">用上面同一个分辨率，导出当前这一帧（成品块群，不含蚕体和编辑手柄）。</p>
       <button type="button" id="habImgExport">导出当前画面 PNG</button>
       <p class="hab-note" id="habImgStatus">还没导出。</p>
-      <details id="habRecBox" class="hab-rec">
-        <summary>从图片识别版式（上传一张图，自动铺块）</summary>
-        <p class="hab-note">上传一张拼接好的丝片照片或设计稿：自动找出格子、几排几列、哪里缺块，以及格内的圆孔／缺口，先给你看预览，确认后再生成到场地。不影响场地里现有的东西。</p>
-        <div class="row"><input type="file" id="habRecFile" accept="image/*"></div>
-        <p class="hab-note" id="habRecImageNote">还没选图片。</p>
-        <div class="row"><label>列数</label><input type="number" id="habRecCols" min="0" max="40" step="1" value="0" placeholder="自动" style="width:62px"><label>排数</label><input type="number" id="habRecRows" min="0" max="40" step="1" value="0" placeholder="自动" style="width:62px"><span class="hab-note" style="margin:0">0＝自动估</span></div>
-        <div class="row"><label>目标格边长</label><input type="range" id="habRecCell" min="120" max="900" step="10" value="320"><span class="hab-adj-val" id="habRecCellVal">320px</span></div>
-        <div class="row"><label><input type="checkbox" id="habRecHoles" checked> 识别孔洞</label><label><input type="checkbox" id="habRecNotches" checked> 识别缺口</label></div>
-        <div class="row"><button type="button" id="habRecRun">识别并预览</button><button type="button" id="habRecClear">清掉预览</button></div>
-        <div class="row"><button type="button" id="habRecApply">生成到场地（新增）</button><button type="button" id="habRecReplace">替换现有块群</button></div>
-        <p class="hab-note" id="habRecNote">只在你点按钮时才会动场地；识别本身不改任何东西。</p>
-      </details>
     </aside>
     <div class="hab-world" id="habWorldWrap">
       <canvas id="habBg"></canvas>
@@ -3081,6 +3115,10 @@ if (window.parent !== window) {
       <h3>个体</h3>
       <p class="hab-note">实测蚕随描图数据自动进入；演示蚕从这里拖到场地。状态是放置、拖动、爬行、暂停。</p>
       <div id="habAgents"></div>
+      <h3>图层</h3>
+      <p class="hab-note">像 PS 的图层：每块织网单元、每只蚕各是一层。勾两层以上就能编组；「开 / 关」控制这一层显示。</p>
+      <div class="row"><button type="button" id="habLayerGroup">编组所选</button><button type="button" id="habLayerUngroup">解散组</button><button type="button" id="habLayerClear">全部展开</button></div>
+      <div id="habLayerTree"></div>
       <h3>选中调整</h3>
       <div class="stat" id="habRouteInfo">未选中个体</div>
       <div class="row"><label>位置 X</label><input type="range" id="habAdjX" min="-180" max="180" step="2"><span class="hab-adj-val" id="habAdjXVal">0</span></div>
@@ -11746,6 +11784,194 @@ showSplitPreview();
     try { apply(true); } catch (e) { say('生成出错：' + e.message); }
   });
   window.__imgRec = { analyse, apply, state, readImage };
+})();
+</script>
+<script>
+/* ===== r38 拖拽上传 + 图层组（PS 式）——全部独立，不改既有函数 ===== */
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const H = () => window.__studioHabitat;
+
+  /* ---------- 1) 拖拽上传图片 ---------- */
+  const drop = $('habRecDrop');
+  const fileEl = $('habRecFile');
+  const dropText = $('habRecDropText');
+  if (drop && fileEl) {
+    const hi = (on) => drop.classList.toggle('hi', !!on);
+    ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); hi(true); }));
+    ['dragleave', 'dragend'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); hi(false); }));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault(); e.stopPropagation(); hi(false);
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      if (!/^image\//.test(f.type)) { const n = $('habRecImageNote'); if (n) n.textContent = '这不是图片文件，换一张 png / jpg。'; return; }
+      if (dropText) dropText.textContent = '已接收：' + f.name;
+      const note = $('habRecImageNote');
+      if (note) note.textContent = '读图中：' + f.name;
+      try {
+        window.__imgRec.readImage(f, () => {
+          const st = window.__imgRec.state;
+          if (note) note.textContent = '已载入 ' + st.img.w + '×' + st.img.h + '（缩放后）。点「识别并预览」。';
+        });
+      } catch (err) { if (note) note.textContent = '读图出错：' + err.message; }
+    });
+    // 整个框点一下也能选文件
+    drop.addEventListener('click', (e) => { if (e.target !== fileEl) fileEl.click(); });
+    fileEl.addEventListener('change', () => {
+      const f = fileEl.files && fileEl.files[0];
+      if (f && dropText) dropText.textContent = '已接收：' + f.name;
+    });
+  }
+
+  /* ---------- 2) 图层面板（组 / 层 / 眼睛 / 编组） ---------- */
+  const tree = $('habLayerTree');
+  if (!tree) return;
+  const KEY = 'silkworm-habitat-layer-groups/v1';
+  let store = { groups: [], member: {} };
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) { const o = JSON.parse(raw); if (o && Array.isArray(o.groups)) store = { groups: o.groups, member: o.member || {} }; }
+  } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
+  const picked = new Set();
+  let rev = 0;
+  let sigLast = '';
+
+  const nameOf = (a) => a.kind === 'weave' ? ('织网单元 ' + a.id) : (a.kind === 'route' ? ('蚕 ' + a.wormId) : String(a.id));
+  const typeOf = (a) => a.kind === 'weave' ? '织' : (a.kind === 'route' ? '蚕' : '演');
+  const hiddenOf = (a) => a.kind === 'weave' ? !!a.hideSilk : (!!a.hideSilk && !!a.hideBody);
+  const toggleHide = (a, hide) => {
+    if (a.kind === 'weave') a.hideSilk = !!hide;
+    else { a.hideSilk = !!hide; a.hideBody = !!hide; }
+  };
+
+  function agents() { const h = H(); return (h && h.agents()) || []; }
+
+  function rowLayer(a, groupId) {
+    const off = hiddenOf(a);
+    return '<div class="lay-row' + (off ? ' dim' : '') + '" data-agent="' + a.id + '">' +
+      '<label class="lay-chk"><input type="checkbox" data-pick="' + a.id + '"' + (picked.has(a.id) ? ' checked' : '') + '></label>' +
+      '<span class="lay-icon">' + typeOf(a) + '</span>' +
+      '<button type="button" class="lay-name" data-focus="' + a.id + '">' + nameOf(a) + '</button>' +
+      '<button type="button" class="lay-eye" data-eye="' + a.id + '" title="' + (off ? '显示这一层' : '隐藏这一层') + '">' + (off ? '隐' : '显') + '</button>' +
+      '</div>';
+  }
+
+  function render() {
+    const list = agents();
+    const rows = [];
+    // 清理已经不存在的成员
+    Object.keys(store.member).forEach(id => { if (!list.some(a => a.id === id)) delete store.member[id]; });
+    const grouped = [];
+    store.groups.forEach((g, gi) => {
+      const members = list.filter(a => store.member[a.id] === g.id);
+      if (!members.length) return;
+      grouped.push(...members.map(a => a.id));
+      const allOff = members.every(hiddenOf);
+      rows.push('<div class="lay-group" data-group="' + g.id + '">' +
+        '<button type="button" class="lay-caret" data-open="' + g.id + '">' + (g.open ? '▾' : '▸') + '</button>' +
+        '<button type="button" class="lay-gname" data-rename="' + g.id + '">' + g.name + '</button>' +
+        '<span class="lay-count">' + members.length + '</span>' +
+        '<button type="button" class="lay-eye" data-geye="' + g.id + '" title="整组显示／隐藏">' + (allOff ? '隐' : '显') + '</button>' +
+        '</div>');
+      if (g.open) members.forEach(a => rows.push(rowLayer(a, g.id)));
+    });
+    const free = list.filter(a => !grouped.includes(a.id));
+    if (free.length) {
+      rows.push('<div class="lay-group plain"><span class="lay-caret" style="visibility:hidden">▸</span><span class="lay-gname">未编组</span><span class="lay-count">' + free.length + '</span></div>');
+      free.forEach(a => rows.push(rowLayer(a, null)));
+    }
+    tree.innerHTML = rows.join('') || '<div class="hab-note">场地里还没有任何层。</div>';
+  }
+
+  function refresh(force) {
+    const list = agents();
+    const sig = list.map(a => a.id + (hiddenOf(a) ? '0' : '1')).join('|') + '#' + rev + '#' + list.length;
+    if (!force && sig === sigLast) return;
+    sigLast = sig;
+    render();
+  }
+
+  tree.addEventListener('click', (e) => {
+    const t = e.target;
+    const focus = t.getAttribute && t.getAttribute('data-focus');
+    if (focus) {
+      const card = document.querySelector('#habAgents .agent-card[data-id="' + focus + '"]');
+      if (card) card.click();
+      return;
+    }
+    const eye = t.getAttribute && t.getAttribute('data-eye');
+    if (eye) {
+      const a = agents().find(x => x.id === eye);
+      if (a) { toggleHide(a, !hiddenOf(a)); rev++; render(); }
+      return;
+    }
+    const geye = t.getAttribute && t.getAttribute('data-geye');
+    if (geye) {
+      const g = store.groups.find(x => x.id === geye);
+      const members = agents().filter(a => store.member[a.id] === geye);
+      const allOff = members.length && members.every(hiddenOf);
+      members.forEach(a => toggleHide(a, !allOff));
+      rev++; save(); render();
+      return;
+    }
+    const open = t.getAttribute && t.getAttribute('data-open');
+    if (open) {
+      const g = store.groups.find(x => x.id === open);
+      if (g) { g.open = !g.open; save(); render(); }
+      return;
+    }
+    const rn = t.getAttribute && t.getAttribute('data-rename');
+    if (rn) {
+      const g = store.groups.find(x => x.id === rn);
+      if (g) {
+        const v = prompt('这组叫什么？', g.name);
+        if (v && v.trim()) { g.name = v.trim().slice(0, 24); save(); render(); }
+      }
+    }
+  });
+
+  tree.addEventListener('change', (e) => {
+    const p = e.target.getAttribute && e.target.getAttribute('data-pick');
+    if (!p) return;
+    if (e.target.checked) picked.add(p); else picked.delete(p);
+  });
+
+  function btn(id, fn) { const b = $(id); if (b) b.addEventListener('click', fn); }
+
+  btn('habLayerGroup', () => {
+    if (picked.size < 2) { alert('先在图层前勾上两个或更多，再点「编组所选」。'); return; }
+    const name = prompt('新组叫什么？', '组 ' + (store.groups.length + 1));
+    if (name === null) return;
+    const g = { id: 'g' + Date.now().toString(36), name: (name || '组').trim().slice(0, 24) || '组', open: true };
+    store.groups.push(g);
+    picked.forEach(id => { store.member[id] = g.id; });
+    picked.clear();
+    rev++; save(); render();
+  });
+
+  btn('habLayerUngroup', () => {
+    let n = 0;
+    if (picked.size) { picked.forEach(id => { if (store.member[id]) { delete store.member[id]; n++; } }); }
+    else { n = Object.keys(store.member).length; store.member = {}; }
+    picked.clear();
+    store.groups = store.groups.filter((g, i) => true);
+    rev++; save(); render();
+    if (!n) alert('现在没有编组中的层。先勾选层，再点「解散组」。');
+  });
+
+  btn('habLayerClear', () => {
+    store.groups.forEach(g => { g.open = true; });
+    save(); render();
+  });
+
+  const agentsBox = document.getElementById('habAgents');
+  if (agentsBox && window.MutationObserver) {
+    new MutationObserver(() => refresh(false)).observe(agentsBox, { childList: true, subtree: true });
+  }
+  setInterval(() => refresh(false), 600);
+  refresh(true);
 })();
 </script>
 </body>
