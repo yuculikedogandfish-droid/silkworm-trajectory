@@ -2949,7 +2949,7 @@ if (window.parent !== window) {
       <h3>丝线与蚕的观感</h3>
       <div class="row"><label>蚕大小</label><input type="range" id="habWormSize" min="0.5" max="2" step="0.05" value="1"><span class="hab-note" id="habWormSizeVal" style="margin:0">1.00×</span></div>
       <div class="row"><label>重复密度</label><input type="range" id="habPathBoost" min="1" max="5" step="0.1" value="1"><span class="hab-note" id="habPathBoostVal" style="margin:0">1.0×</span></div>
-      <div class="row"><label>丝线粗细</label><input type="range" id="habSilkWidth" min="0.3" max="2.2" step="0.1" value="0.7"><span class="hab-note" id="habSilkWidthVal" style="margin:0">0.7</span></div>
+      <div class="row"><label>丝线粗细</label><input type="range" id="habSilkWidth" min="0.3" max="2.2" step="0.1" value="1"><span class="hab-note" id="habSilkWidthVal" style="margin:0">0.7</span></div>
       <div class="row"><label>丝线亮度</label><input type="range" id="habSilkGain" min="0.3" max="2.5" step="0.1" value="1"><span class="hab-note" id="habSilkGainVal" style="margin:0">1.0×</span></div>
       <div class="row"><label>丝线观感</label><select id="habSilkMode">
         <option value="silk" selected>真丝（默认）</option>
@@ -3069,8 +3069,8 @@ if (window.parent !== window) {
       <div class="row"><label>缩放</label><input type="range" id="habAdjScale" min="0.3" max="2" step="0.05"><span class="hab-adj-val" id="habAdjScaleVal">1.00</span></div>
       <div class="row"><label>速度倍率</label><input type="range" id="habAdjSpeed" min="0.1" max="3" step="0.05" value="1"><span class="hab-adj-val" id="habAdjSpeedVal">1.00×</span></div>
       <div id="habWeavePanel" hidden>
-        <div class="row"><label>格子宽</label><input type="range" id="habWeaveW" min="80" max="340" step="10" value="200"><span class="hab-adj-val" id="habWeaveWVal">200px</span></div>
-        <div class="row"><label>格子高</label><input type="range" id="habWeaveH" min="80" max="340" step="10" value="200"><span class="hab-adj-val" id="habWeaveHVal">200px</span></div>
+        <div class="row"><label>格子宽</label><input type="range" id="habWeaveW" min="80" max="1200" step="10" value="200"><span class="hab-adj-val" id="habWeaveWVal">200px</span></div>
+        <div class="row"><label>格子高</label><input type="range" id="habWeaveH" min="80" max="1200" step="10" value="200"><span class="hab-adj-val" id="habWeaveHVal">200px</span></div>
         <div class="row"><label>覆盖率</label><input type="range" id="habWeaveCov" min="0.15" max="0.85" step="0.05" value="0.55"><span class="hab-adj-val" id="habWeaveCovVal">0.55</span></div>
         <div class="row"><label>丝路尺度</label><input type="range" id="habWeaveScaleK" min="0.20" max="1.20" step="0.05" value="0.90"><span class="hab-adj-val" id="habWeaveScaleKVal">0.90×</span></div>
         <p class="hab-note" id="habWeaveScaleKNote">1.00× = 一次吐丝≈一格（实测 bbox 9.5×11.59 mm，样本 cell_mm=10）。</p>
@@ -6175,6 +6175,10 @@ showSplitPreview();
       if (weavePolyDist(cell.outline, x, y) < m) return false;
     } else if (Math.abs(x) > cell.w / 2 - m || Math.abs(y) > cell.h / 2 - m) return false;
     if (cell.notch && Math.hypot(x - cell.notch.cx, y - cell.notch.cy) < cell.notch.r + m) return false;
+    // 手画的缺口：任意闭合多边形（不是圆），内侧与贴边都算不能织
+    if (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3) {
+      if (weaveInPoly(cell.notchPts, x, y) || weavePolyDist(cell.notchPts, x, y) < m) return false;
+    }
     const islands = cell.islands || (cell.island ? [cell.island] : []);
     for (let k = 0; k < islands.length; k++) {
       if (Math.hypot(x - islands[k].cx, y - islands[k].cy) < islands[k].r + m) return false;
@@ -6186,7 +6190,7 @@ showSplitPreview();
     const rng = mulberry32(seed >>> 0);
     const base = Math.min(agent.w, agent.h);
     const shape = agent.shape || 'plain';
-    const cell = { w: agent.w, h: agent.h, shape, ix, iy, notch: null, islands: [],
+    const cell = { w: agent.w, h: agent.h, shape, ix, iy, notch: null, notchPts: null, islands: [],
       outline: (Array.isArray(agent.outline) && agent.outline.length >= 3) ? agent.outline : null };
     if (shape === 'notch' || shape === 'notchIsland') {
       // 参考图里既有四分之一圆缺角，也有贴边的半圆缺口
@@ -6521,6 +6525,7 @@ showSplitPreview();
     const cell = {
       w: cell0.w, h: cell0.h, shape: cell0.shape, ix, iy,
       notch: manual && 'notch' in manual ? manual.notch : cell0.notch,
+      notchPts: manual && manual.notchPts ? manual.notchPts : cell0.notchPts,
       islands: manual && manual.islands ? manual.islands : cell0.islands,
       outline: cell0.outline,
     };
@@ -6562,7 +6567,8 @@ showSplitPreview();
       x: Math.max(-cwHalf, Math.min(cwHalf, x)),
       y: Math.max(-chHalf, Math.min(chHalf, y)),
     });
-    const nearHole = (x, y) => holeCenters.some(o => Math.hypot(x - o.cx, y - o.cy) < o.r + 9);
+    const nearHole = (x, y) => holeCenters.some(o => Math.hypot(x - o.cx, y - o.cy) < o.r + 9)
+      || (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3 && weavePolyDist(cell.notchPts, x, y) < 9);
     paths.forEach(p => {
       const src = p.pts;
       const out = [];
@@ -6909,6 +6915,30 @@ showSplitPreview();
         keep(cell.notch.cx + dx / d * rr, cell.notch.cy + dy / d * rr, Math.abs(cell.notch.r + p - d));
       }
     }
+    // 手画的缺口（闭合多边形）：把点推到多边形外面，最近的那条边上
+    if (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3) {
+      const inside = weaveInPoly(cell.notchPts, x, y);
+      const d = weavePolyDist(cell.notchPts, x, y);
+      if (inside || d < p) {
+        const pts = cell.notchPts;
+        let bx = x, by = y, bd = Infinity;
+        for (let i = 0, n = pts.length; i < n; i++) {
+          const q0 = pts[i], q1 = pts[(i + 1) % n];
+          const ex = q1.x - q0.x, ey = q1.y - q0.y;
+          const L2 = ex * ex + ey * ey || 1;
+          let t = ((x - q0.x) * ex + (y - q0.y) * ey) / L2;
+          t = Math.max(0, Math.min(1, t));
+          const cx1 = q0.x + ex * t, cy1 = q0.y + ey * t;
+          const dd = Math.hypot(x - cx1, y - cy1);
+          if (dd < bd) { bd = dd; bx = cx1; by = cy1; }
+        }
+        let nx = x - bx, ny = y - by;
+        const L = Math.hypot(nx, ny) || 1e-6;
+        nx /= L; ny /= L;
+        if (inside) { nx = -nx; ny = -ny; }
+        keep(bx + nx * (p + 0.6), by + ny * (p + 0.6), bd);
+      }
+    }
     const hw = cell.w / 2 - p, hh = cell.h / 2 - p;
     if (Math.abs(x) > hw) keep(Math.sign(x) * hw, y, Math.abs(x) - hw);
     if (Math.abs(y) > hh) keep(x, Math.sign(y) * hh, Math.abs(y) - hh);
@@ -6931,6 +6961,32 @@ showSplitPreview();
     const islands = cell.islands || (cell.island ? [cell.island] : []);
     islands.forEach(isl => test(isl.cx, isl.cy, isl.r));
     if (cell.notch) test(cell.notch.cx, cell.notch.cy, cell.notch.r);
+    if (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3) {
+      const inside = weaveInPoly(cell.notchPts, x, y);
+      const d = weavePolyDist(cell.notchPts, x, y);
+      if (inside || d < 6) {
+        const pts = cell.notchPts;
+        let bx = x, by = y, bd = Infinity;
+        for (let i = 0, n = pts.length; i < n; i++) {
+          const q0 = pts[i], q1 = pts[(i + 1) % n];
+          const ex = q1.x - q0.x, ey = q1.y - q0.y;
+          const L2 = ex * ex + ey * ey || 1;
+          let t = ((x - q0.x) * ex + (y - q0.y) * ey) / L2;
+          t = Math.max(0, Math.min(1, t));
+          const cx1 = q0.x + ex * t, cy1 = q0.y + ey * t;
+          const dd = Math.hypot(x - cx1, y - cy1);
+          if (dd < bd) { bd = dd; bx = cx1; by = cy1; }
+        }
+        let nx = x - bx, ny = y - by;
+        const L = Math.hypot(nx, ny) || 1e-6;
+        nx /= L; ny /= L;
+        if (inside) { nx = -nx; ny = -ny; }
+        const gap = Math.max(0, 6 - bd);
+        if (!best || gap > best.gap) {
+          best = { nx, ny, cx: bx + nx * 2, cy: by + ny * 2, gap, ccx: bx, ccy: by, r: 0 };
+        }
+      }
+    }
     if (!best) return null;
     return { x: best.nx, y: best.ny, cx: best.cx, cy: best.cy, ccx: best.ccx, ccy: best.ccy, r: best.r };
   }
@@ -7614,7 +7670,7 @@ showSplitPreview();
 
   function silkLook() {
     const mode = habitat.silkMode || 'silk';
-    const width = Math.max(0.2, Math.min(3, Number.isFinite(habitat.silkWidth) ? habitat.silkWidth : 0.7));
+    const width = Math.max(0.2, Math.min(3, Number.isFinite(habitat.silkWidth) ? habitat.silkWidth : 1));
     const gain = Math.max(0.2, Math.min(2.5, Number.isFinite(habitat.silkGain) ? habitat.silkGain : 1));
     if (mode === 'matte') return { width, gain, comp: 'source-over', rgb: '206,212,208' };
     if (mode === 'bright') return { width, gain, comp: 'lighter', rgb: '244,248,244' };
@@ -8371,13 +8427,13 @@ showSplitPreview();
     };
     bind('habWeaveW', () => {
       const a = chosen(); if (!a || a.kind !== 'weave') return;
-      a.w = Math.max(80, Math.min(340, parseFloat(document.getElementById('habWeaveW').value) || 200));
+      a.w = Math.max(80, Math.min(1200, parseFloat(document.getElementById('habWeaveW').value) || 200));
       panelVal('habWeaveWVal', Math.round(a.w) + 'px');
       rebuildWeave();
     });
     bind('habWeaveH', () => {
       const a = chosen(); if (!a || a.kind !== 'weave') return;
-      a.h = Math.max(80, Math.min(340, parseFloat(document.getElementById('habWeaveH').value) || 200));
+      a.h = Math.max(80, Math.min(1200, parseFloat(document.getElementById('habWeaveH').value) || 200));
       panelVal('habWeaveHVal', Math.round(a.h) + 'px');
       rebuildWeave();
     });
@@ -8454,8 +8510,9 @@ showSplitPreview();
       const e = habitat.weaveEdit;
       if (!e || !e.agentId) { toast('先点「编辑这一格」，再选工具。', 'err'); return; }
       e.tool = t;
-      // 只有画线类工具才进入"连续加点"状态；形状/孔洞/缺口是纯拖拽
-      e.mode = (t === 'wall' || t === 'path' || t === 'outline') ? t : null;
+      // 画线类工具进入"连续加点"状态；形状/孔洞是纯拖拽，缺口现在也改成自己点出一圈
+      e.mode = (t === 'wall' || t === 'path' || t === 'outline' || t === 'notch') ? t : null;
+      if (t === 'notch') { e.drafts = {}; }
       if (t === 'outline') e.outlinePts = e.outlinePts || [];
       syncWeaveToolUI();
       syncEditNote();
@@ -8542,7 +8599,7 @@ showSplitPreview();
     });
     const silkWidthEl = document.getElementById('habSilkWidth');
     if (silkWidthEl) silkWidthEl.addEventListener('input', () => {
-      habitat.silkWidth = parseFloat(silkWidthEl.value) || 0.7;
+      habitat.silkWidth = parseFloat(silkWidthEl.value) || 1;
       const lab = document.getElementById('habSilkWidthVal');
       if (lab) lab.textContent = habitat.silkWidth.toFixed(1);
     });
@@ -8682,8 +8739,18 @@ showSplitPreview();
             const sizeK = Math.max(0.5, Math.min(2.4,
               (Number.isFinite(habitat.wormSize) ? habitat.wormSize : 1) * (Number.isFinite(agent.scale) ? agent.scale : 1)));
             const q = pushOutOfWalls(unit, x, y, 7 * sizeK);
-            x = Math.max(unit.x - mx, Math.min(unit.x + mx, q.x));
-            y = Math.max(unit.y - my, Math.min(unit.y + my, q.y));
+            if (q.pushed) {
+              const dx = q.x - x, dy = q.y - y;
+              const n = Math.hypot(dx, dy) || 1e-6;
+              // 每帧最多挪 1.4×体型：避免"啪"一下瞬移（那就是抖）
+              const cap = Math.max(0.8, 1.4 * sizeK);
+              const k = Math.min(1, cap / n);
+              // 被推开的同时顺着壁滑一点，读起来是"擦着壁绕过去"
+              const tx = -dy / n, ty = dx / n;
+              const sgn = Math.sign(tx * Math.cos(agent.heading) + ty * Math.sin(agent.heading)) || 1;
+              x += dx * k + sgn * tx * cap * 0.45;
+              y += dy * k + sgn * ty * cap * 0.45;
+            }
           }
           const px = agent.x, py = agent.y;
           agent.x = x;
@@ -8871,9 +8938,9 @@ showSplitPreview();
 
   // 壁是实体：把落在壁附近的点沿法线推开，蚕就"绕"着壁走（不用改巡游数学）
   function pushOutOfWalls(unit, x, y, margin) {
-    if (!unit || !unit.custom || !unit.custom.walls) return { x, y };
+    if (!unit || !unit.custom || !unit.custom.walls) return { x, y, pushed: false };
     const list = (unit.custom.walls && unit.custom.walls['0,0']) || [];
-    let px = x, py = y;
+    let px = x, py = y, pushed = false;
     list.forEach(line => {
       const pts = line.pts || line;
       for (let k = 1; k < pts.length; k++) {
@@ -8888,10 +8955,11 @@ showSplitPreview();
           const push = margin - d;
           px += nx * side * push;
           py += ny * side * push;
+          pushed = true;
         }
       }
     });
-    return { x: px, y: py };
+    return { x: px, y: py, pushed };
   }
 
   // 右键删除：手柄/顶点（孔洞、缺口、壁顶点、丝路顶点）或整条壁/丝路/整个缺口
@@ -8914,7 +8982,7 @@ showSplitPreview();
     const hs = weaveHandles(a, e.ix, e.iy);
     // 右键优先认"能删的东西"：孔洞/缺口/壁顶点/丝路顶点/外框顶点，
     // 而不是同一位置上不可删的整块挪动十字
-    const delKinds = { islandMove: 3, islandR: 3, notchMove: 3, notchR: 3, wallV: 2, pathV: 2, outlineV: 2, outlineMid: 1 };
+    const delKinds = { islandMove: 3, islandR: 3, notchMove: 3, notchR: 3, notchV: 3, wallV: 2, pathV: 2, outlineV: 2, outlineMid: 1 };
     const cand = hs
       .map(h => ({ h, d: Math.hypot(h.x - p.x, h.y - p.y) }))
       .filter(o => o.d <= tol && delKinds[o.h.kind])
@@ -8972,6 +9040,21 @@ showSplitPreview();
     }
     // 右键按在缺口里（没压到手柄）：删掉缺口
     const c = weaveCellContent(a, e.ix, e.iy);
+    if (Array.isArray(c.cell.notchPts) && c.cell.notchPts.length >= 3) {
+      const np = c.cell.notchPts.map(q => ({ x: q.x + ox, y: q.y + oy }));
+      if (weaveInPoly(np, p.x, p.y) || weavePolyDist(np, p.x, p.y) <= tol) {
+        pushUndo();
+        const sh = ensureShapeOverride(a, e.ix, e.iy);
+        if (sh.notchPts) {
+          delete sh.notchPts;
+          if (a.cache && a.cache.delete) a.cache.delete(key);
+          weaveCellContent(a, e.ix, e.iy);
+          syncEditNote();
+          toast('已删掉这个缺口。', 'ok');
+        }
+        return true;
+      }
+    }
     if (c.cell && c.cell.notch) {
       const nt = c.cell.notch;
       if (Math.hypot(p.x - (ox + nt.cx), p.y - (oy + nt.cy)) <= nt.r) {
@@ -9231,7 +9314,7 @@ showSplitPreview();
       return;
     }
     if (tool === 'hole') { el.textContent = '正在改孔洞 · 拖青色实点挪位置、拖青色圈改大小；直接点格内空白也能把孔挪过去。'; return; }
-    if (tool === 'notch') { el.textContent = '正在改缺口 · 拖青色实点挪位置、拖青色圈改大小；点格边附近可把缺口挪到那边。'; return; }
+    if (tool === 'notch') { el.textContent = '正在改缺口 · 在格内点几下围出一个形状，双击收尾（至少 3 点）；拖白点改形状、拖边中间的小方点加新点、右键删点或删整个缺口。'; return; }
     el.textContent = '正在改形状 · 拖橙色方点改整块大小、橙色十字挪整块；青色点挪孔、青色圈改孔径。';
   }
 
@@ -9240,7 +9323,7 @@ showSplitPreview();
   const WT_HINT = {
     shape: '拖四角＝改整块大小 · 拖四条边中点＝只改宽或只改高 · 拖中间十字＝整块挪位 · 拖青点/青圈＝挪孔/改孔径',
     hole: '拖青点＝挪孔 · 拖青圈＝改孔径 · 点格内空白＝把孔挪到那里 · 没有孔时点一下会新建一个孔',
-    notch: '拖青点＝挪缺口 · 拖青圈＝改大小 · 点格子边缘附近＝把缺口挪到那边',
+    notch: '在格内点几下＝围出缺口的形状（可任意曲线封闭形）· 双击收尾 · 拖白点改形状 · 拖边中点加新点 · 右键删点',
     wall: '在格内连点几下画一条壁，双击收尾 · 白点可拖 · Alt+点删顶点',
     path: '在格内连点几下画一条丝路（蚕会沿它走），双击收尾 · 白点可拖 · Alt+点删顶点',
     outline: '连点画出单元外框，双击封闭 · 白点可拖 · Alt+点删顶点',
@@ -9313,6 +9396,22 @@ showSplitPreview();
     }
     const key = e.ix + ',' + e.iy;
     const draft = weaveEditDraft(e, key);
+    if (e.mode === 'notch') {
+      // 缺口：自己点一圈，至少 3 点才算成形（不是只能画圆）
+      if (draft.length < 3) { toast('缺口至少要 3 个点，再多点几下就可成形。', 'err'); return; }
+      pushUndo();
+      const sh = ensureShapeOverride(a, e.ix, e.iy);
+      sh.notchPts = draft.map(q => ({ x: q.x, y: q.y }));
+      if (sh.notch) delete sh.notch;
+      draft.length = 0;
+      if (a.cache && a.cache.delete) a.cache.delete(key);
+      weaveCellContent(a, e.ix, e.iy);
+      a.sample = a.sample || {};
+      syncRoutePanel();
+      syncEditNote();
+      toast('缺口已按你点的 ' + sh.notchPts.length + ' 个点成形（想加/改点，拖边中点或点顶点）。', 'ok');
+      return;
+    }
     if (!draft.length) { syncEditNote(); return; }
     if (draft.length < 2) { toast('至少两个点才能成线。', 'err'); return; }
     pushUndo();
@@ -9385,7 +9484,7 @@ showSplitPreview();
       if (k === 'unitCorner' || k === 'unitEdge' || k === 'unitMove' || k === 'outlineMid') return true;
       if (tool === 'shape') return true;
       if (tool === 'hole') return k === 'islandMove' || k === 'islandR' || k === 'unitCorner' || k === 'unitMove';
-      if (tool === 'notch') return k === 'notchMove' || k === 'notchR' || k === 'unitCorner' || k === 'unitMove';
+      if (tool === 'notch') return k === 'notchMove' || k === 'notchR' || k === 'notchV' || k === 'notchMid' || k === 'unitCorner' || k === 'unitMove';
       if (tool === 'wall') return k === 'wallV' || k === 'unitCorner' || k === 'unitMove';
       if (tool === 'path') return k === 'pathV' || k === 'unitCorner' || k === 'unitMove';
       if (tool === 'outline') return k === 'outlineV' || k === 'unitCorner' || k === 'unitMove';
@@ -9409,6 +9508,15 @@ showSplitPreview();
     if (c.cell.notch) {
       add({ kind: 'notchMove', x: ox + c.cell.notch.cx, y: oy + c.cell.notch.cy });
       add({ kind: 'notchR', x: ox + c.cell.notch.cx + c.cell.notch.r, y: oy + c.cell.notch.cy });
+    }
+    // 手画的缺口：每个顶点一个点，每条边的中点可以拖出一个新顶点
+    if (Array.isArray(c.cell.notchPts) && c.cell.notchPts.length >= 3) {
+      const np = c.cell.notchPts;
+      np.forEach((pt, vi) => add({ kind: 'notchV', vi, x: ox + pt.x, y: oy + pt.y }));
+      for (let vi = 0; vi < np.length; vi++) {
+        const p1 = np[vi], p2 = np[(vi + 1) % np.length];
+        add({ kind: 'notchMid', vi, x: ox + (p1.x + p2.x) / 2, y: oy + (p1.y + p2.y) / 2 });
+      }
     }
     const bw = (a.custom && a.custom.walls && a.custom.walls[key]) || [];
     const bp = (a.custom && a.custom.paths && a.custom.paths[key]) || [];
@@ -9446,13 +9554,13 @@ showSplitPreview();
       // 只动被拖的这一边，对面那条边钉死
       if (h.edge === 'l' || h.edge === 'r') {
         const left = ox - a.w / 2, right = ox + a.w / 2;
-        const nw = Math.max(80, Math.min(400, h.edge === 'l' ? right - p.x : p.x - left));
+        const nw = Math.max(80, Math.min(1200, h.edge === 'l' ? right - p.x : p.x - left));
         const nox = h.edge === 'l' ? right - nw / 2 : left + nw / 2;
         a.w = nw;
         a.x = nox - ix * nw;
       } else {
         const top = oy - a.h / 2, bot = oy + a.h / 2;
-        const nh = Math.max(80, Math.min(400, h.edge === 't' ? bot - p.y : p.y - top));
+        const nh = Math.max(80, Math.min(1200, h.edge === 't' ? bot - p.y : p.y - top));
         const noy = h.edge === 't' ? bot - nh / 2 : top + nh / 2;
         a.h = nh;
         a.y = noy - iy * nh;
@@ -9465,8 +9573,8 @@ showSplitPreview();
       // 对角固定，拖动角改宽高（像建模软件拉框）
       const fixedX = a.x + ix * a.w - h.sx * a.w / 2;
       const fixedY = a.y + iy * a.h - h.sy * a.h / 2;
-      a.w = Math.max(80, Math.min(400, Math.abs(p.x - fixedX)));
-      a.h = Math.max(80, Math.min(400, Math.abs(p.y - fixedY)));
+      a.w = Math.max(80, Math.min(1200, Math.abs(p.x - fixedX)));
+      a.h = Math.max(80, Math.min(1200, Math.abs(p.y - fixedY)));
       a.x = fixedX + h.sx * a.w / 2 - ix * a.w;
       a.y = fixedY + h.sy * a.h / 2 - iy * a.h;
       a.cache = new Map();
@@ -9489,7 +9597,18 @@ showSplitPreview();
         sh.notch.cx = p.x - ox;
         sh.notch.cy = p.y - oy;
       } else {
-        sh.notch.r = Math.max(12, Math.min(Math.min(a.w, a.h) * 0.7, Math.hypot(p.x - ox - sh.notch.cx, p.y - oy - sh.notch.cy)));
+        sh.notch.r = Math.max(6, Math.hypot(p.x - ox - sh.notch.cx, p.y - oy - sh.notch.cy));
+      }
+    } else if (h.kind === 'notchV') {
+      if (!sh.notchPts || !sh.notchPts[h.vi]) return;
+      sh.notchPts[h.vi] = { x: p.x - ox, y: p.y - oy };
+    } else if (h.kind === 'notchMid') {
+      if (!sh.notchPts) return;
+      if (h.newIdx == null) {
+        sh.notchPts.splice(h.vi + 1, 0, { x: p.x - ox, y: p.y - oy });
+        h.newIdx = h.vi + 1;
+      } else {
+        sh.notchPts[h.newIdx] = { x: p.x - ox, y: p.y - oy };
       }
     } else if (h.kind === 'outlineV') {
       if (!Array.isArray(a.outline) || !a.outline[h.vi]) return;
@@ -9537,6 +9656,20 @@ showSplitPreview();
       if (a.cache && a.cache.clear) a.cache.clear();
       buildWeave(a);
       syncRoutePanel();
+      return true;
+    }
+    if (h.kind === 'notchV') {
+      const key2 = e.ix + ',' + e.iy;
+      const sh = ensureShapeOverride(a, e.ix, e.iy);
+      if (!sh.notchPts) return false;
+      pushUndo();
+      if (sh.notchPts.length <= 3) delete sh.notchPts;
+      else sh.notchPts.splice(h.vi, 1);
+      if (a.cache && a.cache.delete) a.cache.delete(key2);
+      weaveCellContent(a, e.ix, e.iy);
+      syncRoutePanel();
+      syncEditNote();
+      toast(sh.notchPts ? '已删掉这个顶点。' : '缺口少于三个点就整个删掉了。', 'ok');
       return true;
     }
     if (h.kind !== 'wallV' && h.kind !== 'pathV') return false;
@@ -9750,7 +9883,22 @@ showSplitPreview();
       ctx.stroke();
       ctx.setLineDash([]);
     });
-    // 正在画、还没收尾的点（加壁/加丝路/外框）
+    // 手画的缺口（闭合多边形）：编辑时用虚线把这一圈显出来
+    const npC = (sh && sh.notchPts) || (c.cell && c.cell.notchPts) || null;
+    if (Array.isArray(npC) && npC.length >= 3) {
+      ctx.strokeStyle = 'rgba(121,203,182,0.7)';
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      npC.forEach((q, k) => {
+        const px = v.px(ox + q.x), py = v.py(oy + q.y);
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // 正在画、还没收尾的点（加壁/加丝路/缺口/外框）
     const draft = (e.drafts && e.drafts[key]) || [];
     if (draft.length) {
       ctx.strokeStyle = 'rgba(120,210,255,0.8)';
@@ -9761,6 +9909,7 @@ showSplitPreview();
         const px = v.px(ox + q.x), py = v.py(oy + q.y);
         if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       });
+      if (e.mode === 'notch' && draft.length >= 3) ctx.closePath();
       ctx.stroke();
       draft.forEach((q) => {
         ctx.fillStyle = 'rgba(120,210,255,0.85)';
