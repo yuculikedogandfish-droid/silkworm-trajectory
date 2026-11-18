@@ -1613,3 +1613,11 @@ QA：`habVidRatioOf/habVidDims` 探针（`_backup/gen_video_qa.py`，结果写 `
 - 实测（独立 harness，只跑识别）：竖版参考图 30 块 / 26 有丝 / 4 圆孔 / 13 曲线缺口，约 195ms；横版 34 块 / 31 有丝 / 2 圆孔 / 12 曲线缺口，约 168ms。
 - 顺带修复存量 bug：r38 拖拽上传脚本在删旧图层模块时丢了 `})();`，IIFE 未闭合（该段一直 SyntaxError），已补上；分段 `node --check` 现 s1–s6 全通过。
 - 说明书：新增第 12 节「从参考图识别版式」（含识别预览配图、四步、控件表），PDF 重出 15 页 / 2.35MB，版本号 r43；三副本已同步。
+
+
+## §50 r45 识别条避让顶栏 + 框选批量删除 / 点空白取消（2026-11-19）
+- 识别条 `.hab-rec-bar` 不再写死 top:52px，改为按 `.hab-top` 实际底边 +8px 放置（resize / 定时重算），顶栏按钮换行也不会被压住。
+- r39 空白单击（未形成框选）清空选择；暴露 `window.__layerSel`（ids/size/set/clear/bbox/editing）。
+- r45 独立模块：多选时在选区包围盒内右键 → 删除选中的 N 块（confirm，走 __weaveHooks.deleteUnit，可撤销）/ 编为一组 / 取消选择。
+- QA：菜单文本正确；3 块选 2 块右键删后 units=1、sel=0；空白单击 sel=0；recbar_clear=true gap=8 styleTop=101.875px；jserrs=[]。
+- 说明书 §11 增补右键批量与点空白取消，PDF 15 页（r45）。commit a1883b9，tag r45，push ok。
