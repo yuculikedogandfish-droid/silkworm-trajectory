@@ -1,4 +1,4 @@
-/* ===== r43 识别升级：自由版式（连通域）+ 圆/轮廓双通道 + 局部阈值 + 校对（独立模块，不改既有函数） ===== */
+/* ===== r47 轮廓保真识别（基于 r43）：自由版式（连通域）+ 圆/轮廓双通道 + 局部阈值 + 校对（独立模块，不改既有函数） ===== */
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
@@ -50,11 +50,24 @@
       const w = b.w * v.s, h = b.h * v.s;
       const weak = b.present && b.conf < 0.55;
       octx.save();
-      octx.strokeStyle = !b.present ? 'rgba(255,120,120,0.45)' : (weak ? 'rgba(240,200,90,0.95)' : 'rgba(121,203,182,0.95)');
-      octx.lineWidth = weak ? 1.6 : 1.2;
-      octx.setLineDash(b.present ? (weak ? [5, 3] : []) : [4, 4]);
+      const col = !b.present ? 'rgba(255,120,120,0.45)' : (weak ? 'rgba(240,200,90,0.95)' : 'rgba(121,203,182,0.95)');
+      // 外接矩形只作位置参考；真正的单元按丝面外轮廓画
+      octx.strokeStyle = !b.present ? col : 'rgba(121,203,182,0.20)';
+      octx.lineWidth = 0.8;
+      octx.setLineDash([3, 4]);
       octx.strokeRect(x, y, w, h);
-      if (b.present) { octx.fillStyle = 'rgba(121,203,182,0.05)'; octx.fillRect(x, y, w, h); }
+      octx.restore();
+      octx.save();
+      octx.strokeStyle = col;
+      octx.lineWidth = weak ? 1.7 : 1.35;
+      octx.setLineDash(b.present ? (weak ? [5, 3] : []) : [4, 4]);
+      if (b.present && b.outline && b.outline.length >= 3) {
+        drawPoly(b.outline.map(p => [v.px(b.wx + p.x), v.py(b.wy + p.y)]), true);
+        octx.fillStyle = 'rgba(121,203,182,0.07)'; octx.fill(); octx.stroke();
+      } else if (b.present) {
+        octx.strokeRect(x, y, w, h);
+        octx.fillStyle = 'rgba(121,203,182,0.05)'; octx.fillRect(x, y, w, h);
+      }
       octx.restore();
       (b.polys || []).forEach(poly => {
         octx.save();
@@ -79,6 +92,14 @@
   }
   requestAnimationFrame(paint);
 
+  function pointInPoly(pts, x, y) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[i], b = pts[j];
+      if (((a.y > y) !== (b.y > y)) && x < (b.x - a.x) * (y - a.y) / ((b.y - a.y) || 1e-9) + a.x) inside = !inside;
+    }
+    return inside;
+  }
   // 校对模式：点预览框 = 这块要 / 不要
   ov.addEventListener('pointerdown', (e) => {
     if (!state.pick) return;
@@ -90,7 +111,9 @@
     let best = null, bd = Infinity;
     (state.boxes || []).forEach(b => {
       const d = Math.abs(wx - b.wx) / b.w + Math.abs(wy - b.wy) / b.h;
-      if (Math.abs(wx - b.wx) <= b.w / 2 && Math.abs(wy - b.wy) <= b.h / 2 && d < bd) { bd = d; best = b; }
+      const inBox = Math.abs(wx - b.wx) <= b.w / 2 && Math.abs(wy - b.wy) <= b.h / 2;
+      const hit = inBox && (!b.outline || pointInPoly(b.outline, wx - b.wx, wy - b.wy));
+      if (hit && d < bd) { bd = d; best = b; }
     });
     if (best) { best.present = !best.present; best.conf = 1; }
   });
@@ -309,6 +332,87 @@
     return out.filter(r => (r.maxX - r.minX + 1) >= MIN && (r.maxY - r.minY + 1) >= MIN);
   }
 
+  /* ---------- 距离变换找圆：分隔线把洞与背景连住也能认 ---------- */
+  function distanceCircles(dm, gray, W, H2, x0, y0, imgW, minFrac) {
+    const N = W * H2, d = new Float32Array(N), INF = 1e6;
+    for (let i = 0; i < N; i++) d[i] = dm[i] ? INF : 0;
+    const relax = (i, v) => { if (v < d[i]) d[i] = v; };
+    for (let y = 0; y < H2; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x; if (!d[i]) continue;
+      if (x === 0 || y === 0) d[i] = 1;
+      if (x > 0) relax(i, d[i - 1] + 1);
+      if (y > 0) relax(i, d[i - W] + 1);
+      if (x > 0 && y > 0) relax(i, d[i - W - 1] + 1.4142);
+      if (x < W - 1 && y > 0) relax(i, d[i - W + 1] + 1.4142);
+    }
+    for (let y = H2 - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) {
+      const i = y * W + x; if (!d[i]) continue;
+      if (x === W - 1 || y === H2 - 1 && d[i] > 1) d[i] = 1;
+      if (x < W - 1) relax(i, d[i + 1] + 1);
+      if (y < H2 - 1) relax(i, d[i + W] + 1);
+      if (x < W - 1 && y < H2 - 1) relax(i, d[i + W + 1] + 1.4142);
+      if (x > 0 && y < H2 - 1) relax(i, d[i + W - 1] + 1.4142);
+    }
+    const minR = Math.max(20, Math.min(W, H2) * 0.24, Math.sqrt(minFrac * W * H2 / Math.PI) * 1.10);
+    const cand = [];
+    for (let y = 1; y < H2 - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x, r = d[i];
+      if (r < minR || r > Math.max(W, H2) * 0.72) continue;
+      let peak = true;
+      for (let dy = -2; dy <= 2 && peak; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= W || yy >= H2) continue;
+        if (d[yy * W + xx] > r + 0.01) { peak = false; break; }
+      }
+      if (peak) cand.push({ x, y, r: r * 0.96 });
+    }
+    cand.sort((a, b) => b.r - a.r);
+    const out = [];
+    for (const c of cand) {
+      if (out.some(o => Math.hypot(o.x - c.x, o.y - c.y) < Math.max(o.r, c.r) * 1.05)) continue;
+      // 圆内暗、圆外亮；压边圆只统计仍在格内的采样点
+      let inside = 0, outside = 0, ni = 0, no = 0;
+      for (let k = 0; k < 24; k++) {
+        const a = k * Math.PI * 2 / 24, ca = Math.cos(a), sa = Math.sin(a);
+        const xi = Math.round(c.x + ca * c.r * 0.55), yi = Math.round(c.y + sa * c.r * 0.55);
+        if (xi >= 0 && yi >= 0 && xi < W && yi < H2) { inside += gray[(y0 + yi) * imgW + x0 + xi]; ni++; }
+        const xo = Math.round(c.x + ca * c.r * 1.22), yo = Math.round(c.y + sa * c.r * 1.22);
+        if (xo >= 0 && yo >= 0 && xo < W && yo < H2) { outside += gray[(y0 + yo) * imgW + x0 + xo]; no++; }
+      }
+      if (ni < 10 || no < 7 || outside / no < inside / ni + 10) continue;
+      out.push(c);
+      if (out.length >= 2) break;
+    }
+    return out;
+  }
+
+  /* ---------- 丝面外轮廓：不是外接矩形 ---------- */
+  function largestMask(src, W, H2) {
+    const seen = new Uint8Array(W * H2), stack = [];
+    let best = null;
+    for (let i = 0; i < src.length; i++) {
+      if (!src[i] || seen[i]) continue;
+      let minX = W, maxX = 0, minY = H2, maxY = 0;
+      const pix = [];
+      stack.length = 0; stack.push(i); seen[i] = 1;
+      while (stack.length) {
+        const q = stack.pop(), x = q % W, y = (q - x) / W;
+        pix.push(q);
+        if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+        if (x > 0 && src[q - 1] && !seen[q - 1]) { seen[q - 1] = 1; stack.push(q - 1); }
+        if (x < W - 1 && src[q + 1] && !seen[q + 1]) { seen[q + 1] = 1; stack.push(q + 1); }
+        if (y > 0 && src[q - W] && !seen[q - W]) { seen[q - W] = 1; stack.push(q - W); }
+        if (y < H2 - 1 && src[q + W] && !seen[q + W]) { seen[q + W] = 1; stack.push(q + W); }
+      }
+      if (!best || pix.length > best.pix.length) best = { pix, minX, maxX, minY, maxY };
+    }
+    if (!best) return null;
+    const mask = new Uint8Array(W * H2);
+    best.pix.forEach(q => { mask[q] = 1; });
+    best.mask = mask;
+    return best;
+  }
+
   /* ---------- 主流程：自由版式 ---------- */
   function analyseAuto() {
     const im = state.img;
@@ -372,14 +476,55 @@
         cov, ci: idx, ri: 0, islands: [], polys: [],
       };
       boxes.push(b);
-      if (!b.present || (!wantHoles && !wantNotch)) return;
+      if (!b.present) return;
+
+      // 先用稍糊的亮丝图取最大连通丝面，描它自己的外缘。
+      // 与 mask（细丝覆盖率）分开：外缘要连成面，不能用一根根细丝直接描。
+      const solid = new Uint8Array(W * H2);
+      const outerThr = Math.max(16, glob * 0.34);
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W; x++) {
+        solid[y * W + x] = bg[(y0 + y) * w + (x0 + x)] > outerThr ? 1 : 0;
+      }
+      // 只补 1px 小断口，不把大圆弧洞填掉
+      const closed = morph(morph(solid, W, H2, 1, true), W, H2, 1, false);
+      const outer = largestMask(closed, W, H2);
+      if (outer && outer.pix.length >= Math.max(30, W * H2 * 0.035)) {
+        let start = -1;
+        for (let k = 0; k < outer.pix.length; k++) { const q = outer.pix[k]; if ((q % W) === outer.minX) { start = q; break; } }
+        if (start >= 0) {
+          const contour = trace(outer.mask, W, H2, start);
+          let per = 0;
+          for (let k = 0; k < contour.length; k++) { const p = contour[k], q = contour[(k + 1) % contour.length]; per += Math.hypot(q[0] - p[0], q[1] - p[1]); }
+          let pts = rdp(contour, Math.max(0.85, per / 320));
+          if (pts.length > 64) pts = rdp(contour, Math.max(1.15, per / 220));
+          if (pts.length > 80) pts = rdp(contour, Math.max(1.5, per / 160));
+          if (pts.length >= 3 && pts.length <= 80) {
+            b.outline = pts.map(p => ({ x: (p[0] - W / 2) * scale, y: (p[1] - H2 / 2) * scale }));
+            b.outlineArea = outer.pix.length / (W * H2);
+          }
+        }
+      }
+      if (!wantHoles && !wantNotch) return;
       b.polys = [];
 
       // 格内暗区 → 圆孔 或 任意轮廓缺口
       // 孔洞用"糊过的灰度"判定：丝线本身的细缝不会被当成洞
       const holeThr = Math.max(18, glob * 0.55);
-      const dm = new Uint8Array(W * H2);
-      for (let y = 0; y < H2; y++) for (let x = 0; x < W; x++) dm[y * W + x] = bg[(y0 + y) * w + (x0 + x)] < holeThr ? 1 : 0;
+      const dm = new Uint8Array(W * H2), localGray = new Float32Array(W * H2);
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W; x++) localGray[y * W + x] = bg[(y0 + y) * w + (x0 + x)];
+      // 每块单独分阈值：参考图里有些圆是纯黑，有些盖着灰雾，不能用同一条黑线。
+      const localThr = Math.min(120, Math.max(holeThr, otsu(localGray) * 0.90));
+      for (let i = 0; i < dm.length; i++) dm[i] = localGray[i] < localThr ? 1 : 0;
+      const circles = distanceCircles(dm, bg, W, H2, x0, y0, w, minHoleFrac);
+      circles.forEach(c => {
+        if (b.outline && !pointInPoly(b.outline, (c.x - W / 2) * scale, (c.y - H2 / 2) * scale)) return;
+        const touch = c.x - c.r <= 1 || c.y - c.r <= 1 || c.x + c.r >= W - 2 || c.y + c.r >= H2 - 2;
+        if (touch ? !wantNotch : !wantHoles) return;
+        const isl = { cx: (c.x - W / 2) * scale, cy: (c.y - H2 / 2) * scale, r: c.r * scale };
+        b.islands.push(isl);
+        holes.push({ wx: b.wx + isl.cx, wy: b.wy + isl.cy, wr: isl.r });
+        holeN++;
+      });
       const seen = new Uint8Array(W * H2), stack = [];
       const area = W * H2;
       for (let i = 0; i < dm.length; i++) {
@@ -400,7 +545,8 @@
         const frac = cnt / area;
         if (frac < minHoleFrac) continue;
         const touch = minX === 0 || minY === 0 || maxX === W - 1 || maxY === H2 - 1;
-        if (touch && frac > 0.62) continue;               // 块外背景，不是咬口
+        // 非圆暗区只有中心位于轮廓内才算内部缺口；圆形压边洞在下方单独保留。
+        if (touch && frac > 0.62 && !b.outline) continue;               // 块外背景，不是咬口
         if (!touch && frac > 0.80) continue;              // 整块都是暗的，按无丝处理
         const bw = maxX - minX + 1, bh = maxY - minY + 1;
         const extent = cnt / (bw * bh), aspect = bw / Math.max(1, bh);
@@ -414,15 +560,13 @@
         let per = 0;
         for (let k = 0; k < contour.length; k++) { const p = contour[k], q = contour[(k + 1) % contour.length]; per += Math.hypot(q[0] - p[0], q[1] - p[1]); }
         const circ = per > 0 ? (4 * Math.PI * cnt) / (per * per) : 0;
-        const isCircle = circ > 0.72 && extent > 0.55 && aspect > 0.6 && aspect < 1.65;
-        const lcx = sx / cnt - W / 2, lcy = sy / cnt - H2 / 2;
-        if (isCircle && (touch ? wantNotch : wantHoles)) {
-          const r = Math.sqrt(cnt / Math.PI) * scale;
-          const isl = { cx: lcx * scale, cy: lcy * scale, r };
-          b.islands.push(isl);
-          holes.push({ wx: b.wx + isl.cx, wy: b.wy + isl.cy, wr: r });
-          holeN++;
-        } else if (wantNotch && circ >= 0.38) {
+        // 已被距离变换圆代表的暗区，不再重复生成轮廓或圆孔
+        if (circles.some(c => c.x >= minX - 2 && c.x <= maxX + 2 && c.y >= minY - 2 && c.y <= maxY + 2)) continue;
+        if (b.outline) {
+          const pcx = (sx / cnt - W / 2) * scale, pcy = (sy / cnt - H2 / 2) * scale;
+          if (!pointInPoly(b.outline, pcx, pcy)) continue;
+        }
+        if (wantNotch && circ >= 0.38) {
           let pts = rdp(contour, Math.max(1.1, per / 220));
           if (pts.length > 26) pts = rdp(contour, Math.max(1.6, per / 130));
           if (pts.length < 3 || pts.length > 30) continue;
@@ -440,7 +584,8 @@
     state.holes = holes;
     state.grid = { cols: 0, rows: 0, present: boxes.filter(b => b.present).length, free: true };
     const weak = boxes.filter(b => b.present && b.conf < 0.55).length;
-    say('按真实轮廓找到 ' + boxes.length + ' 块（' + state.grid.present + ' 块有丝，每块大小位置各自独立）；圆孔 ' + holeN + ' 个、曲线缺口 ' + polyN + ' 个。' +
+    const outlines = boxes.filter(b => b.present && b.outline).length;
+    say('按真实轮廓找到 ' + boxes.length + ' 块（' + state.grid.present + ' 块有丝，' + outlines + ' 块已描出外轮廓）；圆孔 ' + holeN + ' 个、内部曲线缺口 ' + polyN + ' 个。' +
       (weak ? weak + ' 块把握不高（黄色虚线），可点「点预览框补块 / 去块」校对。' : '可叠加原图核对后再生成。'));
   }
 
@@ -470,10 +615,13 @@
       if (list.length <= before) return;
       const u = list[list.length - 1];
       // 不强行拉宽：参考图里本来就有窄条，硬拉到 80 会把版式改样
-      u.w = Math.max(40, Math.round(b.w));
-      u.h = Math.max(40, Math.round(b.h));
+      u.w = Math.max(12, Math.round(b.w));
+      u.h = Math.max(12, Math.round(b.h));
       u.x = Math.round(b.wx); u.y = Math.round(b.wy);
       u.tileField = false; u.shape = 'plain';
+      u.outline = (b.outline && b.outline.length >= 3)
+        ? b.outline.map(p => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 }))
+        : null;
       u.seed = 1000 + i * 37;
       u.custom = u.custom || { walls: {}, paths: {}, shapes: {} };
       const sh = {};
@@ -494,7 +642,7 @@
     });
     state.pick = false; ov.style.pointerEvents = 'none';
     const btn = $('habRecPick'); if (btn) btn.textContent = '点预览框补块 / 去块';
-    say('已生成 ' + made + ' 块（每块尺寸与位置按图摆放），圆孔 ' + holes + ' 个、曲线缺口 ' + polys + ' 条。可直接拖锚点微调，Ctrl+Z 可撤销。');
+    say('已生成 ' + made + ' 块（尺寸、位置和外轮廓按图摆放），圆孔 ' + holes + ' 个、曲线缺口 ' + polys + ' 条。可直接拖锚点微调，Ctrl+Z 可撤销。');
   }
 
   REC().analyse = analyse;

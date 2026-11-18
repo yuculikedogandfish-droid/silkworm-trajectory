@@ -19,12 +19,14 @@ window.addEventListener('load',function(){
   L.push('empty_state='+((cards.filter(function(c){return !c.hidden;}).length===0)&&document.getElementById('noResult').style.display==='block'));
   inp.value='';inp.dispatchEvent(new Event('input',{bubbles:true}));
   L.push('clear_restores='+(cards.filter(function(c){return !c.hidden;}).length===12));
-  L.push('version_r46='+document.title.includes('r46'));
+  L.push('version_r47='+document.title.includes('r47'));
+  inp.value='外轮廓';inp.dispatchEvent(new Event('input',{bubbles:true}));
+  L.push('search_outline='+cards.filter(function(c){return !c.hidden;}).map(function(c){return c.id;}).join(','));
   document.getElementById('gqa').textContent=L.join('\n');
 });
 </script>
 """
 j=s.rfind("</body>")
 s=s[:j]+qa+s[j:]
-io.open(ROOT+r"\_backup\rec43\guide_qa46.html","w",encoding="utf-8").write(s)
+io.open(ROOT+r"\_backup\rec43\guide_qa47.html","w",encoding="utf-8").write(s)
 print("guide qa")

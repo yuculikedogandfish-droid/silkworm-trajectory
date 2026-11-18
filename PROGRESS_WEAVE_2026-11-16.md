@@ -1629,3 +1629,14 @@ QA：`habVidRatioOf/habVidDims` 探针（`_backup/gen_video_qa.py`，结果写 `
 - 性能：识别条用 ResizeObserver 替代 1.5s 布局轮询；缩略图 1.2s→2.5s 且后台不画；图层同步与自动保存后台标签页跳过（visibilitychange/beforeunload 仍保存）。
 - 说明书 r46：版本/损坏标签修复；12 节锚点、9 个任务入口、22 个页内链接、关键词搜索（/ 聚焦、Esc 清空）、无结果态、返回目录；补双击与批量撤销口径。
 - QA：dbl_select/deselect/shift_add/multi_remove/sole_clear 全 true；batch_delete units 3→1、one_undo_restores_all=true；empty_clears、project_export、project_import_roundtrip、feature_apis 全 true；duplicate_ids=[]、guide_links=2、recbar gap=8、jserrs=[]。说明书 search_double=s03/s04/s11，empty/clear/version 全 true，bad_targets=0。index s1–s8 与 guide JS 均 node --check 通过。
+
+## §52 r47 轮廓保真识别：不统一成方形，丝线按真实边界收口（2026-11-19）
+- 识别升级为「分隔线自由版式 + 丝面最大连通区外轮廓 + 局部暗度圆孔」三层：每块保留自己的 w/h/x/y、错位和窄条；外接矩形只作预览参考，实际 `u.outline` 写入真实曲线/不规则外缘（RDP 抽稀，最多 80 点）。
+- 圆孔不再只靠暗区连通域圆度：细分隔线会把洞与外部背景连住，且新图部分圆洞带灰雾。改为每块 Otsu 局部阈值 + chamfer 距离变换找最大内切圆，5×5 峰值、24 方向圆内外明暗采样、NMS 去重；非圆内部暗区仍保留为曲线缺口。
+- 生成最小尺寸由 40 改成 12，避免把参考图窄条偷偷拉宽。`u.outline` 与 islands/notchPts 同时生成，仍是普通可编辑织网单元。
+- 引擎补齐任意外轮廓：`weaveSDF` 现在使用 outline 的内外符号距离和 notchPts 曲线距离；最终丝点 `clampCell` 会把越界点贴回最近外轮廓，凹弧附近的线段会加密收口。`weaveContour` 因而也沿真实外框。
+- 性能：notch 曲线在 cell 上缓存，不再每次采样重复展开；蚕室只有进入视口才逐帧绘制（长页滚到描图器时不再空画）。31 块识别生成约 2.2s，31 块首次实际绘制约 1.2s。
+- 新参考图（1448×1086）：34 框 / 31 有丝 / 31 外轮廓 / 9 圆孔 / 10 曲线缺口；生成 31 块、30 种尺寸、31 外轮廓，narrow_preserved=true；工程导出再导入 outline=31→31，尺寸 30 种不变，jserrs=[]。旧竖版：30/26/26 外轮廓/7 圆孔/7 曲线；旧横版：34/31/31 外轮廓/9 圆孔/10 曲线。
+- r46 全回归通过：双击选定/取消/追加、框选空白取消、右键批量删除、一次 Ctrl+Z 恢复整批、工程导入导出、导出 API、无重复 ID、识别条不遮顶栏均 true。
+- 全量内联 JS 检查额外发现并修复描图器主脚本 39 处 `&amp;&amp;` 残留为正常 `&&`；修复后 index 9 段、说明书 1 段全部 `node --check` 通过，r47 视觉与 r46 全回归重跑 jserrs 仍为空。
+- 说明书 r47：明确青绿实线才是真正外轮廓、淡虚框仅位置参考；生成保留尺寸/窄条/圆弧且丝线沿边界收口，仍须叠图校对。

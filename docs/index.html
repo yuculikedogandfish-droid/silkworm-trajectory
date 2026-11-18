@@ -1054,7 +1054,7 @@ function normalizeIncoming(doc) {
     out.trajectories = doc.trajectories || [];
     return out;
   }
-  if (doc.schema &amp;&amp; String(doc.schema).includes('motion-model')) {
+  if (doc.schema && String(doc.schema).includes('motion-model')) {
     out.provenance = 'measured';
     out.synth = doc.synthesis || null;
     out.unit = doc.unit || (doc.calibration ? 'mm' : 'px');
@@ -1078,10 +1078,10 @@ function normalizeIncoming(doc) {
     return normalizeIncoming({ ...doc, schema: 'curves3d/v2' });
   }
   // 「JSON」导出（exportJSON）写的是 curves3d / silkworms，载入时必须认这两种
-  const curveList = Array.isArray(doc.curves3d) &amp;&amp; doc.curves3d.length
+  const curveList = Array.isArray(doc.curves3d) && doc.curves3d.length
     ? doc.curves3d
-    : (Array.isArray(doc.curves) &amp;&amp; doc.curves.length ? doc.curves : null);
-  if (curveList &amp;&amp; curveList[0] &amp;&amp; curveList[0].points) {
+    : (Array.isArray(doc.curves) && doc.curves.length ? doc.curves : null);
+  if (curveList && curveList[0] && curveList[0].points) {
     out.trajectories = curveList.map((c, i) => ({
       wormId: c.wormId != null ? c.wormId : (c.virtualId || i + 1),
       color: c.color || '#f7f5f2',
@@ -1093,15 +1093,15 @@ function normalizeIncoming(doc) {
         width_mm: p.width_mm,
       })),
     }));
-    out.unit = doc.unit || (doc.calibration &amp;&amp; doc.calibration.scalePxPerMm ? 'mm' : 'px');
+    out.unit = doc.unit || (doc.calibration && doc.calibration.scalePxPerMm ? 'mm' : 'px');
     out.calibration = doc.calibration || null;
     out.provenance = doc.provenance || 'measured';
     out.behaviorBoxes = doc.behaviorBoxes || doc.behaviorUnits || [];
     return out;
   }
-  if (Array.isArray(doc.silkworms) &amp;&amp; doc.silkworms.length) {
+  if (Array.isArray(doc.silkworms) && doc.silkworms.length) {
     out.trajectories = doc.silkworms
-      .filter(w => w &amp;&amp; w.points &amp;&amp; w.points.length >= 2)
+      .filter(w => w && w.points && w.points.length >= 2)
       .map((w, i) => ({
         wormId: w.id != null ? w.id : i + 1,
         color: w.color || '#f7f5f2',
@@ -1113,11 +1113,11 @@ function normalizeIncoming(doc) {
           width_mm: p.width_mm,
         })),
       }));
-    out.unit = doc.unit || (doc.calibration &amp;&amp; doc.calibration.scalePxPerMm ? 'mm' : 'px');
+    out.unit = doc.unit || (doc.calibration && doc.calibration.scalePxPerMm ? 'mm' : 'px');
     out.calibration = doc.calibration || null;
     return out;
   }
-  if (doc.curves &amp;&amp; doc.curves.length &amp;&amp; doc.curves[0].points) {
+  if (doc.curves && doc.curves.length && doc.curves[0].points) {
     out.trajectories = doc.curves.map((c, i) => ({
       wormId: c.virtualId || c.wormId || i + 1,
       color: '#f7f5f2',
@@ -1146,7 +1146,7 @@ function normalizeIncoming(doc) {
 }
 
 function setTrajectoryList(norm, pickIdx) {
-  state.trajectories = norm.trajectories.filter(t => t.points &amp;&amp; t.points.length >= 2);
+  state.trajectories = norm.trajectories.filter(t => t.points && t.points.length >= 2);
   if (!state.trajectories.length) return false;
   state.activeIdx = pickIdx != null ? pickIdx : 0;
   const t = state.trajectories[state.activeIdx];
@@ -1157,7 +1157,7 @@ function setTrajectoryList(norm, pickIdx) {
   state.provenance = norm.provenance || 'measured';
   state.synth = norm.synth;
   state.unit = norm.unit || 'px';
-  if (norm.calibration &amp;&amp; norm.calibration.scalePxPerMm) {
+  if (norm.calibration && norm.calibration.scalePxPerMm) {
     state.scale = norm.calibration.scalePxPerMm;
     state.origin = norm.calibration.originPx;
     state.cellMm = norm.calibration.cell_mm || 10;
@@ -1215,8 +1215,8 @@ function computeBounds() {
 
 function homeBox() {
   const b = state.behaviorBoxes[0];
-  const box = b &amp;&amp; (b.box_px || b);
-  if (box &amp;&amp; box.x0 != null) {
+  const box = b && (b.box_px || b);
+  if (box && box.x0 != null) {
     const x0 = Math.min(box.x0, box.x1), x1 = Math.max(box.x0, box.x1);
     const y0 = Math.min(box.y0, box.y1), y1 = Math.max(box.y0, box.y1);
     return { x0, y0, x1, y1, w: Math.max(8, x1 - x0), h: Math.max(8, y1 - y0) };
@@ -1518,15 +1518,15 @@ function getRibbonVertices(ctx, pts, style) {
     ctx.canvas.height
   );
 
-  const isPrefix = route &amp;&amp; pts.length &amp;&amp;
-    pts.length <= route.length &amp;&amp;
-    pts[0] === route[0] &amp;&amp;
+  const isPrefix = route && pts.length &&
+    pts.length <= route.length &&
+    pts[0] === route[0] &&
     pts[pts.length - 1] === route[pts.length - 1];
 
   const cache = state._vertCache;
 
-  if (isPrefix &amp;&amp; cache &amp;&amp;
-      cache.sig === sig &amp;&amp;
+  if (isPrefix && cache &&
+      cache.sig === sig &&
       cache.src === route) {
     return cache.verts.slice(0, pts.length);
   }
@@ -1717,7 +1717,7 @@ function wormHalfWidth(t) {
 // =====================================================
 
 function spineBehind(head, W, H, bodyLen, angle) {
-  const route = (state.route &amp;&amp; state.route.length)
+  const route = (state.route && state.route.length)
     ? state.route
     : (state.points || []);
 
@@ -1757,7 +1757,7 @@ function spineBehind(head, W, H, bodyLen, angle) {
   let acc = 0;
 
   // 沿历史轨迹向后取身体骨架
-  for (let i = idx; i > 0 &amp;&amp; acc < bodyLen; i--) {
+  for (let i = idx; i > 0 && acc < bodyLen; i--) {
     const a = i === idx
       ? headSc
       : projectPoint(route[i], W, H);
@@ -2305,7 +2305,7 @@ function drawWormHead(ctx, head, style) {
     !head
   ) return;
 
-  const prev = state.route &amp;&amp; state.frame > 0
+  const prev = state.route && state.frame > 0
     ? state.route[Math.max(0, state.frame - 1)]
     : null;
 
@@ -2380,10 +2380,10 @@ function draw() {
   const route = state.route.length ? state.route : state.points;
   const end = Math.min(state.frame + 1, route.length);
   const slice = route.slice(0, end);
-  if (document.getElementById('showSilk').checked &amp;&amp; slice.length >= 2) {
+  if (document.getElementById('showSilk').checked && slice.length >= 2) {
     drawRibbon(ctx, slice, state.style, state.color, state.style.opacity);
   }
-  if (document.getElementById('showPts') &amp;&amp; document.getElementById('showPts').checked) {
+  if (document.getElementById('showPts') && document.getElementById('showPts').checked) {
     ctx.fillStyle = state.color;
     for (const p of slice) {
       const sc = projectPoint(p, W, H);
@@ -2391,7 +2391,7 @@ function draw() {
     }
   }
   const head = slice[slice.length - 1];
-  if (document.getElementById('showResidue') &amp;&amp; document.getElementById('showResidue').checked) {
+  if (document.getElementById('showResidue') && document.getElementById('showResidue').checked) {
     (state.cellMarks || []).forEach((mark) => {
       if (mark.endIndex < end - 1) {
         const i = Math.min(route.length - 1, Math.max(1, mark.endIndex));
@@ -2402,7 +2402,7 @@ function draw() {
   }
   drawWormHead(ctx, head, state.style);
 
-  const u = head &amp;&amp; head.u != null ? head.u : (end - 1) / Math.max(1, route.length - 1);
+  const u = head && head.u != null ? head.u : (end - 1) / Math.max(1, route.length - 1);
   document.getElementById('uSlider').value = Math.round((u || 0) * 1000);
   document.getElementById('playStat').innerHTML =
     `帧 <b>${end}</b> / ${route.length} · 点亮 <b>${state.litCells.length}</b> 格` +
@@ -2511,8 +2511,8 @@ function toggleCellAt(sx, sy) {
   const h = homeBox();
   const ix = Math.floor((wpt.x - h.x0) / h.w);
   const iy = Math.floor((wpt.y - h.y0) / h.h);
-  if (ix === 0 &amp;&amp; iy === 0) return;
-  const i = state.litCells.findIndex(c => c.ix === ix &amp;&amp; c.iy === iy);
+  if (ix === 0 && iy === 0) return;
+  const i = state.litCells.findIndex(c => c.ix === ix && c.iy === iy);
   if (i >= 0) {
     state.litCells.splice(i, 1);
     state.litCells = reachableLit(state.litCells);
@@ -2611,8 +2611,8 @@ function syncUI() {
 
 function perturbPoints(base, noise, seed) {
   const rand = mulberry32(seed);
-  const stoch = (state.synth &amp;&amp; state.synth.stochasticLayer) || {};
-  const sigma = (stoch.stepLength_mm &amp;&amp; stoch.stepLength_mm.sigma) || 0.15;
+  const stoch = (state.synth && state.synth.stochasticLayer) || {};
+  const sigma = (stoch.stepLength_mm && stoch.stepLength_mm.sigma) || 0.15;
   return base.map((p, i) => {
     if (i === 0 || i === base.length - 1) return { ...p };
     const j = noise * sigma * (rand() - 0.5) * 1.2;
@@ -2719,9 +2719,9 @@ function tryStorage() {
 }
 
 window.addEventListener('message', (ev) => {
-  if (ev.data &amp;&amp; ev.data.type === 'silkworm-preview/v1') ingestPayload(ev.data);
-  if (ev.data &amp;&amp; ev.data.type === 'silkworm-preview-push') ingestPayload(ev.data.payload);
-  if (ev.data &amp;&amp; ev.data.type === 'silkworm-preview/request-data') pushTrajToParent();
+  if (ev.data && ev.data.type === 'silkworm-preview/v1') ingestPayload(ev.data);
+  if (ev.data && ev.data.type === 'silkworm-preview-push') ingestPayload(ev.data.payload);
+  if (ev.data && ev.data.type === 'silkworm-preview/request-data') pushTrajToParent();
 });
 
 window.addEventListener('resize', () => draw());
@@ -2755,7 +2755,7 @@ function readConditions() {
 }
 
 function formatConditions(c) {
-  if (!c || (!c.recordedAt &amp;&amp; c.temperatureC == null &amp;&amp; c.humidity == null)) return '未填写实验条件';
+  if (!c || (!c.recordedAt && c.temperatureC == null && c.humidity == null)) return '未填写实验条件';
   const when = c.recordedAt ? String(c.recordedAt).replace('T', ' ') : '时间未填';
   const temp = c.temperatureC == null ? '温度未填' : c.temperatureC + ' °C';
   const hum = c.humidity == null ? '湿度未填' : c.humidity + '%';
@@ -2854,7 +2854,7 @@ function applyStudioPreview(preview) {
   setCheck('showResidue', preview.showResidue);
   setCheck('showPts', preview.showPts);
   setCheck('showBeh', preview.showBeh);
-  if (preview.trajectories &amp;&amp; preview.trajectories.length) {
+  if (preview.trajectories && preview.trajectories.length) {
     setTrajectoryList({
       trajectories: preview.trajectories,
       behaviorBoxes: preview.behaviorBoxes || [],
@@ -2894,7 +2894,7 @@ function saveStudioProject() {
 }
 
 function loadStudioProject(e) {
-  const f = e.target.files &amp;&amp; e.target.files[0];
+  const f = e.target.files && e.target.files[0];
   if (!f) return;
   const reader = new FileReader();
   reader.onload = () => {
@@ -2916,14 +2916,14 @@ function loadStudioProject(e) {
         });
         if (trajectories.length) ingestPayload({ type: 'silkworm-preview/v1', trajectories, behaviorBoxes, provenance: 'measured' });
       }
-      if (data.habitat &amp;&amp; window.parent !== window) window.parent.postMessage({ type: 'silkworm-habitat/import', habitat: data.habitat }, '*');
+      if (data.habitat && window.parent !== window) window.parent.postMessage({ type: 'silkworm-habitat/import', habitat: data.habitat }, '*');
       if (data.schema === 'silkworm-studio/project' || Object.prototype.hasOwnProperty.call(data, 'conditions')) {
         applyConditions(data.conditions || null);
         if (window.parent !== window) {
           window.parent.postMessage({ type: 'silkworm-studio/conditions', conditions: readConditions() }, '*');
         }
       }
-      if (!data.preview &amp;&amp; !data.habitat &amp;&amp; !data.conditions &amp;&amp; !data.trajectories &amp;&amp; !data.worms &amp;&amp; !data.curves &amp;&amp; !data.unifiedTrajectories) {
+      if (!data.preview && !data.habitat && !data.conditions && !data.trajectories && !data.worms && !data.curves && !data.unifiedTrajectories) {
         alert('这个 JSON 里没有可载入的工程、轨迹或蚕室数据');
       }
     } catch (err) {
@@ -2946,10 +2946,10 @@ window.addEventListener('message', (ev) => {
   }
   if (ev.data.type === 'silkworm-studio/import') {
     applyStudioPreview(ev.data.preview);
-    if (ev.data.habitat &amp;&amp; window.parent !== window) window.parent.postMessage({ type: 'silkworm-habitat/import', habitat: ev.data.habitat }, '*');
+    if (ev.data.habitat && window.parent !== window) window.parent.postMessage({ type: 'silkworm-habitat/import', habitat: ev.data.habitat }, '*');
     if (ev.data.conditions) applyConditions(ev.data.conditions);
   }
-  if (ev.data.type === 'silkworm-studio/conditions' &amp;&amp; ev.data.conditions) {
+  if (ev.data.type === 'silkworm-studio/conditions' && ev.data.conditions) {
     applyConditions(ev.data.conditions);
   }
 });
@@ -6305,7 +6305,7 @@ showSplitPreview();
     if (cell.notch && Math.hypot(x - cell.notch.cx, y - cell.notch.cy) < cell.notch.r + m) return false;
     // 手画的缺口：任意闭合多边形（不是圆），内侧与贴边都算不能织
     if (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3) {
-      const cv = weaveNotchCurve(cell.notchPts);
+      const cv = cell._notchCurve || (cell._notchCurve = weaveNotchCurve(cell.notchPts));
       if (weaveInPoly(cv, x, y) || weavePolyDist(cv, x, y) < m) return false;
     }
     const islands = cell.islands || (cell.island ? [cell.island] : []);
@@ -6360,9 +6360,20 @@ showSplitPreview();
   function weaveCellSpec(agent) { return weaveCellSpecAt(agent, 0, 0, (agent.seed >>> 0) || 1); }
 
   function weaveSDF(cell, x, y) {
-    let d = Math.max(Math.abs(x) - cell.w / 2, Math.abs(y) - cell.h / 2);
+    let d;
+    if (cell.outline && cell.outline.length >= 3) {
+      const od = weavePolyDist(cell.outline, x, y);
+      d = weaveInPoly(cell.outline, x, y) ? -od : od;
+    } else {
+      d = Math.max(Math.abs(x) - cell.w / 2, Math.abs(y) - cell.h / 2);
+    }
     if (cell.notch) {
       d = Math.max(d, -(Math.hypot(x - cell.notch.cx, y - cell.notch.cy) - cell.notch.r));
+    }
+    if (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3) {
+      const cv = cell._notchCurve || (cell._notchCurve = weaveNotchCurve(cell.notchPts));
+      const nd = weavePolyDist(cv, x, y);
+      d = Math.max(d, weaveInPoly(cv, x, y) ? nd : -nd);
     }
     const islands = cell.islands || (cell.island ? [cell.island] : []);
     for (let k = 0; k < islands.length; k++) {
@@ -6692,21 +6703,35 @@ showSplitPreview();
     const cwHalf = Math.max(8, cell.w / 2 - 1.2), chHalf = Math.max(8, cell.h / 2 - 1.2);
     const holeCenters = (cell.islands || (cell.island ? [cell.island] : []))
       .concat(cell.notch ? [cell.notch] : []);
-    const clampRect = (x, y) => ({
-      x: Math.max(-cwHalf, Math.min(cwHalf, x)),
-      y: Math.max(-chHalf, Math.min(chHalf, y)),
-    });
+    const clampCell = (x, y) => {
+      let qx = Math.max(-cwHalf, Math.min(cwHalf, x));
+      let qy = Math.max(-chHalf, Math.min(chHalf, y));
+      const poly = cell.outline;
+      if (poly && poly.length >= 3 && !weaveInPoly(poly, qx, qy)) {
+        let bx = qx, by = qy, bd = Infinity;
+        for (let k = 0; k < poly.length; k++) {
+          const a = poly[k], b = poly[(k + 1) % poly.length];
+          const ex = b.x - a.x, ey = b.y - a.y, ll = ex * ex + ey * ey || 1;
+          const t = Math.max(0, Math.min(1, ((qx - a.x) * ex + (qy - a.y) * ey) / ll));
+          const cx1 = a.x + ex * t, cy1 = a.y + ey * t, dd = Math.hypot(qx - cx1, qy - cy1);
+          if (dd < bd) { bd = dd; bx = cx1; by = cy1; }
+        }
+        qx = bx; qy = by;
+      }
+      return { x: qx, y: qy };
+    };
     const nearHole = (x, y) => holeCenters.some(o => Math.hypot(x - o.cx, y - o.cy) < o.r + 9)
-      || (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3 && weavePolyDist(weaveNotchCurve(cell.notchPts), x, y) < 9);
+      || (cell.outline && cell.outline.length >= 3 && weavePolyDist(cell.outline, x, y) < 9)
+      || (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3 && weavePolyDist(cell._notchCurve || (cell._notchCurve = weaveNotchCurve(cell.notchPts)), x, y) < 9);
     paths.forEach(p => {
       const src = p.pts;
       const out = [];
       for (let i = 0; i < src.length; i++) {
-        const q = clampRect(src[i].x, src[i].y);
+        const q = clampCell(src[i].x, src[i].y);
         const proj = weaveWallProject(cell, q.x, q.y, 1.6);
-        const c = proj || q;
+        const c = proj ? clampCell(proj.x, proj.y) : q;
         const prev = out.length ? out[out.length - 1] : null;
-        if (prev && holeCenters.length && (nearHole(prev.x, prev.y) || nearHole(c.x, c.y))) {
+        if (prev && (holeCenters.length || cell.outline || cell.notchPts) && (nearHole(prev.x, prev.y) || nearHole(c.x, c.y))) {
           // 两个点都在孔附近：中间插入若干点，逐点贴回孔缘，避免一根弦横穿孔洞
           const seg = Math.hypot(c.x - prev.x, c.y - prev.y);
           const n = Math.max(1, Math.min(24, Math.ceil(seg / 4)));
@@ -6714,7 +6739,7 @@ showSplitPreview();
             const t = k / n;
             const mx = prev.x + (c.x - prev.x) * t, my = prev.y + (c.y - prev.y) * t;
             const pr = weaveWallProject(cell, mx, my, 1.6);
-            out.push(pr || { x: mx, y: my });
+            out.push(pr ? clampCell(pr.x, pr.y) : clampCell(mx, my));
           }
         }
         out.push(c);
@@ -7046,7 +7071,7 @@ showSplitPreview();
     }
     // 手画的缺口（闭合多边形）：把点推到多边形外面，最近的那条边上
     if (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3) {
-      const pts = weaveNotchCurve(cell.notchPts);
+      const pts = cell._notchCurve || (cell._notchCurve = weaveNotchCurve(cell.notchPts));
       const inside = weaveInPoly(pts, x, y);
       const d = weavePolyDist(pts, x, y);
       if (inside || d < p) {
@@ -7091,7 +7116,7 @@ showSplitPreview();
     islands.forEach(isl => test(isl.cx, isl.cy, isl.r));
     if (cell.notch) test(cell.notch.cx, cell.notch.cy, cell.notch.r);
     if (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3) {
-      const pts = weaveNotchCurve(cell.notchPts);
+      const pts = cell._notchCurve || (cell._notchCurve = weaveNotchCurve(cell.notchPts));
       const inside = weaveInPoly(pts, x, y);
       const d = weavePolyDist(pts, x, y);
       if (inside || d < 6) {
@@ -8974,8 +8999,12 @@ showSplitPreview();
       habitat.simTime += dt;
       step(dt);
     }
-    paintMist();
-    paintWorld();
+    const wr = world ? world.getBoundingClientRect() : null;
+    const habVisible = !!(wr && wr.width > 0 && wr.height > 0 && wr.bottom > 0 && wr.top < window.innerHeight && wr.right > 0 && wr.left < window.innerWidth);
+    if (habVisible) {
+      paintMist();
+      paintWorld();
+    }
     renderDrive();
     requestAnimationFrame(frame);
   }
@@ -11838,7 +11867,7 @@ showSplitPreview();
 })();
 </script>
 <script>
-/* ===== r43 识别升级：自由版式（连通域）+ 圆/轮廓双通道 + 局部阈值 + 校对（独立模块，不改既有函数） ===== */
+/* ===== r47 轮廓保真识别（基于 r43）：自由版式（连通域）+ 圆/轮廓双通道 + 局部阈值 + 校对（独立模块，不改既有函数） ===== */
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
@@ -11890,11 +11919,24 @@ showSplitPreview();
       const w = b.w * v.s, h = b.h * v.s;
       const weak = b.present && b.conf < 0.55;
       octx.save();
-      octx.strokeStyle = !b.present ? 'rgba(255,120,120,0.45)' : (weak ? 'rgba(240,200,90,0.95)' : 'rgba(121,203,182,0.95)');
-      octx.lineWidth = weak ? 1.6 : 1.2;
-      octx.setLineDash(b.present ? (weak ? [5, 3] : []) : [4, 4]);
+      const col = !b.present ? 'rgba(255,120,120,0.45)' : (weak ? 'rgba(240,200,90,0.95)' : 'rgba(121,203,182,0.95)');
+      // 外接矩形只作位置参考；真正的单元按丝面外轮廓画
+      octx.strokeStyle = !b.present ? col : 'rgba(121,203,182,0.20)';
+      octx.lineWidth = 0.8;
+      octx.setLineDash([3, 4]);
       octx.strokeRect(x, y, w, h);
-      if (b.present) { octx.fillStyle = 'rgba(121,203,182,0.05)'; octx.fillRect(x, y, w, h); }
+      octx.restore();
+      octx.save();
+      octx.strokeStyle = col;
+      octx.lineWidth = weak ? 1.7 : 1.35;
+      octx.setLineDash(b.present ? (weak ? [5, 3] : []) : [4, 4]);
+      if (b.present && b.outline && b.outline.length >= 3) {
+        drawPoly(b.outline.map(p => [v.px(b.wx + p.x), v.py(b.wy + p.y)]), true);
+        octx.fillStyle = 'rgba(121,203,182,0.07)'; octx.fill(); octx.stroke();
+      } else if (b.present) {
+        octx.strokeRect(x, y, w, h);
+        octx.fillStyle = 'rgba(121,203,182,0.05)'; octx.fillRect(x, y, w, h);
+      }
       octx.restore();
       (b.polys || []).forEach(poly => {
         octx.save();
@@ -11919,6 +11961,14 @@ showSplitPreview();
   }
   requestAnimationFrame(paint);
 
+  function pointInPoly(pts, x, y) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[i], b = pts[j];
+      if (((a.y > y) !== (b.y > y)) && x < (b.x - a.x) * (y - a.y) / ((b.y - a.y) || 1e-9) + a.x) inside = !inside;
+    }
+    return inside;
+  }
   // 校对模式：点预览框 = 这块要 / 不要
   ov.addEventListener('pointerdown', (e) => {
     if (!state.pick) return;
@@ -11930,7 +11980,9 @@ showSplitPreview();
     let best = null, bd = Infinity;
     (state.boxes || []).forEach(b => {
       const d = Math.abs(wx - b.wx) / b.w + Math.abs(wy - b.wy) / b.h;
-      if (Math.abs(wx - b.wx) <= b.w / 2 && Math.abs(wy - b.wy) <= b.h / 2 && d < bd) { bd = d; best = b; }
+      const inBox = Math.abs(wx - b.wx) <= b.w / 2 && Math.abs(wy - b.wy) <= b.h / 2;
+      const hit = inBox && (!b.outline || pointInPoly(b.outline, wx - b.wx, wy - b.wy));
+      if (hit && d < bd) { bd = d; best = b; }
     });
     if (best) { best.present = !best.present; best.conf = 1; }
   });
@@ -12149,6 +12201,87 @@ showSplitPreview();
     return out.filter(r => (r.maxX - r.minX + 1) >= MIN && (r.maxY - r.minY + 1) >= MIN);
   }
 
+  /* ---------- 距离变换找圆：分隔线把洞与背景连住也能认 ---------- */
+  function distanceCircles(dm, gray, W, H2, x0, y0, imgW, minFrac) {
+    const N = W * H2, d = new Float32Array(N), INF = 1e6;
+    for (let i = 0; i < N; i++) d[i] = dm[i] ? INF : 0;
+    const relax = (i, v) => { if (v < d[i]) d[i] = v; };
+    for (let y = 0; y < H2; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x; if (!d[i]) continue;
+      if (x === 0 || y === 0) d[i] = 1;
+      if (x > 0) relax(i, d[i - 1] + 1);
+      if (y > 0) relax(i, d[i - W] + 1);
+      if (x > 0 && y > 0) relax(i, d[i - W - 1] + 1.4142);
+      if (x < W - 1 && y > 0) relax(i, d[i - W + 1] + 1.4142);
+    }
+    for (let y = H2 - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) {
+      const i = y * W + x; if (!d[i]) continue;
+      if (x === W - 1 || y === H2 - 1 && d[i] > 1) d[i] = 1;
+      if (x < W - 1) relax(i, d[i + 1] + 1);
+      if (y < H2 - 1) relax(i, d[i + W] + 1);
+      if (x < W - 1 && y < H2 - 1) relax(i, d[i + W + 1] + 1.4142);
+      if (x > 0 && y < H2 - 1) relax(i, d[i + W - 1] + 1.4142);
+    }
+    const minR = Math.max(20, Math.min(W, H2) * 0.24, Math.sqrt(minFrac * W * H2 / Math.PI) * 1.10);
+    const cand = [];
+    for (let y = 1; y < H2 - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x, r = d[i];
+      if (r < minR || r > Math.max(W, H2) * 0.72) continue;
+      let peak = true;
+      for (let dy = -2; dy <= 2 && peak; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= W || yy >= H2) continue;
+        if (d[yy * W + xx] > r + 0.01) { peak = false; break; }
+      }
+      if (peak) cand.push({ x, y, r: r * 0.96 });
+    }
+    cand.sort((a, b) => b.r - a.r);
+    const out = [];
+    for (const c of cand) {
+      if (out.some(o => Math.hypot(o.x - c.x, o.y - c.y) < Math.max(o.r, c.r) * 1.05)) continue;
+      // 圆内暗、圆外亮；压边圆只统计仍在格内的采样点
+      let inside = 0, outside = 0, ni = 0, no = 0;
+      for (let k = 0; k < 24; k++) {
+        const a = k * Math.PI * 2 / 24, ca = Math.cos(a), sa = Math.sin(a);
+        const xi = Math.round(c.x + ca * c.r * 0.55), yi = Math.round(c.y + sa * c.r * 0.55);
+        if (xi >= 0 && yi >= 0 && xi < W && yi < H2) { inside += gray[(y0 + yi) * imgW + x0 + xi]; ni++; }
+        const xo = Math.round(c.x + ca * c.r * 1.22), yo = Math.round(c.y + sa * c.r * 1.22);
+        if (xo >= 0 && yo >= 0 && xo < W && yo < H2) { outside += gray[(y0 + yo) * imgW + x0 + xo]; no++; }
+      }
+      if (ni < 10 || no < 7 || outside / no < inside / ni + 10) continue;
+      out.push(c);
+      if (out.length >= 2) break;
+    }
+    return out;
+  }
+
+  /* ---------- 丝面外轮廓：不是外接矩形 ---------- */
+  function largestMask(src, W, H2) {
+    const seen = new Uint8Array(W * H2), stack = [];
+    let best = null;
+    for (let i = 0; i < src.length; i++) {
+      if (!src[i] || seen[i]) continue;
+      let minX = W, maxX = 0, minY = H2, maxY = 0;
+      const pix = [];
+      stack.length = 0; stack.push(i); seen[i] = 1;
+      while (stack.length) {
+        const q = stack.pop(), x = q % W, y = (q - x) / W;
+        pix.push(q);
+        if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+        if (x > 0 && src[q - 1] && !seen[q - 1]) { seen[q - 1] = 1; stack.push(q - 1); }
+        if (x < W - 1 && src[q + 1] && !seen[q + 1]) { seen[q + 1] = 1; stack.push(q + 1); }
+        if (y > 0 && src[q - W] && !seen[q - W]) { seen[q - W] = 1; stack.push(q - W); }
+        if (y < H2 - 1 && src[q + W] && !seen[q + W]) { seen[q + W] = 1; stack.push(q + W); }
+      }
+      if (!best || pix.length > best.pix.length) best = { pix, minX, maxX, minY, maxY };
+    }
+    if (!best) return null;
+    const mask = new Uint8Array(W * H2);
+    best.pix.forEach(q => { mask[q] = 1; });
+    best.mask = mask;
+    return best;
+  }
+
   /* ---------- 主流程：自由版式 ---------- */
   function analyseAuto() {
     const im = state.img;
@@ -12212,14 +12345,55 @@ showSplitPreview();
         cov, ci: idx, ri: 0, islands: [], polys: [],
       };
       boxes.push(b);
-      if (!b.present || (!wantHoles && !wantNotch)) return;
+      if (!b.present) return;
+
+      // 先用稍糊的亮丝图取最大连通丝面，描它自己的外缘。
+      // 与 mask（细丝覆盖率）分开：外缘要连成面，不能用一根根细丝直接描。
+      const solid = new Uint8Array(W * H2);
+      const outerThr = Math.max(16, glob * 0.34);
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W; x++) {
+        solid[y * W + x] = bg[(y0 + y) * w + (x0 + x)] > outerThr ? 1 : 0;
+      }
+      // 只补 1px 小断口，不把大圆弧洞填掉
+      const closed = morph(morph(solid, W, H2, 1, true), W, H2, 1, false);
+      const outer = largestMask(closed, W, H2);
+      if (outer && outer.pix.length >= Math.max(30, W * H2 * 0.035)) {
+        let start = -1;
+        for (let k = 0; k < outer.pix.length; k++) { const q = outer.pix[k]; if ((q % W) === outer.minX) { start = q; break; } }
+        if (start >= 0) {
+          const contour = trace(outer.mask, W, H2, start);
+          let per = 0;
+          for (let k = 0; k < contour.length; k++) { const p = contour[k], q = contour[(k + 1) % contour.length]; per += Math.hypot(q[0] - p[0], q[1] - p[1]); }
+          let pts = rdp(contour, Math.max(0.85, per / 320));
+          if (pts.length > 64) pts = rdp(contour, Math.max(1.15, per / 220));
+          if (pts.length > 80) pts = rdp(contour, Math.max(1.5, per / 160));
+          if (pts.length >= 3 && pts.length <= 80) {
+            b.outline = pts.map(p => ({ x: (p[0] - W / 2) * scale, y: (p[1] - H2 / 2) * scale }));
+            b.outlineArea = outer.pix.length / (W * H2);
+          }
+        }
+      }
+      if (!wantHoles && !wantNotch) return;
       b.polys = [];
 
       // 格内暗区 → 圆孔 或 任意轮廓缺口
       // 孔洞用"糊过的灰度"判定：丝线本身的细缝不会被当成洞
       const holeThr = Math.max(18, glob * 0.55);
-      const dm = new Uint8Array(W * H2);
-      for (let y = 0; y < H2; y++) for (let x = 0; x < W; x++) dm[y * W + x] = bg[(y0 + y) * w + (x0 + x)] < holeThr ? 1 : 0;
+      const dm = new Uint8Array(W * H2), localGray = new Float32Array(W * H2);
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W; x++) localGray[y * W + x] = bg[(y0 + y) * w + (x0 + x)];
+      // 每块单独分阈值：参考图里有些圆是纯黑，有些盖着灰雾，不能用同一条黑线。
+      const localThr = Math.min(120, Math.max(holeThr, otsu(localGray) * 0.90));
+      for (let i = 0; i < dm.length; i++) dm[i] = localGray[i] < localThr ? 1 : 0;
+      const circles = distanceCircles(dm, bg, W, H2, x0, y0, w, minHoleFrac);
+      circles.forEach(c => {
+        if (b.outline && !pointInPoly(b.outline, (c.x - W / 2) * scale, (c.y - H2 / 2) * scale)) return;
+        const touch = c.x - c.r <= 1 || c.y - c.r <= 1 || c.x + c.r >= W - 2 || c.y + c.r >= H2 - 2;
+        if (touch ? !wantNotch : !wantHoles) return;
+        const isl = { cx: (c.x - W / 2) * scale, cy: (c.y - H2 / 2) * scale, r: c.r * scale };
+        b.islands.push(isl);
+        holes.push({ wx: b.wx + isl.cx, wy: b.wy + isl.cy, wr: isl.r });
+        holeN++;
+      });
       const seen = new Uint8Array(W * H2), stack = [];
       const area = W * H2;
       for (let i = 0; i < dm.length; i++) {
@@ -12240,7 +12414,8 @@ showSplitPreview();
         const frac = cnt / area;
         if (frac < minHoleFrac) continue;
         const touch = minX === 0 || minY === 0 || maxX === W - 1 || maxY === H2 - 1;
-        if (touch && frac > 0.62) continue;               // 块外背景，不是咬口
+        // 非圆暗区只有中心位于轮廓内才算内部缺口；圆形压边洞在下方单独保留。
+        if (touch && frac > 0.62 && !b.outline) continue;               // 块外背景，不是咬口
         if (!touch && frac > 0.80) continue;              // 整块都是暗的，按无丝处理
         const bw = maxX - minX + 1, bh = maxY - minY + 1;
         const extent = cnt / (bw * bh), aspect = bw / Math.max(1, bh);
@@ -12254,15 +12429,13 @@ showSplitPreview();
         let per = 0;
         for (let k = 0; k < contour.length; k++) { const p = contour[k], q = contour[(k + 1) % contour.length]; per += Math.hypot(q[0] - p[0], q[1] - p[1]); }
         const circ = per > 0 ? (4 * Math.PI * cnt) / (per * per) : 0;
-        const isCircle = circ > 0.72 && extent > 0.55 && aspect > 0.6 && aspect < 1.65;
-        const lcx = sx / cnt - W / 2, lcy = sy / cnt - H2 / 2;
-        if (isCircle && (touch ? wantNotch : wantHoles)) {
-          const r = Math.sqrt(cnt / Math.PI) * scale;
-          const isl = { cx: lcx * scale, cy: lcy * scale, r };
-          b.islands.push(isl);
-          holes.push({ wx: b.wx + isl.cx, wy: b.wy + isl.cy, wr: r });
-          holeN++;
-        } else if (wantNotch && circ >= 0.38) {
+        // 已被距离变换圆代表的暗区，不再重复生成轮廓或圆孔
+        if (circles.some(c => c.x >= minX - 2 && c.x <= maxX + 2 && c.y >= minY - 2 && c.y <= maxY + 2)) continue;
+        if (b.outline) {
+          const pcx = (sx / cnt - W / 2) * scale, pcy = (sy / cnt - H2 / 2) * scale;
+          if (!pointInPoly(b.outline, pcx, pcy)) continue;
+        }
+        if (wantNotch && circ >= 0.38) {
           let pts = rdp(contour, Math.max(1.1, per / 220));
           if (pts.length > 26) pts = rdp(contour, Math.max(1.6, per / 130));
           if (pts.length < 3 || pts.length > 30) continue;
@@ -12280,7 +12453,8 @@ showSplitPreview();
     state.holes = holes;
     state.grid = { cols: 0, rows: 0, present: boxes.filter(b => b.present).length, free: true };
     const weak = boxes.filter(b => b.present && b.conf < 0.55).length;
-    say('按真实轮廓找到 ' + boxes.length + ' 块（' + state.grid.present + ' 块有丝，每块大小位置各自独立）；圆孔 ' + holeN + ' 个、曲线缺口 ' + polyN + ' 个。' +
+    const outlines = boxes.filter(b => b.present && b.outline).length;
+    say('按真实轮廓找到 ' + boxes.length + ' 块（' + state.grid.present + ' 块有丝，' + outlines + ' 块已描出外轮廓）；圆孔 ' + holeN + ' 个、内部曲线缺口 ' + polyN + ' 个。' +
       (weak ? weak + ' 块把握不高（黄色虚线），可点「点预览框补块 / 去块」校对。' : '可叠加原图核对后再生成。'));
   }
 
@@ -12310,10 +12484,13 @@ showSplitPreview();
       if (list.length <= before) return;
       const u = list[list.length - 1];
       // 不强行拉宽：参考图里本来就有窄条，硬拉到 80 会把版式改样
-      u.w = Math.max(40, Math.round(b.w));
-      u.h = Math.max(40, Math.round(b.h));
+      u.w = Math.max(12, Math.round(b.w));
+      u.h = Math.max(12, Math.round(b.h));
       u.x = Math.round(b.wx); u.y = Math.round(b.wy);
       u.tileField = false; u.shape = 'plain';
+      u.outline = (b.outline && b.outline.length >= 3)
+        ? b.outline.map(p => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 }))
+        : null;
       u.seed = 1000 + i * 37;
       u.custom = u.custom || { walls: {}, paths: {}, shapes: {} };
       const sh = {};
@@ -12334,7 +12511,7 @@ showSplitPreview();
     });
     state.pick = false; ov.style.pointerEvents = 'none';
     const btn = $('habRecPick'); if (btn) btn.textContent = '点预览框补块 / 去块';
-    say('已生成 ' + made + ' 块（每块尺寸与位置按图摆放），圆孔 ' + holes + ' 个、曲线缺口 ' + polys + ' 条。可直接拖锚点微调，Ctrl+Z 可撤销。');
+    say('已生成 ' + made + ' 块（尺寸、位置和外轮廓按图摆放），圆孔 ' + holes + ' 个、曲线缺口 ' + polys + ' 条。可直接拖锚点微调，Ctrl+Z 可撤销。');
   }
 
   REC().analyse = analyse;
