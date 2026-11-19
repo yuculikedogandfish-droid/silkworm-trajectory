@@ -12003,7 +12003,8 @@ showSplitPreview();
       await new Promise(resolve => {
         const step = () => {
           const el = (performance.now() - t0) / 1000;
-          const f = Math.min(total, Math.floor(el * fps));
+          // 帧号夹在 0..total-1：第 total 帧就是起点那一帧，多画一帧会把 T 推到 1 之外
+          const f = Math.min(total - 1, Math.floor(el * fps));
           if (f !== lastFrame) {
             ledComposeFrame(g, scene, f / Math.max(1, total - 1), false, W, H, cache);
             lastFrame = f;
