@@ -3030,8 +3030,8 @@ if (window.parent !== window) {
       <label class="row"><input type="checkbox" id="habHideAllSilk"> 隐藏所有丝迹（只留蚕）</label>
       <h3>丝线与蚕的观感</h3>
       <div class="row"><label>蚕大小</label><input type="range" id="habWormSize" min="0.5" max="2" step="0.05" value="1"><span class="hab-note" id="habWormSizeVal" style="margin:0">1.00×</span></div>
-      <div class="row"><label>重复密度</label><input type="range" id="habPathBoost" min="1" max="5" step="0.1" value="1"><span class="hab-note" id="habPathBoostVal" style="margin:0">1.0×</span></div>
-      <div class="row"><label>丝线粗细</label><input type="range" id="habSilkWidth" min="0.3" max="2.2" step="0.1" value="1"><span class="hab-note" id="habSilkWidthVal" style="margin:0">0.7</span></div>
+      <div class="row"><label>重复密度</label><input type="range" id="habPathBoost" min="0.5" max="3" step="0.1" value="1"><span class="hab-note" id="habPathBoostVal" style="margin:0">1.0×</span></div>
+      <div class="row"><label>丝线粗细</label><input type="range" id="habSilkWidth" min="0.3" max="2.2" step="0.1" value="1"><span class="hab-note" id="habSilkWidthVal" style="margin:0">1.0</span></div>
       <div class="row"><label>丝线亮度</label><input type="range" id="habSilkGain" min="0.3" max="2.5" step="0.1" value="1"><span class="hab-note" id="habSilkGainVal" style="margin:0">1.0×</span></div>
       <div class="row"><label>丝线观感</label><select id="habSilkMode">
         <option value="silk" selected>真丝（默认）</option>
@@ -3039,6 +3039,19 @@ if (window.parent !== window) {
         <option value="bright">亮银</option>
         <option value="ink">淡墨</option>
       </select></div>
+      <h3>模拟编排</h3>
+      <p class="hab-note">整场怎么开始：同时起织 / 按顺序每隔 N 秒起一块 / 逐块手填开始秒。</p>
+      <div class="row"><label>出场方式</label><select id="habTlMode">
+        <option value="all" selected>同时开始</option>
+        <option value="sequence">按顺序依次开始</option>
+        <option value="manual">手动逐块</option>
+      </select></div>
+      <div class="row"><label>顺序间隔</label><input type="number" id="habTlInterval" min="0" max="30" step="0.5" value="2" style="width:64px"> 秒</div>
+      <div class="row"><label>全场速度</label><input type="number" id="habTlSpeed" min="0.25" max="2" step="0.05" value="0.8" style="width:64px"> ×</div>
+      <div class="row"><label>片尾静止</label><input type="number" id="habTlTail" min="0" max="10" step="0.5" value="3" style="width:64px"> 秒</div>
+      <div class="row"><label>模拟区间</label><input type="number" id="habTlStart" min="0" max="600" step="0.5" value="0" style="width:60px"> → <input type="number" id="habTlEnd" min="0.5" max="600" step="0.5" style="width:68px"> 秒</div>
+      <div class="row"><button type="button" id="habTlAdopt">采用建议终点</button></div>
+      <p class="hab-note" id="habTlNote">建议终点 —</p>
       <h3>实测轨迹入室</h3>
       <p class="hab-note">描图器里描好的蚕会自动进场地；拖进某一格，它就只在这一格里爬。</p>
       <button type="button" id="habImportTraj">重新同步实测轨迹</button>
@@ -3087,7 +3100,8 @@ if (window.parent !== window) {
           <option value="2419x1360">2419×1360（旧母版 16:9）</option>
           <option value="custom">自定义…</option>
         </select>
-        <select id="habVidSec">
+        <select id="habVidSec" title="有模拟区间时视频长度自动等于区间长度，这里只是没有区间时的兜底">
+          <option value="auto" selected>跟随模拟区间</option>
           <option value="5">5 秒</option>
           <option value="10" selected>10 秒</option>
           <option value="20">20 秒</option>
@@ -3164,6 +3178,14 @@ if (window.parent !== window) {
       <div class="row"><label>缩放</label><input type="range" id="habAdjScale" min="0.3" max="2" step="0.05"><span class="hab-adj-val" id="habAdjScaleVal">1.00</span></div>
       <div class="row"><label>速度倍率</label><input type="range" id="habAdjSpeed" min="0.1" max="3" step="0.05" value="1"><span class="hab-adj-val" id="habAdjSpeedVal">1.00×</span></div>
       <div id="habWeavePanel" hidden>
+        <h3>出场与时长</h3>
+        <div class="row"><label>出场顺序</label><input type="number" id="habUnitOrder" min="0" max="999" step="1" style="width:64px"><span class="hab-note" id="habUnitStart" style="margin:0"></span></div>
+        <div class="row"><label>织造时长</label><input type="number" id="habUnitDuration" min="2" max="120" step="0.5" style="width:64px"> 秒</div>
+        <div class="row"><label>缩短时</label><select id="habUnitShort">
+          <option value="cut">到点截断（少织）</option>
+          <option value="compress">压缩织满（更快）</option>
+        </select></div>
+        <p class="hab-note" id="habUnitDurationNote">有效时长 —</p>
         <div class="row"><label>格子宽</label><input type="range" id="habWeaveW" min="80" max="1200" step="10" value="200"><span class="hab-adj-val" id="habWeaveWVal">200px</span></div>
         <div class="row"><label>格子高</label><input type="range" id="habWeaveH" min="80" max="1200" step="10" value="200"><span class="hab-adj-val" id="habWeaveHVal">200px</span></div>
         <div class="row"><label>覆盖率</label><input type="range" id="habWeaveCov" min="0.15" max="0.85" step="0.05" value="0.55"><span class="hab-adj-val" id="habWeaveCovVal">0.55</span></div>
@@ -3173,6 +3195,20 @@ if (window.parent !== window) {
         <div class="row"><label>分层</label><input type="range" id="habWeaveStrata" min="1" max="3" step="1" value="2"><span class="hab-adj-val" id="habWeaveStrataVal">2</span></div>
         <div class="row"><label>块亮度</label><input type="range" id="habWeaveTone" min="0.4" max="1.2" step="0.02" value="0.85"><span class="hab-adj-val" id="habWeaveToneVal">0.85</span></div>
         <div class="row"><label>块缝</label><input type="range" id="habWeaveGap" min="0" max="40" step="2" value="6"><span class="hab-adj-val" id="habWeaveGapVal">6</span></div>
+        <h3>这一块的丝线外观</h3>
+        <p class="hab-note">默认跟随左栏全局；拖动任一滑条即转为本块独立设置，只影响这一块。</p>
+        <label class="row"><input type="checkbox" id="habUnitFollow" checked> 跟随全局</label>
+        <div class="row"><label>重复密度</label><input type="range" id="habUnitBoost" min="0.5" max="3" step="0.1" value="1"><span class="hab-adj-val" id="habUnitBoostVal">1.0×</span></div>
+        <div class="row"><label>丝线粗细</label><input type="range" id="habUnitWidth" min="0.3" max="2.2" step="0.1" value="1"><span class="hab-adj-val" id="habUnitWidthVal">1.0</span></div>
+        <div class="row"><label>丝线亮度</label><input type="range" id="habUnitGain" min="0.3" max="2.5" step="0.1" value="1"><span class="hab-adj-val" id="habUnitGainVal">1.0×</span></div>
+        <div class="row"><label>丝线观感</label><select id="habUnitMode">
+          <option value="">跟随全局</option>
+          <option value="silk">真丝</option>
+          <option value="matte">哑光</option>
+          <option value="bright">亮银</option>
+          <option value="ink">淡墨</option>
+        </select></div>
+        <div class="row"><button type="button" id="habUnitRestore">恢复跟随全局</button></div>
         <div class="row"><label>形状</label><select id="habWeaveShape">
           <option value="plain">矩形</option>
           <option value="notch">缺角</option>
@@ -3248,6 +3284,7 @@ if (window.parent !== window) {
     <button type="button" id="habStart">开始</button>
     <button type="button" id="habPause">暂停</button>
     <button type="button" id="habResume">继续</button>
+    <button type="button" id="habPreviewExit" hidden>退出预览</button>
     <label class="hab-timeline" title="拖动滑块 = 直接跳到这个时刻并暂停">
       <input type="range" id="habTime" min="0" max="60" step="0.1" value="0">
     </label>
@@ -6071,6 +6108,12 @@ showSplitPreview();
     mistPhase: 0,
     showGrid: true,
     weaveEdit: null,
+    // r49：全局丝线默认值。单元未覆盖的项一律继承这一套
+    silkDefaults: { pathBoost: 1, silkWidth: 1, silkGain: 1, silkMode: 'silk' },
+    // r49：模拟编排 / 时间区间。rangeEnd=null 表示「还没定」，此时跟随建议值；一旦填写或点采用就锁定
+    timeline: { mode: 'all', interval: 2, speed: 0.8, rangeStart: 0, rangeEnd: null, tail: 3 },
+    // r49：成品预览。为真时只画会出现在导出里的东西
+    finalPreview: false,
   };
 
   const habViewport = {
@@ -6646,6 +6689,270 @@ showSplitPreview();
   }
 
 
+  /* ===================== r49：丝线样式（全局默认 → 单元覆盖） ===================== */
+  // 四项样式是「织块」的通用语言：重复密度 / 丝线粗细 / 丝线亮度 / 丝线观感。
+  // 全局默认存在 habitat.silkDefaults；单元用自己的 style 覆盖，null = 继承。
+  const SILK_RANGE = {
+    pathBoost: { min: 0.5, max: 3.0, def: 1 },
+    silkWidth: { min: 0.3, max: 2.2, def: 1 },
+    silkGain: { min: 0.3, max: 2.5, def: 1 },
+  };
+  const SILK_MODES = ['silk', 'matte', 'bright', 'ink'];
+
+  function silkNum(v, k) {
+    const r = SILK_RANGE[k];
+    const n = Number.isFinite(v) ? v : r.def;
+    return Math.max(r.min, Math.min(r.max, n));
+  }
+
+  function silkModeOk(m) {
+    return SILK_MODES.indexOf(m) >= 0 ? m : null;
+  }
+
+  function silkDefaults() {
+    if (!habitat.silkDefaults || typeof habitat.silkDefaults !== 'object') habitat.silkDefaults = {};
+    const d = habitat.silkDefaults;
+    return {
+      pathBoost: silkNum(d.pathBoost != null ? d.pathBoost : habitat.pathBoost, 'pathBoost'),
+      silkWidth: silkNum(d.silkWidth != null ? d.silkWidth : habitat.silkWidth, 'silkWidth'),
+      silkGain: silkNum(d.silkGain != null ? d.silkGain : habitat.silkGain, 'silkGain'),
+      silkMode: silkModeOk(d.silkMode) || silkModeOk(habitat.silkMode) || 'silk',
+    };
+  }
+
+  // 回写全局默认，同时把旧字段同步成镜像，老代码（silkLook / step）照旧能读
+  function setSilkDefaults(patch) {
+    const d = silkDefaults();
+    const p = patch || {};
+    const hard = Object.prototype.hasOwnProperty.call(p, 'pathBoost');
+    Object.keys(p).forEach(k => {
+      if (k === 'silkMode') {
+        const m = silkModeOk(p.silkMode);
+        if (m) d.silkMode = m;
+      } else if (Object.prototype.hasOwnProperty.call(SILK_RANGE, k)) {
+        d[k] = silkNum(p[k], k);
+      }
+    });
+    habitat.silkDefaults = d;
+    habitat.pathBoost = d.pathBoost;
+    habitat.silkWidth = d.silkWidth;
+    habitat.silkGain = d.silkGain;
+    habitat.silkMode = d.silkMode;
+    // 密度改变要重织（content 变了）；粗细 / 亮度 / 观感只作废位图
+    invalidateWeaveSilk(hard ? 'content' : 'raster');
+    return d;
+  }
+
+  // 单元实际生效的样式：自己的覆盖值优先，否则继承全局
+  function resolveUnitStyle(agent) {
+    const g = silkDefaults();
+    const o = (agent && agent.style) || {};
+    return {
+      pathBoost: silkNum(o.pathBoost == null ? g.pathBoost : o.pathBoost, 'pathBoost'),
+      silkWidth: silkNum(o.silkWidth == null ? g.silkWidth : o.silkWidth, 'silkWidth'),
+      silkGain: silkNum(o.silkGain == null ? g.silkGain : o.silkGain, 'silkGain'),
+      silkMode: silkModeOk(o.silkMode) || g.silkMode,
+    };
+  }
+
+  // 四项全空 = 跟随全局
+  function unitFollowsGlobal(agent) {
+    const o = (agent && agent.style) || {};
+    return o.pathBoost == null && o.silkWidth == null && o.silkGain == null && o.silkMode == null;
+  }
+
+  // 观感 → 颜色与混合模式（与 silkLook 同一套口径）
+  function silkLookOf(st) {
+    const width = silkNum(st.silkWidth, 'silkWidth');
+    const gain = silkNum(st.silkGain, 'silkGain');
+    const mode = silkModeOk(st.silkMode) || 'silk';
+    if (mode === 'matte') return { width, gain, mode, comp: 'source-over', rgb: '206,212,208' };
+    if (mode === 'bright') return { width, gain, mode, comp: 'lighter', rgb: '244,248,244' };
+    if (mode === 'ink') return { width, gain, mode, comp: 'source-over', rgb: '168,182,176' };
+    return { width, gain, mode, comp: 'lighter', rgb: '226,230,228' };
+  }
+
+  // alpha = 基准值 × 亮度增益，夹进 [0,1]
+  function silkAlpha(base, lo, hi, gain) {
+    const v = Math.max(lo, Math.min(hi, base));
+    return Math.max(0, Math.min(1, v * (Number.isFinite(gain) ? gain : 1)));
+  }
+
+  // 样式变化后的缓存失效：密度 → 清整块 content；其余 → 只作废位图
+  function invalidateWeaveSilk(kind, agent) {
+    const list = agent ? [agent] : habitat.agents;
+    list.forEach(a => {
+      if (!a || a.kind !== 'weave') return;
+      if (!a.cache || typeof a.cache.forEach !== 'function') a.cache = new Map();
+      if (kind === 'content') {
+        a.cache.clear();
+      } else {
+        a.cache.forEach(c => { if (c) { c.raster = null; c.rasterKey = ''; } });
+      }
+    });
+  }
+
+  // 左栏四个控件的读数与滑条位置对齐（载入工程 / 初始化时调用）
+  function syncSilkControls() {
+    const d = silkDefaults();
+    const setR = (id, val, labId, txt) => {
+      const el = document.getElementById(id);
+      if (el) el.value = String(val);
+      const lab = document.getElementById(labId);
+      if (lab) lab.textContent = txt;
+    };
+    setR('habPathBoost', d.pathBoost, 'habPathBoostVal', d.pathBoost.toFixed(1) + '×');
+    setR('habSilkWidth', d.silkWidth, 'habSilkWidthVal', d.silkWidth.toFixed(1));
+    setR('habSilkGain', d.silkGain, 'habSilkGainVal', d.silkGain.toFixed(1) + '×');
+    const m = document.getElementById('habSilkMode');
+    if (m) m.value = d.silkMode;
+  }
+
+  /* ===================== r49：模拟编排与时间轴（唯一时间来源） =====================
+     约定：进度只从 unitProgressAt() 求值。播放、拖动、暂停、单帧、视频导出都调这里，
+     任何地方都不许再自己写 dt / 22 * speedScale 那套公式，否则拖动与播放会对不上。 */
+  const TL_DEF = { mode: 'all', interval: 2, speed: 0.8, rangeStart: 0, rangeEnd: null, tail: 3, rangeEndMax: 600 };
+  const TL_MODES = ['all', 'sequence', 'manual'];
+
+  function tl() {
+    if (!habitat.timeline || typeof habitat.timeline !== 'object') habitat.timeline = {};
+    const t = habitat.timeline;
+    if (TL_MODES.indexOf(t.mode) < 0) t.mode = TL_DEF.mode;
+    t.interval = Math.max(0, Math.min(30, Number.isFinite(t.interval) ? t.interval : TL_DEF.interval));
+    t.speed = Math.max(0.25, Math.min(2, Number.isFinite(t.speed) ? t.speed : TL_DEF.speed));
+    t.rangeStart = Math.max(0, Math.min(TL_DEF.rangeEndMax, Number.isFinite(t.rangeStart) ? t.rangeStart : 0));
+    t.tail = Math.max(0, Math.min(10, Number.isFinite(t.tail) ? t.tail : TL_DEF.tail));
+    if (!Number.isFinite(t.rangeEnd)) t.rangeEnd = null;
+    return t;
+  }
+
+  function weaveUnits() { return habitat.agents.filter(a => a.kind === 'weave'); }
+
+  function unitDurationSec(unit) {
+    const d = Number.isFinite(unit.duration) && unit.duration > 0 ? unit.duration : 22;
+    return Math.max(2, Math.min(120, d));
+  }
+
+  // 有效速度 = 单块倍率 × 全场速度（右栏倍率保留，与全局相乘）
+  function unitSpeedFactor(unit) {
+    const sp = Number.isFinite(unit.speedScale) ? Math.max(0.1, Math.min(3, unit.speedScale)) : 1;
+    return sp * tl().speed;
+  }
+  function unitEffectiveDuration(unit) { return unitDurationSec(unit) / unitSpeedFactor(unit); }
+
+  // 丝量倍数：延长（>22s）真的多走几层 → 排数变多；缩短默认「到点截断」，排数不变
+  function unitQuantity(unit) {
+    const q = unitDurationSec(unit) / 22;
+    if (unit.shortMode === 'compress') return 1;
+    return Math.max(0.25, Math.min(4, q > 1 ? q : 1));
+  }
+
+  function unitOrderOf(unit) {
+    const s = unit.schedule;
+    return Number.isFinite(s && s.order) ? s.order : 0;
+  }
+
+  let __tlStarts = null;
+
+  // 按用户可见的 order 字段排位（不是数组下标），算出每一块的开始秒
+  function refreshTimeline() {
+    const t = tl();
+    const list = weaveUnits().map((u, i) => ({ u, i, o: unitOrderOf(u) }))
+      .sort((a, b) => (a.o - b.o) || (a.i - b.i));
+    const map = new Map();
+    list.forEach((it, rank) => {
+      let start = 0;
+      if (t.mode === 'sequence') start = rank * t.interval;
+      else if (t.mode === 'manual') {
+        const ms = it.u.schedule && Number.isFinite(it.u.schedule.manualStart) ? it.u.schedule.manualStart : null;
+        start = ms == null ? rank * t.interval : Math.max(0, ms);
+      }
+      map.set(it.u.id, start);
+    });
+    __tlStarts = { map, list };
+    return __tlStarts;
+  }
+  function timelineDirty() { __tlStarts = null; }
+
+  function unitStartTime(unit) {
+    if (!__tlStarts) refreshTimeline();
+    const v = __tlStarts.map.get(unit.id);
+    return Number.isFinite(v) ? v : 0;
+  }
+  function unitRankOf(unit) {
+    if (!__tlStarts) refreshTimeline();
+    return __tlStarts.list.findIndex(it => it.u === unit);
+  }
+
+  // 这一刻这一块织到多少：唯一进度公式
+  function unitProgressAt(unit, t) {
+    const start = unitStartTime(unit);
+    const dur = unitEffectiveDuration(unit);
+    if (!(dur > 0)) return 1;
+    const raw = Math.max(0, Math.min(1, (t - start) / dur));
+    if (unit.shortMode === 'compress') return raw;
+    // 到点截断：时长不足 22s 时只织到 duration/22，留下没吐完的区域
+    return Math.max(0, Math.min(1, raw * Math.min(1, unitDurationSec(unit) / 22)));
+  }
+
+  // 建议终点 = 最后一块织完的时刻 + 片尾静止
+  function suggestedEnd() {
+    if (!__tlStarts) refreshTimeline();
+    let finish = 0;
+    weaveUnits().forEach(u => { finish = Math.max(finish, unitStartTime(u) + unitEffectiveDuration(u)); });
+    return Math.round(Math.max(1, finish + tl().tail) * 10) / 10;
+  }
+
+  function timelineRange() {
+    const t = tl();
+    const start = t.rangeStart;
+    const end = Number.isFinite(t.rangeEnd) ? t.rangeEnd : suggestedEnd();
+    return { start, end: Math.max(start + 0.5, Math.min(TL_DEF.rangeEndMax, end)) };
+  }
+  function timelineEnd() { return timelineRange().end; }
+  function timelineLocked() { return Number.isFinite(tl().rangeEnd); }
+
+  function timelineSnapshot() {
+    const t = tl();
+    return {
+      mode: t.mode, interval: t.interval, speed: t.speed,
+      rangeStart: t.rangeStart, rangeEnd: t.rangeEnd, tail: t.tail,
+    };
+  }
+
+  // 左栏「模拟编排」控件与 timeline 对齐
+  function syncTimelineUI() {
+    const t = tl();
+    const setVal = (id, val) => {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el) el.value = String(val);
+    };
+    const modeEl = document.getElementById('habTlMode');
+    if (modeEl && document.activeElement !== modeEl) modeEl.value = t.mode;
+    setVal('habTlInterval', t.interval);
+    setVal('habTlSpeed', t.speed);
+    setVal('habTlTail', t.tail);
+    setVal('habTlStart', t.rangeStart);
+    setVal('habTlEnd', Number.isFinite(t.rangeEnd) ? t.rangeEnd : '');
+    const note = document.getElementById('habTlNote');
+    if (note) {
+      const sug = suggestedEnd();
+      note.textContent = timelineLocked()
+        ? '终点已锁定 ' + t.rangeEnd.toFixed(1) + ' s · 按当前编排建议 ' + sug.toFixed(1) + ' s'
+        : '终点未锁定，暂按建议 ' + sug.toFixed(1) + ' s；点「开始」或「采用」即固定';
+    }
+  }
+
+  // timeline / 出场顺序变动后统一走这里：清排位缓存 → 对齐 UI → 收住越界时间
+  function timelineChanged() {
+    timelineDirty();
+    syncTimelineUI();
+    const range = timelineRange();
+    if (habitat.simTime > range.end) habitat.simTime = range.start;
+    if (habitat.simTime < range.start) habitat.simTime = range.start;
+    renderDrive();
+  }
+
   function weaveHash01(ix, iy, seed) {
     let h = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ (seed >>> 0);
     h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -6654,14 +6961,17 @@ showSplitPreview();
 
   function weaveCellContent(agent, ix, iy) {
     if (!agent.cache || typeof agent.cache.get !== 'function') agent.cache = new Map();
-    const key = ix + ',' + iy;
+    // 缓存 key 额外带上密度与丝量；改任一项都必须重织
+    const cellKey = ix + ',' + iy;
+    const dens = resolveUnitStyle(agent).pathBoost * unitQuantity(agent);
+    const key = cellKey + ',' + dens.toFixed(2);
     const hit = agent.cache.get(key);
     if (hit) return hit;
     const seed = (((agent.seed >>> 0) ^ Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263)) ^ 0x9e3779b9) >>> 0;
     const cell0 = weaveCellSpecAt(agent, ix, iy, seed);
     const custom = agent.custom || (agent.custom = { walls: {}, paths: {}, shapes: {} });
     if (!custom.shapes) custom.shapes = {};
-    const manual = custom.shapes[key];
+    const manual = custom.shapes[cellKey];
     const cell = {
       w: cell0.w, h: cell0.h, shape: cell0.shape, ix, iy,
       notch: manual && 'notch' in manual ? manual.notch : cell0.notch,
@@ -6669,14 +6979,15 @@ showSplitPreview();
       islands: manual && manual.islands ? manual.islands : cell0.islands,
       outline: cell0.outline,
     };
-    const customWalls = (custom.walls && custom.walls[key]) || [];
-    const customPaths = (custom.paths && custom.paths[key]) || [];
+    const customWalls = (custom.walls && custom.walls[cellKey]) || [];
+    const customPaths = (custom.paths && custom.paths[cellKey]) || [];
     const n = Math.max(1, Math.min(12, Math.round(agent.worms || 6)));
     // 一条丝 = 一排实测笔迹；每格丝数决定排数（越多越密，参考图那种层层叠压）
     const covN = Math.max(0.15, Math.min(0.85, Number.isFinite(agent.coverage) ? agent.coverage : 0.55));
     // 覆盖率同时驱动「排数」与「笔迹尺寸」：0.2 稀疏、0.7 密织
     // 一条丝 = 一条长回放（一格里 2–3 趟），所以丝数是 12 上下，不再是一百多条短笔
-    const bandCount = Math.max(20, Math.min(72, Math.round(n * 7.0 * (0.55 + covN * 1.3))));
+    // r49：重复密度真正作用在排数上（0.5 减密 / 3.0 加密），不是只改 alpha
+    const bandCount = Math.max(8, Math.min(140, Math.round(n * 7.0 * (0.55 + covN * 1.3) * dens)));
     const paths = [];
     // 参考图里有整块空着的黑格：按格哈希留缺口（人工编辑过的格不封）
     // 手放的单元一定织满；只有整场铺格模式才按哈希留空格（参考图里有整块黑板）
@@ -6792,7 +7103,13 @@ showSplitPreview();
       u: 0,
       duration: 22,
       speedScale: 1,
+      // r49：缩短时的处理方式（默认到点截断；可改「压缩织满」）
+      shortMode: 'cut',
+      // r49：出场编排。order 用用户可见的 0 起顺序，新块追加到末尾
+      schedule: { order: habitat.agents.filter(a => a.kind === 'weave').length, manualStart: null },
       tileField: false,
+      // r49：单元级样式覆盖；null = 跟随全局（fab 四项全 null 即「跟随全局」）
+      style: { pathBoost: null, silkWidth: null, silkGain: null, silkMode: null },
       silk: [],
       heading: 0,
       walls: [],
@@ -6814,6 +7131,7 @@ showSplitPreview();
     agent.u = 1;             // 手动放进去的块直接显示织好的样子，别给一个空格让人以为没放上
     buildWeave(agent);
     habitat.agents.push(agent);
+    timelineDirty();
     habitat.selected = agent.id;
     agent.flashUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 1600;
     renderList();
@@ -6845,6 +7163,7 @@ showSplitPreview();
     agent.u = 0;
     buildWeave(agent);
     habitat.agents.push(agent);
+    timelineDirty();
     habitat.selected = agent.id;
     renderList();
     toast('已按 ' + pts.length + ' 个顶点新建织网单元 ' + agent.id + '。', 'ok');
@@ -6906,6 +7225,8 @@ showSplitPreview();
     const cells = agent.tileField ? weaveVisibleCells(agent, v) : [[0, 0]];
     const u = Math.max(0, Math.min(1, agent.u || 0));
     const seed = agent.seed >>> 0;
+    // r49：这一块实际生效的样式（单元覆盖优先，否则全局默认）
+    const look = silkLookOf(resolveUnitStyle(agent));
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -6979,7 +7300,7 @@ showSplitPreview();
       const lu = Math.max(0, Math.min(1, (u - delay) / (1 - delay || 1)));
       if (lu <= 0) { ctx.restore(); return; }
       const light = Math.max(0.16, Math.min(0.86, (0.30 + weaveHash01(i, j, seed + 101) * 0.30) * tone));
-      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalCompositeOperation = look.comp;
       const strata = Math.max(1, Math.min(3, Math.round(agent.strata || 1)));
       if (lu >= 0.995) {
         // 已织满的块用离屏位图（每帧不再重画上万点）
@@ -6988,7 +7309,8 @@ showSplitPreview();
         ctx.restore();
         return;
       }
-      const baseW = Math.max(0.8, 1.15 * Math.max(1, v.s * 0.6));
+      // 线宽用「世界单位 × 屏幕缩放」，与织满位图完全同一口径（否则完成瞬间会变暗）
+      const baseW = Math.max(0.35, 1.15 * look.width * v.s);
       // 按丝的实际长度顺序推进：蚕是一根一根往前织，不是整块同时长
       const cum = weavePathCum(content);
       const target = lu * cum.total;
@@ -6998,7 +7320,7 @@ showSplitPreview();
       content.paths.forEach((p, idx) => {
         const start = cum.acc[idx];
         if (start >= target) return;
-        ctx.strokeStyle = 'rgba(226,232,228,' + Math.max(0.03, Math.min(0.09, light * 0.07)).toFixed(2) + ')';
+        ctx.strokeStyle = 'rgba(' + look.rgb + ',' + silkAlpha(light * 0.07, 0.03, 0.09, look.gain).toFixed(2) + ')';
         ctx.beginPath();
         for (let k = 0; k < p.pts.length; k++) {
           const px = v.px(ox + p.pts[k].x), py = v.py(oy + p.pts[k].y);
@@ -7018,8 +7340,8 @@ showSplitPreview();
           if (start >= target) return;
           const frac = Math.min(1, (target - start) / (cum.seg[idx] || 1));
           const n = Math.max(2, Math.floor(p.pts.length * frac));
-          const alpha = Math.max(0.12, Math.min(0.95, (p.a != null ? p.a : 0.4) * (light / 0.42) * lTone * 0.82));
-          ctx.strokeStyle = 'rgba(226,232,228,' + alpha.toFixed(2) + ')';
+          const alpha = silkAlpha((p.a != null ? p.a : 0.4) * (light / 0.42) * lTone * 0.82, 0.12, 1, look.gain);
+          ctx.strokeStyle = 'rgba(' + look.rgb + ',' + alpha.toFixed(2) + ')';
           ctx.beginPath();
           for (let k = 0; k < n; k++) {
             const px = v.px(ox + p.pts[k].x + off), py = v.py(oy + p.pts[k].y + off);
@@ -7162,10 +7484,13 @@ showSplitPreview();
     return content.cum;
   }
 
-  // 已织满的块缓存成离屏位图；tone / 分层变了就重画
+  // 已织满的块缓存成离屏位图；tone / 分层 / 样式变了就重画
   function weaveRasterFor(agent, content, cw, ch, light, tone, strata) {
     const layers = Math.max(1, Math.min(3, Math.round(strata || 1)));
-    const key = (agent.seed >>> 0) + '|' + Math.round(cw) + 'x' + Math.round(ch) + '|' + tone.toFixed(2) + '|' + layers;
+    // r49：位图必须带样式，样式一变 key 就变，不会把旧观感留在画面上
+    const look = silkLookOf(resolveUnitStyle(agent));
+    const key = (agent.seed >>> 0) + '|' + Math.round(cw) + 'x' + Math.round(ch) + '|' + tone.toFixed(2) + '|' + layers
+      + '|' + look.width.toFixed(2) + '|' + look.gain.toFixed(2) + '|' + look.mode;
     if (content.raster && content.rasterKey === key) return content.raster;
     const W = 512;
     const H = Math.max(64, Math.round(512 * ch / cw));
@@ -7177,13 +7502,14 @@ showSplitPreview();
     g.clearRect(0, 0, W, H);
     g.lineCap = 'round';
     g.lineJoin = 'round';
-    g.globalCompositeOperation = 'lighter';
+    g.globalCompositeOperation = look.comp;
     const kx = W / cw, ky = H / ch;
-    const baseW = Math.max(0.9, 1.15 * Math.max(1, kx * 0.34));
+    // 与 drawWeave 同一口径：世界单位线宽 × 该分辨率下每世界单位像素数
+    const baseW = Math.max(0.35, 1.15 * look.width * kx);
     // 柔雾一遍（全量，不位移）
     g.lineWidth = baseW * 3.2;
     content.paths.forEach(p => {
-      g.strokeStyle = 'rgba(226,232,228,' + Math.max(0.03, Math.min(0.09, light * 0.07)).toFixed(2) + ')';
+      g.strokeStyle = 'rgba(' + look.rgb + ',' + silkAlpha(light * 0.07, 0.03, 0.09, look.gain).toFixed(2) + ')';
       g.beginPath();
       for (let k = 0; k < p.pts.length; k++) {
         const q = p.pts[k];
@@ -7199,8 +7525,8 @@ showSplitPreview();
       g.lineWidth = baseW * (1 - L * 0.08);
       content.paths.forEach((p, idx) => {
         if ((p.b != null ? p.b : idx) % layers !== L) return;
-        const alpha = Math.max(0.12, Math.min(0.95, (p.a != null ? p.a : 0.4) * (light / 0.42) * lTone * 0.82));
-        g.strokeStyle = 'rgba(226,232,228,' + alpha.toFixed(2) + ')';
+        const alpha = silkAlpha((p.a != null ? p.a : 0.4) * (light / 0.42) * lTone * 0.82, 0.12, 1, look.gain);
+        g.strokeStyle = 'rgba(' + look.rgb + ',' + alpha.toFixed(2) + ')';
         g.beginPath();
         for (let k = 0; k < p.pts.length; k++) {
           const q = p.pts[k];
@@ -7290,6 +7616,8 @@ showSplitPreview();
       if (a.kind === 'weave') { a.cache = null; buildWeave(a); }
       if (a.kind === 'route') applyRouteTransform(a);
     });
+    timelineDirty();
+    syncTimelineUI();
     renderList();
     syncHistoryUI();
   }
@@ -7670,6 +7998,88 @@ showSplitPreview();
     };
   }
 
+  /* ============ r49：成品预览（只保留会出现在导出里的东西） ============ */
+  let __pvView = null;
+
+  // 导出画面在屏幕上的安全框：比例严格等于当前选择的导出分辨率
+  function previewRect() {
+    const r = ledResolve();
+    const w = world.width, h = world.height;
+    const k = Math.min(w / r.w, h / r.h);
+    const rw = r.w * k, rh = r.h * k;
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    const g = gcd(r.w, r.h) || 1;
+    return {
+      x: (w - rw) / 2, y: (h - rh) / 2, w: rw, h: rh,
+      label: r.w + '×' + r.h + ' · ' + (r.w / g) + ':' + (r.h / g),
+    };
+  }
+
+  // 取景对齐导出：块群占安全框 92%，中心对准
+  function fitFinalPreviewView() {
+    if (!world.width || !world.height) return;
+    const rc = previewRect();
+    const b = ledBounds();
+    const bw = Math.max(1, b.x1 - b.x0), bh = Math.max(1, b.y1 - b.y0);
+    const s = Math.min(rc.w * 0.94 / bw, rc.h * 0.94 / bh);
+    const a = arenaSpec();
+    const span = a.kind === 'circle' ? a.r * 2 : Math.max(a.hw, a.hh) * 2;
+    const baseScale = Math.min(world.width, world.height) / (span * 1.35);
+    habViewport.zoom = Math.max(0.12, Math.min(8, s / baseScale));
+    habViewport.panX = (rc.x + rc.w / 2) - world.width / 2 - ((b.x0 + b.x1) / 2) * s;
+    habViewport.panY = (rc.y + rc.h / 2) - world.height / 2 - ((b.y0 + b.y1) / 2) * s;
+    updateHabZoomLabel();
+  }
+
+  function enterFinalPreview() {
+    if (habitat.finalPreview) return;
+    __pvView = { zoom: habViewport.zoom, panX: habViewport.panX, panY: habViewport.panY };
+    habitat.finalPreview = true;
+    habitat.weaveEdit = null;      // 编辑态一律退出
+    fitFinalPreviewView();
+    syncPreviewUI();
+  }
+
+  function exitFinalPreview() {
+    if (!habitat.finalPreview) return;
+    habitat.finalPreview = false;
+    if (__pvView) {
+      habViewport.zoom = __pvView.zoom;
+      habViewport.panX = __pvView.panX;
+      habViewport.panY = __pvView.panY;
+      updateHabZoomLabel();
+    }
+    __pvView = null;
+    syncPreviewUI();
+  }
+
+  function syncPreviewUI() {
+    const btn = document.getElementById('habPreviewExit');
+    if (btn) btn.hidden = !habitat.finalPreview;
+    const hud = document.getElementById('habPreviewBadge');
+    if (hud) hud.hidden = !habitat.finalPreview;
+  }
+
+  // letterbox：框外是深灰，框内才是成品；顺便标出当前导出尺寸
+  function paintPreviewFrame(ctx, v) {
+    const rc = previewRect();
+    ctx.save();
+    ctx.fillStyle = 'rgba(7,8,8,0.96)';
+    ctx.fillRect(0, 0, v.w, Math.max(0, rc.y));
+    ctx.fillRect(0, rc.y + rc.h, v.w, Math.max(0, v.h - (rc.y + rc.h)));
+    ctx.fillRect(0, rc.y, Math.max(0, rc.x), rc.h);
+    ctx.fillRect(rc.x + rc.w, rc.y, Math.max(0, v.w - (rc.x + rc.w)), rc.h);
+    ctx.strokeStyle = 'rgba(150,170,162,0.28)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rc.x + 0.5, rc.y + 0.5, rc.w - 1, rc.h - 1);
+    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(190,206,198,0.55)';
+    ctx.fillText('成品预览 · ' + rc.label + ' · ' + habitat.simTime.toFixed(1) + ' / ' +
+      timelineEnd().toFixed(1) + ' s', rc.x + rc.w - 10, rc.y + rc.h - 9);
+    ctx.restore();
+  }
+
   function screenToHab(ev) {
     const rect = world.getBoundingClientRect();
     const sx = (ev.clientX - rect.left) * (world.width / rect.width);
@@ -7823,13 +8233,8 @@ showSplitPreview();
   }
 
   function silkLook() {
-    const mode = habitat.silkMode || 'silk';
-    const width = Math.max(0.2, Math.min(3, Number.isFinite(habitat.silkWidth) ? habitat.silkWidth : 1));
-    const gain = Math.max(0.2, Math.min(2.5, Number.isFinite(habitat.silkGain) ? habitat.silkGain : 1));
-    if (mode === 'matte') return { width, gain, comp: 'source-over', rgb: '206,212,208' };
-    if (mode === 'bright') return { width, gain, comp: 'lighter', rgb: '244,248,244' };
-    if (mode === 'ink') return { width, gain, comp: 'source-over', rgb: '168,182,176' };
-    return { width, gain, comp: 'lighter', rgb: '226,230,228' };
+    // r49：route 蚕迹与织块共用同一套观感口径（全局默认）
+    return silkLookOf(silkDefaults());
   }
 
   function drawSilk(ctx, pts, v, alpha) {
@@ -8179,8 +8584,8 @@ showSplitPreview();
     const v = view();
     ctx.clearRect(0, 0, v.w, v.h);
     ctx.save();
-    // 场地格线：世界坐标锚定（不随任何个体移动），可隐藏
-    if (habitat.showGrid !== false) {
+    // 场地格线：世界坐标锚定（不随任何个体移动），可隐藏；成品预览里一律不画
+    if (habitat.showGrid !== false && !habitat.finalPreview) {
       const gs = 40;
       const wx0 = (0 - v.cx) / v.s, wx1 = (v.w - v.cx) / v.s;
       const wy0 = (0 - v.cy) / v.s, wy1 = (v.h - v.cy) / v.s;
@@ -8208,7 +8613,7 @@ showSplitPreview();
       if (agent.kind === 'weave') {
         // 丝被隐藏时，只留一圈很淡的虚线框，方便找回这一块在哪
         const hideSilk = habitat.hideSilkAll || agent.hideSilk;
-        if (hideSilk) {
+        if (hideSilk && !habitat.finalPreview) {
           ctx.save();
           ctx.strokeStyle = 'rgba(226,232,228,0.16)';
           ctx.setLineDash([6, 6]);
@@ -8218,22 +8623,22 @@ showSplitPreview();
           );
           ctx.restore();
         } else {
-        // 编辑某一块时，其余块压暗到 42%，一眼就知道"现在在改哪一块"
-        const dimOther = editAgent && editAgent.id !== agent.id;
+        // 编辑某一块时，其余块压暗到 42%；成品预览里不压暗（那就不是成品了）
+        const dimOther = editAgent && editAgent.id !== agent.id && !habitat.finalPreview;
         if (dimOther) ctx.save();
         if (dimOther) ctx.globalAlpha = 0.42;
         drawWeave(ctx, agent, v);
         if (dimOther) ctx.restore();
         }
-        if (agent.id === habitat.selected) {
+        if (!habitat.finalPreview && agent.id === habitat.selected) {
           ctx.strokeStyle = 'rgba(230,236,233,0.35)';
           ctx.strokeRect(
             v.px(agent.x - agent.w / 2), v.py(agent.y - agent.h / 2),
             agent.w * v.s, agent.h * v.s
           );
         }
-        // 刚放入 / 刚改过的块：边框闪两下，让人看清"变化落在哪一块"
-        if (agent.flashUntil && performance.now() < agent.flashUntil) {
+        // 刚放入 / 刚改过的块：边框闪两下（编辑态提示，成品里不出现）
+        if (!habitat.finalPreview && agent.flashUntil && performance.now() < agent.flashUntil) {
           const k = Math.max(0, (agent.flashUntil - performance.now()) / 1500);
           ctx.save();
           ctx.strokeStyle = 'rgba(240,180,90,' + (0.35 + 0.55 * Math.abs(Math.sin(k * Math.PI * 3))).toFixed(3) + ')';
@@ -8245,8 +8650,10 @@ showSplitPreview();
           );
           ctx.restore();
         }
-        drawWeaveHandles(ctx, agent, v);
-        if (editAgent && editAgent.id === agent.id) drawEditLivePreview(ctx, agent, v);
+        if (!habitat.finalPreview) {
+          drawWeaveHandles(ctx, agent, v);
+          if (editAgent && editAgent.id === agent.id) drawEditLivePreview(ctx, agent, v);
+        }
         return;
       }
       if (agent.kind === 'route') {
@@ -8263,12 +8670,13 @@ showSplitPreview();
         if (!(habitat.hideSilkAll || agent.hideSilk)) drawSilk(ctx, agent.silk, v, env.silkAlpha);
         if (!(habitat.hideBodies || agent.hideBody)) drawHabitatWorm(ctx, agent, v);
       }
-      if (agent.id === habitat.selected) {
+      if (!habitat.finalPreview && agent.id === habitat.selected) {
         ctx.strokeStyle = 'rgba(230,236,233,0.35)';
         ctx.strokeRect(v.px(agent.x) - 16, v.py(agent.y) - 16, 32, 32);
       }
     });
     ctx.restore();
+    if (habitat.finalPreview) paintPreviewFrame(ctx, v);
   }
 
   /* 这一格用哪只蚕：下拉里列出场地里所有实测蚕 */
@@ -8377,33 +8785,45 @@ showSplitPreview();
     document.getElementById('habHumVal').textContent = String(habitat.humidity);
     document.getElementById('habDrive').textContent =
       '演示：速度 ' + d.speed.toFixed(1) + '，摆动 ' + d.sway.toFixed(2) + '，停顿倾向 ' + d.pauseChance.toFixed(2) + '。模型 ' + MODEL + '。';
-    document.getElementById('habClock').textContent = '模拟 ' + habitat.simTime.toFixed(1) + ' s';
+    const range = timelineRange();
+    document.getElementById('habClock').textContent =
+      '模拟 ' + habitat.simTime.toFixed(1) + ' / ' + range.end.toFixed(1) + ' s';
     const timeSlider = document.getElementById('habTime');
-    if (timeSlider && !timeSlider.dataset.scrubbing) {
-      timeSlider.value = String(Math.min(parseFloat(timeSlider.max) || 60, habitat.simTime));
+    if (timeSlider) {
+      const maxStr = String(range.end), minStr = String(range.start);
+      if (timeSlider.max !== maxStr) timeSlider.max = maxStr;
+      if (timeSlider.min !== minStr) timeSlider.min = minStr;
+      if (!timeSlider.dataset.scrubbing) {
+        timeSlider.value = String(Math.min(range.end, Math.max(range.start, habitat.simTime)));
+      }
     }
   }
 
   /* ===== 时间滑条：拖到哪就停在哪 =====
      拖动 = 把整场"重算到这一刻"并暂停；丝绸也会重算，所以停在中间看到的就是那一刻的样子。 */
   function seekTo(target) {
-    const want = Math.max(0, Math.min(120, Number.isFinite(target) ? target : 0));
+    // r49：夹取范围来自用户设定的模拟区间，不再有 60 / 120 的旧常量
+    const r = timelineRange();
+    const want = Math.max(r.start, Math.min(r.end, Number.isFinite(target) ? target : r.start));
     const movable = habitat.agents.filter(a => a.kind === 'route' || a.kind === 'weave');
     if (!movable.length) {
       toast('场地里还没有可运动的个体。', 'err');
       return;
     }
+    refreshTimeline();
     movable.forEach(a => {
       if (a.mode === 'drag' || a.mode === 'bench') return;
       a.mode = 'run';
       if (a.kind === 'route') { a.u = 0; a.travel = 0; a.silk = []; a.follow = true; }
       else { a.u = 0; }
     });
-    habitat.simTime = 0;
+    habitat.simTime = r.start;
     const dt = 0.05;
-    const steps = Math.min(2400, Math.round(want / dt));
-    for (let i = 0; i < steps; i++) step(dt);
+    const steps = Math.min(24000, Math.round((want - r.start) / dt));
+    for (let i = 0; i < steps; i++) { habitat.simTime += dt; step(dt); }
     habitat.simTime = want;
+    // 织块一律以最终时段重算，步进过程的累积误差不许留在画面上
+    habitat.agents.forEach(a => { if (a.kind === 'weave') a.u = unitProgressAt(a, want); });
     movable.forEach(a => { if (a.mode === 'run') a.mode = 'paused'; });
     habitat.runningClock = false;
     renderDrive();
@@ -8503,6 +8923,40 @@ showSplitPreview();
       panelVal('habWeaveStrataVal', String(Math.max(1, Math.min(3, a.strata || 2))));
       panelSet('habWeaveGap', a.gap == null ? 6 : a.gap);
       panelVal('habWeaveGapVal', String(a.gap == null ? 6 : a.gap));
+      // r49：单元级丝线外观（未覆盖 = 跟随全局，读数写「跟随全局 x」而不是写死 1.0）
+      const uSt = resolveUnitStyle(a);
+      const uFollow = unitFollowsGlobal(a);
+      panelCheck('habUnitFollow', uFollow);
+      panelSet('habUnitBoost', uSt.pathBoost);
+      panelVal('habUnitBoostVal', (uFollow ? '跟随全局 ' : '') + uSt.pathBoost.toFixed(1) + '×');
+      panelSet('habUnitWidth', uSt.silkWidth);
+      panelVal('habUnitWidthVal', (uFollow ? '跟随全局 ' : '') + uSt.silkWidth.toFixed(1));
+      panelSet('habUnitGain', uSt.silkGain);
+      panelVal('habUnitGainVal', (uFollow ? '跟随全局 ' : '') + uSt.silkGain.toFixed(1) + '×');
+      const unitModeSel = document.getElementById('habUnitMode');
+      if (unitModeSel) unitModeSel.value = uFollow ? '' : uSt.silkMode;
+      // r49：出场与时长
+      const orderEl = document.getElementById('habUnitOrder');
+      if (orderEl) orderEl.value = String(unitOrderOf(a));
+      panelSet('habUnitDuration', unitDurationSec(a));
+      const shortSel = document.getElementById('habUnitShort');
+      if (shortSel) shortSel.value = a.shortMode === 'compress' ? 'compress' : 'cut';
+      const startNote = document.getElementById('habUnitStart');
+      if (startNote) {
+        const rank = unitRankOf(a);
+        startNote.textContent = (rank >= 0 ? '第 ' + (rank + 1) + ' 位 · ' : '') + unitStartTime(a).toFixed(1) + ' s 起织';
+      }
+      const durNote = document.getElementById('habUnitDurationNote');
+      if (durNote) {
+        const raw = unitDurationSec(a);
+        let extra = '';
+        if (raw > 22) extra = ' · 加织 ' + unitQuantity(a).toFixed(2) + ' 倍丝量';
+        else if (raw < 22) extra = a.shortMode === 'compress'
+          ? ' · 压缩织满'
+          : ' · 织到 ' + (unitQuantity(a) * 100).toFixed(0) + '% 停手';
+        durNote.textContent = '有效 ' + unitEffectiveDuration(a).toFixed(1) + ' s（' + raw +
+          ' / ' + unitSpeedFactor(a).toFixed(2) + '×）' + extra;
+      }
       const shapeSel = document.getElementById('habWeaveShape');
       if (shapeSel) shapeSel.value = a.shape || 'island';
       const note = document.getElementById('habWeaveNote');
@@ -8547,6 +9001,77 @@ showSplitPreview();
       a.speedScale = Math.max(0.1, Math.min(3, Number.isFinite(value) ? value : 1));
       panelVal('habAdjSpeedVal', a.speedScale.toFixed(2) + '×');
     });
+    // r49：模拟编排（左栏）
+    const tlModeEl = document.getElementById('habTlMode');
+    if (tlModeEl) tlModeEl.addEventListener('change', () => {
+      tl().mode = TL_MODES.indexOf(tlModeEl.value) >= 0 ? tlModeEl.value : 'all';
+      timelineChanged();
+      syncRoutePanel();
+    });
+    bind('habTlInterval', () => { tl().interval = parseFloat(document.getElementById('habTlInterval').value); timelineChanged(); });
+    bind('habTlSpeed', () => { tl().speed = parseFloat(document.getElementById('habTlSpeed').value); timelineChanged(); });
+    bind('habTlTail', () => { tl().tail = parseFloat(document.getElementById('habTlTail').value); timelineChanged(); });
+    bind('habTlStart', () => {
+      const v = parseFloat(document.getElementById('habTlStart').value);
+      if (Number.isFinite(v)) tl().rangeStart = Math.max(0, Math.min(600, v));
+      timelineChanged();
+    });
+    bind('habTlEnd', () => {
+      const el = document.getElementById('habTlEnd');
+      const raw = parseFloat(el.value);
+      if (!Number.isFinite(raw)) {
+        tl().rangeEnd = null;
+      } else if (raw <= tl().rangeStart) {
+        toast('终点必须大于起点。', 'err');
+        el.value = String(tl().rangeStart + 0.5);
+        tl().rangeEnd = tl().rangeStart + 0.5;
+      } else if (raw > 600) {
+        toast('终点上限 600 秒，已按 600 记。', 'err');
+        el.value = '600';
+        tl().rangeEnd = 600;
+      } else {
+        tl().rangeEnd = raw;
+      }
+      timelineChanged();
+    });
+    const tlAdoptEl = document.getElementById('habTlAdopt');
+    if (tlAdoptEl) tlAdoptEl.addEventListener('click', () => {
+      tl().rangeEnd = suggestedEnd();
+      timelineChanged();
+      toast('终点已锁定为 ' + tl().rangeEnd.toFixed(1) + ' s。', 'ok');
+    });
+
+    // r49：单元级出场与时长
+    bind('habUnitOrder', () => {
+      const a = chosen(); if (!a || a.kind !== 'weave') return;
+      const v = parseInt(document.getElementById('habUnitOrder').value, 10);
+      if (!Number.isFinite(v)) return;
+      if (!a.schedule) a.schedule = { order: 0, manualStart: null };
+      a.schedule.order = Math.max(0, Math.min(999, v));
+      timelineChanged();
+      syncRoutePanel();
+    });
+    bind('habUnitDuration', () => {
+      const a = chosen(); if (!a || a.kind !== 'weave') return;
+      const v = parseFloat(document.getElementById('habUnitDuration').value);
+      if (!Number.isFinite(v)) return;
+      const before = unitDurationSec(a);
+      a.duration = Math.max(2, Math.min(120, v));
+      if (Math.abs(before - a.duration) > 1e-6) invalidateWeaveSilk('content', a);
+      a.u = unitProgressAt(a, habitat.simTime);
+      timelineChanged();
+      syncRoutePanel();
+    });
+    const unitShortEl = document.getElementById('habUnitShort');
+    if (unitShortEl) unitShortEl.addEventListener('change', () => {
+      const a = chosen(); if (!a || a.kind !== 'weave') return;
+      a.shortMode = unitShortEl.value === 'compress' ? 'compress' : 'cut';
+      invalidateWeaveSilk('content', a);
+      a.u = unitProgressAt(a, habitat.simTime);
+      timelineChanged();
+      syncRoutePanel();
+    });
+
     const fol = document.getElementById('habAdjFollow');
     if (fol) fol.addEventListener('change', () => {
       const a = chosen(); if (!a) return;
@@ -8682,6 +9207,8 @@ showSplitPreview();
         ? habitat.agents.find(x => x.id === targetId)
         : chosen();
       if (!a || a.kind !== 'weave') { toast('先在场地点中一块织网单元，再编辑。', 'err'); return; }
+      // 进编辑必然回到编辑视图：成品预览里不该出现手柄和描边
+      exitFinalPreview();
       selectAgent(a.id);
       habitat.weaveEdit = {
         agentId: a.id, ix: 0, iy: 0,
@@ -8786,25 +9313,76 @@ showSplitPreview();
     });
     const pathBoostEl = document.getElementById('habPathBoost');
     if (pathBoostEl) pathBoostEl.addEventListener('input', () => {
-      habitat.pathBoost = parseFloat(pathBoostEl.value) || 1;
+      const st = setSilkDefaults({ pathBoost: parseFloat(pathBoostEl.value) || 1 });
       const lab = document.getElementById('habPathBoostVal');
-      if (lab) lab.textContent = habitat.pathBoost.toFixed(1) + '×';
+      if (lab) lab.textContent = st.pathBoost.toFixed(1) + '×';
     });
     const silkWidthEl = document.getElementById('habSilkWidth');
     if (silkWidthEl) silkWidthEl.addEventListener('input', () => {
-      habitat.silkWidth = parseFloat(silkWidthEl.value) || 1;
+      const st = setSilkDefaults({ silkWidth: parseFloat(silkWidthEl.value) || 1 });
       const lab = document.getElementById('habSilkWidthVal');
-      if (lab) lab.textContent = habitat.silkWidth.toFixed(1);
+      if (lab) lab.textContent = st.silkWidth.toFixed(1);
     });
     const silkGainEl = document.getElementById('habSilkGain');
     if (silkGainEl) silkGainEl.addEventListener('input', () => {
-      habitat.silkGain = parseFloat(silkGainEl.value) || 1;
+      const st = setSilkDefaults({ silkGain: parseFloat(silkGainEl.value) || 1 });
       const lab = document.getElementById('habSilkGainVal');
-      if (lab) lab.textContent = habitat.silkGain.toFixed(1) + '×';
+      if (lab) lab.textContent = st.silkGain.toFixed(1) + '×';
     });
     const silkModeEl = document.getElementById('habSilkMode');
     if (silkModeEl) silkModeEl.addEventListener('change', () => {
-      habitat.silkMode = silkModeEl.value || 'silk';
+      setSilkDefaults({ silkMode: silkModeEl.value || 'silk' });
+    });
+    // r49：单元级丝线外观。第一次动任一滑条时，先把全局四项整体复制成自己的值再改，
+    // 避免「半继承」——出现滑条显示一个值、渲染用另一个值的错位。
+    const unitStylePrep = (a) => {
+      if (unitFollowsGlobal(a)) {
+        const g = silkDefaults();
+        a.style = { pathBoost: g.pathBoost, silkWidth: g.silkWidth, silkGain: g.silkGain, silkMode: g.silkMode };
+      }
+    };
+    const unitStyleApply = (field, value, kind) => {
+      const a = chosen(); if (!a || a.kind !== 'weave') return;
+      unitStylePrep(a);
+      if (field === 'pathBoost') a.style.pathBoost = silkNum(value, 'pathBoost');
+      else if (field === 'silkWidth') a.style.silkWidth = silkNum(value, 'silkWidth');
+      else if (field === 'silkGain') a.style.silkGain = silkNum(value, 'silkGain');
+      else if (field === 'silkMode') a.style.silkMode = silkModeOk(value) || 'silk';
+      invalidateWeaveSilk(kind, a);
+      syncRoutePanel();
+    };
+    bind('habUnitBoost', () => unitStyleApply('pathBoost', parseFloat(document.getElementById('habUnitBoost').value), 'content'));
+    bind('habUnitWidth', () => unitStyleApply('silkWidth', parseFloat(document.getElementById('habUnitWidth').value), 'raster'));
+    bind('habUnitGain', () => unitStyleApply('silkGain', parseFloat(document.getElementById('habUnitGain').value), 'raster'));
+    const unitModeEl = document.getElementById('habUnitMode');
+    if (unitModeEl) unitModeEl.addEventListener('change', () => {
+      const a = chosen(); if (!a || a.kind !== 'weave') return;
+      if (!unitModeEl.value) {   // 选回「跟随全局」
+        a.style = { pathBoost: null, silkWidth: null, silkGain: null, silkMode: null };
+        invalidateWeaveSilk('content', a);
+        syncRoutePanel();
+        return;
+      }
+      unitStyleApply('silkMode', unitModeEl.value, 'raster');
+    });
+    const unitFollowEl = document.getElementById('habUnitFollow');
+    if (unitFollowEl) unitFollowEl.addEventListener('change', () => {
+      const a = chosen(); if (!a || a.kind !== 'weave') return;
+      if (unitFollowEl.checked) {
+        a.style = { pathBoost: null, silkWidth: null, silkGain: null, silkMode: null };
+      } else {
+        unitStylePrep(a);   // 取消跟随：把当前全局值固化成自己的值，画面数值不变
+      }
+      invalidateWeaveSilk('content', a);
+      syncRoutePanel();
+    });
+    const unitRestoreEl = document.getElementById('habUnitRestore');
+    if (unitRestoreEl) unitRestoreEl.addEventListener('click', () => {
+      const a = chosen(); if (!a || a.kind !== 'weave') return;
+      a.style = { pathBoost: null, silkWidth: null, silkGain: null, silkMode: null };
+      invalidateWeaveSilk('content', a);
+      syncRoutePanel();
+      toast('「' + a.id + '」已恢复跟随全局。', 'ok');
     });
     const shapeSel = document.getElementById('habWeaveShape');
     if (shapeSel) shapeSel.addEventListener('change', () => {
@@ -8890,6 +9468,7 @@ showSplitPreview();
       const label = a.kind === 'route' ? ('蚕 ' + a.wormId) : (a.kind === 'weave' ? ('织网单元 ' + a.id) : a.id);
       habitat.agents = habitat.agents.filter(x => x.id !== a.id);
       habitat.selected = null;
+      if (a.kind === 'weave') { timelineDirty(); syncTimelineUI(); }
       renderList();
       toast('已移除「' + label + '」。剩下 ' + habitat.agents.filter(x => x.kind === 'weave').length + ' 块织网单元、' +
         habitat.agents.filter(x => x.kind === 'route').length + ' 只蚕。', 'ok');
@@ -8898,20 +9477,19 @@ showSplitPreview();
 
   function step(dt) {
     const env = drive();
+    // r49：织块进度不从 dt 累加，只从 simTime 求值 —— 拖动与自然播放必然得到同一画面
+    habitat.agents.forEach(agent => {
+      if (agent.kind !== 'weave' || agent.mode === 'drag') return;
+      agent.u = unitProgressAt(agent, habitat.simTime);
+    });
     habitat.agents.forEach(agent => {
       if (agent.mode !== 'run') return;
-      if (agent.kind === 'weave') {
-        const dur = Number.isFinite(agent.duration) && agent.duration > 0 ? agent.duration : 22;
-        const sp = Number.isFinite(agent.speedScale) ? agent.speedScale : 1;
-        agent.u = Math.min(1, (agent.u || 0) + dt / dur * sp);
-        if (agent.u >= 1) agent.mode = 'idle';
-        return;
-      }
+      if (agent.kind === 'weave') return;   // 上面已统一推进
       if (agent.kind === 'route') {
         if (agent.follow && agent.route && agent.route.length >= 2) {
           const speedScale = Number.isFinite(agent.speedScale) ? agent.speedScale : 1;
           // 「沿丝路重复」：数值越大，蚕越在同一片区域反复走同一条大路径 → 那条路径被走得更密
-          const boost = Math.max(1, Math.min(6, Number.isFinite(habitat.pathBoost) ? habitat.pathBoost : 1));
+          const boost = Math.max(0.5, Math.min(6, Number.isFinite(habitat.pathBoost) ? habitat.pathBoost : 1));
           // 真实吐丝形态（局部） + 场地巡游（整体）：蚕一路爬过整个场地，边爬边重复实测笔迹
           agent.u = (agent.u + dt * 0.18 * speedScale * boost) % 1;
           agent.travel = (agent.travel || 0) + dt * 0.075 * speedScale / Math.sqrt(boost);
@@ -8994,10 +9572,17 @@ showSplitPreview();
   function frame(ts) {
     const dt = Math.min(0.05, last ? (ts - last) / 1000 : 0.016);
     last = ts;
-    if (habitat.agents.some(a => a.mode === 'run')) {
-      habitat.runningClock = true;
-      habitat.simTime += dt;
-      step(dt);
+    // r49：时钟由用户区间驱动，不再「没有 run 个体就冻结」；走到终点就停住，不越过
+    if (!habitat.runningClock && habitat.agents.some(a => a.mode === 'run')) habitat.runningClock = true;
+    if (habitat.runningClock) {
+      const end = timelineEnd();
+      if (habitat.simTime >= end) {
+        habitat.simTime = end;
+        habitat.runningClock = false;
+      } else {
+        habitat.simTime = Math.min(end, habitat.simTime + dt);
+        step(dt);
+      }
     }
     const wr = world ? world.getBoundingClientRect() : null;
     const habVisible = !!(wr && wr.width > 0 && wr.height > 0 && wr.bottom > 0 && wr.top < window.innerHeight && wr.right > 0 && wr.left < window.innerWidth);
@@ -9010,6 +9595,8 @@ showSplitPreview();
   }
 
   world.addEventListener('pointerdown', (ev) => {
+    // 成品预览里点画布 = 回到编辑视图（这一下之后照常选中 / 拖动）
+    if (habitat.finalPreview) exitFinalPreview();
     if (ev.button === 1 || ev.shiftKey || habViewport.panMode) {
       habitat.drag = {
         kind: 'pan',
@@ -10436,17 +11023,32 @@ showSplitPreview();
       }
       a.mode = 'run';
     });
+    // r49：开播这一刻把终点钉死（还没定就取建议值），之后改速度/间隔都不会偷偷改片长
+    if (!timelineLocked()) tl().rangeEnd = suggestedEnd();
+    refreshTimeline();
+    if (!(habitat.simTime < timelineEnd() - 0.05)) habitat.simTime = timelineRange().start;
+    habitat.runningClock = true;
+    // r49：点开始即进入成品效果预览（只留丝、蚕、黑场与导出取景）
+    enterFinalPreview();
     renderList();
-    toast('已启动 ' + ready.length + ' 只蚕。', 'ok');
+    toast('已启动 ' + ready.length + ' 只蚕（区间 ' + timelineRange().start.toFixed(1) + '–' +
+      timelineRange().end.toFixed(1) + ' s，全场 ' + tl().speed.toFixed(2) + '×）。', 'ok');
     hint('实测蚕正在沿测量轨迹运动；可在右侧调整每只蚕的速度倍率。');
   });
   document.getElementById('habPause').addEventListener('click', () => {
+    habitat.runningClock = false;
     habitat.agents.forEach(a => { if (a.mode === 'run') a.mode = 'paused'; });
     renderList();
   });
   document.getElementById('habResume').addEventListener('click', () => {
+    habitat.runningClock = true;
     habitat.agents.forEach(a => { if (a.mode === 'paused') a.mode = 'run'; });
     renderList();
+  });
+  const previewExitBtn = document.getElementById('habPreviewExit');
+  if (previewExitBtn) previewExitBtn.addEventListener('click', () => {
+    exitFinalPreview();
+    hint('已退出成品预览，回到编辑视图。');
   });
   document.getElementById('habSave').addEventListener('click', () => {
     const doc = {
@@ -10456,6 +11058,10 @@ showSplitPreview();
       temperatureC: habitat.tempC,
       humidity: habitat.humidity,
       seed: habitat.seed,
+      // r49：全局丝线默认值随工程走；单元未覆盖的项由它兜底
+      silkDefaults: silkDefaults(),
+      // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
+      timeline: timelineSnapshot(),
       simTime: habitat.simTime,
       shape: habitat.shape,
       obstacles: habitat.obstacles,
@@ -10478,6 +11084,14 @@ showSplitPreview();
             : null,
           profile: a.profile || null,
           custom: a.custom || { walls: {}, paths: {}, shapes: {} },
+          // r49：单元级样式覆盖；四项全 null 表示跟随全局
+          style: a.style || { pathBoost: null, silkWidth: null, silkGain: null, silkMode: null },
+          // r49：缩短方式（cut = 到点截断）与出场顺序
+          shortMode: a.shortMode === 'compress' ? 'compress' : 'cut',
+          schedule: {
+            order: unitOrderOf(a),
+            manualStart: (a.schedule && Number.isFinite(a.schedule.manualStart)) ? a.schedule.manualStart : null,
+          },
         } : undefined,
         speedScale: Number.isFinite(a.speedScale) ? a.speedScale : 1,
       })),
@@ -10772,6 +11386,10 @@ showSplitPreview();
       temperatureC: habitat.tempC,
       humidity: habitat.humidity,
       seed: habitat.seed,
+      // r49：全局丝线默认值随工程走；单元未覆盖的项由它兜底
+      silkDefaults: silkDefaults(),
+      // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
+      timeline: timelineSnapshot(),
       simTime: habitat.simTime,
       shape: habitat.shape,
       tool: habitat.tool,
@@ -10815,6 +11433,14 @@ showSplitPreview();
             : null,
           profile: a.profile || null,
           custom: a.custom || { walls: {}, paths: {}, shapes: {} },
+          // r49：单元级样式覆盖；四项全 null 表示跟随全局
+          style: a.style || { pathBoost: null, silkWidth: null, silkGain: null, silkMode: null },
+          // r49：缩短方式（cut = 到点截断）与出场顺序
+          shortMode: a.shortMode === 'compress' ? 'compress' : 'cut',
+          schedule: {
+            order: unitOrderOf(a),
+            manualStart: (a.schedule && Number.isFinite(a.schedule.manualStart)) ? a.schedule.manualStart : null,
+          },
         } : undefined,
         speedScale: Number.isFinite(a.speedScale) ? a.speedScale : 1,
       })),
@@ -10854,6 +11480,14 @@ showSplitPreview();
       outline: (Array.isArray(a.outline) && a.outline.length >= 3)
         ? a.outline.map(p => ({ x: +p.x.toFixed(2), y: +p.y.toFixed(2) })) : null,
       custom: a.custom || { walls: {}, paths: {}, shapes: {} },
+      // r49：把「这一刻什么时候织、织成什么样」全部烘焙进场景，母版渲染不再自己猜时间
+      style: resolveUnitStyle(a),
+      duration: +unitDurationSec(a).toFixed(3),
+      speedScale: Number.isFinite(a.speedScale) ? +a.speedScale.toFixed(3) : 1,
+      shortMode: a.shortMode === 'compress' ? 'compress' : 'cut',
+      start: +unitStartTime(a).toFixed(3),
+      effDuration: +unitEffectiveDuration(a).toFixed(3),
+      progressCap: a.shortMode === 'compress' ? 1 : Math.min(1, +(unitDurationSec(a) / 22).toFixed(4)),
     }));
     return {
       schema: 'silkworm-led-scene/v1',
@@ -10864,6 +11498,10 @@ showSplitPreview();
       // 取景：预览画布里 1 世界单位 = scale 像素，画布中心对准 center（世界坐标）
       scale: +s.toFixed(6),
       center: { x: +((b.x0 + b.x1) / 2).toFixed(3), y: +((b.y0 + b.y1) / 2).toFixed(3) },
+      // r49：区间与全局样式；母版的第 n 帧 → 绝对秒数 = start + n/(N-1) * (end-start)
+      timeline: timelineSnapshot(),
+      silkDefaults: silkDefaults(),
+      range: timelineRange(),
       source: {
         silkPaths: 'measured',
         note: '丝迹形状来自实测样本回放；块位置/孔位/亮度梯度为假设（assumption），不进论文图为实测',
@@ -11097,7 +11735,17 @@ showSplitPreview();
       gap: Number.isFinite(u.gap) ? u.gap : 8,
       strata: Math.max(1, Math.min(3, u.strata || 2)),
       outline: (Array.isArray(u.outline) && u.outline.length >= 3) ? u.outline : null,
-      u: 0, duration: 30, speedScale: 1, tileField: false,
+      u: 0, duration: Number.isFinite(u.duration) ? u.duration : 22,
+      speedScale: Number.isFinite(u.speedScale) ? u.speedScale : 1, tileField: false,
+      // r49：样式与截断方式必须跟着单位走，否则导出会用全局默认重算一遍丝线
+      style: (u.style && typeof u.style === 'object') ? {
+        pathBoost: Number.isFinite(u.style.pathBoost) ? u.style.pathBoost : null,
+        silkWidth: Number.isFinite(u.style.silkWidth) ? u.style.silkWidth : null,
+        silkGain: Number.isFinite(u.style.silkGain) ? u.style.silkGain : null,
+        silkMode: silkModeOk(u.style.silkMode),
+      } : undefined,
+      shortMode: u.shortMode === 'compress' ? 'compress' : 'cut',
+      schedule: { order: Number.isFinite(u.order) ? u.order : 0, manualStart: null },
       silk: [], heading: 0, walls: [], paths: [],
       custom: u.custom || { walls: {}, paths: {}, shapes: {} },
       cache: null, sample: null,
@@ -11138,9 +11786,11 @@ showSplitPreview();
     g.fillRect(0, 0, W, H);
     const v = ledFrameView(scene, W, H);
     const nUnits = Math.max(1, scene.units.length);
+    // r49：场景带 range 就走绝对秒数，与预览 / PNG 完全同一套求值；
+    // 没有 range 的是旧场景 JSON，才退回历史的循环试验（黄金比相位 + uFloor）
+    const rg = (scene.range && Number.isFinite(scene.range.start) && Number.isFinite(scene.range.end))
+      ? scene.range : null;
     const growFrac = 0.42, holdFrac = 0.88;
-    // 收丝不回落到 0：块永远保留 62% 的丝量，否则循环里会出现"整块纯黑"的空洞，
-    // 远看就是墙上少了几块砖。0.62 仍能看出"这一块刚被重新织过"的稀密变化。
     const uFloor = 0.62;
     scene.units.forEach((u, i) => {
       let agent = cache && cache[i];
@@ -11149,8 +11799,15 @@ showSplitPreview();
         buildWeave(agent);
         if (cache) cache[i] = agent;
       }
-      if (isLoop) {
-        // 相位用黄金比散开（0.618…），而不是 order/N —— 否则整行块会同时起落，看起来像"整排闪"
+      if (rg) {
+        const tAbs = rg.start + T * (rg.end - rg.start);
+        const dur = Number.isFinite(u.effDuration) && u.effDuration > 0 ? u.effDuration : 1e9;
+        const st = Number.isFinite(u.start) ? u.start : 0;
+        const raw = Math.max(0, Math.min(1, (tAbs - st) / dur));
+        const cap = Number.isFinite(u.progressCap) ? u.progressCap : 1;
+        agent.u = Math.max(0, Math.min(1, raw * cap));
+      } else if (isLoop) {
+        // 旧场景：相位用黄金比散开（0.618…），而不是 order/N —— 否则整行块会同时起落，看起来像"整排闪"
         const ord = u.order != null ? u.order : i;
         const ph = ((ord + 0.5) * 0.61803398875) % 1;
         const p = (T + ph) % 1;
@@ -11160,7 +11817,6 @@ showSplitPreview();
         else lvl = Math.max(0, 1 - (p - holdFrac) / (1 - holdFrac));
         agent.u = uFloor + (1 - uFloor) * lvl;
       } else {
-        // 每块错开起织，避免整片同时亮起；顺序由 order 决定
         const delay = ((u.order != null ? u.order : i) % 7) * 0.045;
         agent.u = Math.max(0, Math.min(1, (T - delay) / (1 - delay || 1)));
       }
@@ -11243,7 +11899,8 @@ showSplitPreview();
     const frames = Math.max(1, scene.frames || 900);
     const fps = Math.max(1, scene.fps || 30);
     const span = frames / fps;
-    const T = Math.max(0, Math.min(1, (habitat.simTime || 0) / span));
+    const rg = (scene.range && Number.isFinite(scene.range.end)) ? scene.range : { start: 0, end: span };
+    const T = Math.max(0, Math.min(1, ((habitat.simTime || 0) - rg.start) / Math.max(1e-3, rg.end - rg.start)));
     const cv = document.createElement('canvas');
     cv.width = W; cv.height = H;
     const g = cv.getContext('2d', { alpha: false });
@@ -11256,7 +11913,8 @@ showSplitPreview();
       toast(msg, 'err');
       return;
     }
-    const name = 'weave_still_' + W + 'x' + H + '_' + Math.round(T * span) + 's.png';
+    const name = 'weave_still_' + W + 'x' + H + '_' +
+      Math.round(rg.start + T * (rg.end - rg.start)) + 's.png';
     cv.toBlob((blob) => {
       const st = document.getElementById('habImgStatus');
       if (!blob) {
@@ -11292,13 +11950,17 @@ showSplitPreview();
     const W = dims.W, H = dims.H;
     const secs = Math.max(2, parseInt(secSel ? secSel.value : '10', 10) || 10);
     const fps = Math.max(12, parseInt(fpsSel ? fpsSel.value : '30', 10) || 30);
-    const total = Math.round(secs * fps);
+    // r49：视频长度 = 模拟区间（有限区间、不循环）；秒数下拉只在没有区间时兜底
+    const scene0 = ledScene();
+    const rg0 = (scene0.range && Number.isFinite(scene0.range.end)) ? scene0.range : null;
+    const durSecs = rg0 ? Math.max(2, Math.round((rg0.end - rg0.start) * 10) / 10) : secs;
+    const total = Math.max(2, Math.round(durSecs * fps));
     const bitSel = document.getElementById('habVidBit');
     const mbps = Math.max(4, Math.min(60, parseFloat(bitSel ? bitSel.value : '16') || 16));
     const bit = Math.round(mbps * 1e6);
     // 长片 / 母版分辨率：边录边写盘（File System Access），不把整段压在内存里
-    let fileWriter = null, outName = 'weave_web_' + W + 'x' + H + '_' + secs + 's.webm';
-    if ((secs > 30 || W * H > 2.2e6) && typeof window.showSaveFilePicker === 'function') {
+    let fileWriter = null, outName = 'weave_web_' + W + 'x' + H + '_' + Math.round(durSecs) + 's.webm';
+    if ((durSecs > 30 || W * H > 2.2e6) && typeof window.showSaveFilePicker === 'function') {
       try {
         const handle = await window.showSaveFilePicker({
           suggestedName: outName,
@@ -11311,14 +11973,14 @@ showSplitPreview();
     if (btn) { btn.disabled = true; btn.textContent = '录制中…'; }
     let rec = null;
     try {
-      const scene = ledScene();
-      scene.loop = true;               // 网页导出默认出循环片
+      const scene = scene0;
+      scene.loop = false;              // 成品是一次性的：从 range.start 织到 range.end
       scene.frames = total;
       const cv = document.createElement('canvas');
       cv.width = W; cv.height = H;
       const g = cv.getContext('2d', { alpha: false });
       const cache = [];
-      ledComposeFrame(g, scene, 0, true, W, H, cache);   // 先把 42 块建好，后面每帧只重画
+      ledComposeFrame(g, scene, 0, false, W, H, cache);   // 先把所有块建好，后面每帧只重画
       const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
         .find(m => { try { return MediaRecorder.isTypeSupported(m); } catch (_) { return false; } }) || '';
       const stream = cv.captureStream(fps);
@@ -11343,13 +12005,13 @@ showSplitPreview();
           const el = (performance.now() - t0) / 1000;
           const f = Math.min(total, Math.floor(el * fps));
           if (f !== lastFrame) {
-            ledComposeFrame(g, scene, f / total, true, W, H, cache);
+            ledComposeFrame(g, scene, f / Math.max(1, total - 1), false, W, H, cache);
             lastFrame = f;
             composedFrames++;
           }
-          ledVideoStatus('录制中 ' + Math.min(100, Math.round(el / secs * 100)) + '% · 第 ' +
+          ledVideoStatus('录制中 ' + Math.min(100, Math.round(el / durSecs * 100)) + '% · 第 ' +
             Math.max(0, lastFrame) + '/' + total + ' 帧' + (W * H > 2.2e6 ? '（高分辨率，可能掉帧）' : ''));
-          if (el >= secs) { resolve(); return; }
+          if (el >= durSecs) { resolve(); return; }
           requestAnimationFrame(step);
         };
         requestAnimationFrame(step);
@@ -11413,6 +12075,34 @@ showSplitPreview();
     habitat.obstacles = [];
     habitat.orphans = Array.isArray(data.orphanSilk) ? data.orphanSilk : [];
     habitat.reference = data.reference || null;
+    // r49：恢复全局丝线默认值（旧工程没有这个字段 → 保持当前默认，行为与 r48 一致）
+    if (data.silkDefaults && typeof data.silkDefaults === 'object') {
+      const sd = data.silkDefaults;
+      setSilkDefaults({
+        pathBoost: sd.pathBoost,
+        silkWidth: sd.silkWidth,
+        silkGain: sd.silkGain,
+        silkMode: sd.silkMode,
+      });
+      syncSilkControls();
+    }
+    // r49：编排与时间区间。旧工程（没有 timeline）保持 r48 的 1.00×，不静默改慢
+    if (data.timeline && typeof data.timeline === 'object') {
+      const d = data.timeline;
+      habitat.timeline = {
+        mode: TL_MODES.indexOf(d.mode) >= 0 ? d.mode : 'all',
+        interval: Number.isFinite(d.interval) ? d.interval : 2,
+        speed: Number.isFinite(d.speed) ? d.speed : 0.8,
+        rangeStart: Number.isFinite(d.rangeStart) ? d.rangeStart : 0,
+        rangeEnd: Number.isFinite(d.rangeEnd) ? d.rangeEnd : null,
+        tail: Number.isFinite(d.tail) ? d.tail : 3,
+      };
+    } else {
+      habitat.timeline = { mode: 'all', interval: 2, speed: 1, rangeStart: 0, rangeEnd: null, tail: 3 };
+      hint('这是 r48 或更早的工程：沿用原来的 1.00× 速度。想要新的 0.80× 默认，把「全场速度」改成 0.8 即可。');
+    }
+    timelineDirty();
+    syncTimelineUI();
     habitat.selected = data.selected || null;
     habitat.selectedLeaf = data.selectedLeaf || null;
     if (Array.isArray(data.agents)) {
@@ -11464,6 +12154,20 @@ showSplitPreview();
             ? wv.outline.map(p => ({ x: p.x, y: p.y }))
             : null;
           agent.u = Number.isFinite(wv.u) ? wv.u : 0;
+          // r49：单元样式。旧工程没有 style → 四项留 null，自动跟随全局
+          const st0 = (wv.style && typeof wv.style === 'object') ? wv.style : null;
+          agent.style = {
+            pathBoost: st0 && Number.isFinite(st0.pathBoost) ? st0.pathBoost : null,
+            silkWidth: st0 && Number.isFinite(st0.silkWidth) ? st0.silkWidth : null,
+            silkGain: st0 && Number.isFinite(st0.silkGain) ? st0.silkGain : null,
+            silkMode: st0 && silkModeOk(st0.silkMode) ? st0.silkMode : null,
+          };
+          // r49：缩短方式与出场顺序
+          agent.shortMode = wv.shortMode === 'compress' ? 'compress' : 'cut';
+          agent.schedule = {
+            order: (wv.schedule && Number.isFinite(wv.schedule.order)) ? wv.schedule.order : 0,
+            manualStart: (wv.schedule && Number.isFinite(wv.schedule.manualStart)) ? wv.schedule.manualStart : null,
+          };
         }
         if (agent.kind === 'route' && agent.route.length >= 2) applyRouteTransform(agent);
         if (agent.kind === 'weave') {
@@ -11477,6 +12181,21 @@ showSplitPreview();
         return agent;
       });
     }
+    // order 必须唯一：重复就按数组顺序重排，并明确告知，不静默错位
+    const seenOrder = new Set();
+    let dupOrder = false;
+    habitat.agents.forEach(a => {
+      if (a.kind !== 'weave') return;
+      if (!a.schedule) a.schedule = { order: 0, manualStart: null };
+      if (seenOrder.has(a.schedule.order)) dupOrder = true;
+      seenOrder.add(a.schedule.order);
+    });
+    if (dupOrder) {
+      let k = 0;
+      habitat.agents.forEach(a => { if (a.kind === 'weave') a.schedule.order = k++; });
+      hint('工程里有重复的出场顺序，已按图层顺序重新编号（0 起）。');
+    }
+    timelineDirty();
     renderList();
     renderDrive();
   }
@@ -11485,6 +12204,12 @@ showSplitPreview();
     export: exportHabitat, import: importHabitat, syncMeasured: syncMeasured,
     toast: toast, hint: hint,
     agents: () => habitat.agents,
+    finalPreview: () => !!habitat.finalPreview,
+    ledScene: () => ledScene(),
+    timeline: () => habitat.timeline,
+    refreshTimeline: () => refreshTimeline(),
+    ledCompose: (g, scene, T, loop, W, H, cache) => ledComposeFrame(g, scene, T, !!loop, W, H, cache || []),
+    timelineState: () => timelineSnapshot(),
     drawingOutline: () => !!habitat.newOutline,
     // 编辑态自检：当前在改哪一块、用什么工具、已经点了几个顶点
     weaveEditState: () => {
@@ -11535,6 +12260,8 @@ showSplitPreview();
   renderList();
   syncHistoryUI();
   bindTimeSlider();
+  syncSilkControls();
+  syncTimelineUI();
   function repaintStaticLayers() {
     paintStatic();
     paintDepth();
