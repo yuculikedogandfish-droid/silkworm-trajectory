@@ -9594,6 +9594,87 @@ showSplitPreview();
     requestAnimationFrame(frame);
   }
 
+  // ============ 画布命中：重叠单元到底点中谁 ============
+  // 旧逻辑是 agents.find()，也就是"数组里第一个（最底层）的包围盒包含点"就选中它，
+  // 两块一重叠，点上面那块反而选中下面那块。这里改成打分挑选：
+  //   ① 锁定的层对画布点击透明（要选它请到右侧图层列表里点）
+  //   ② 点到真实丝线的（丝线附近）优先于只落在包围盒里的
+  //   ③ 同档里丝线更近的优先，再同就按上层（数组靠后）优先
+  function weaveInkDist(a, p) {
+    const cw = Math.max(60, a.w), ch = Math.max(60, a.h);
+    const cells = a.tileField ? weaveVisibleCells(a, view()) : [[0, 0]];
+    for (let ci = 0; ci < cells.length; ci++) {
+      const i = cells[ci][0], j = cells[ci][1];
+      const ox = a.x + i * cw, oy = a.y + j * ch;
+      const lx = p.x - ox, ly = p.y - oy;
+      if (Math.abs(lx) > cw / 2 || Math.abs(ly) > ch / 2) continue;
+      const content = weaveCellContent(a, i, j);
+      const paths = (content && content.paths) || [];
+      let best = Infinity;
+      for (let k = 0; k < paths.length && best > 0; k++) {
+        const pts = paths[k].pts;
+        for (let q = 1; q < pts.length; q++) {
+          const d = distToSeg(lx, ly, pts[q - 1].x, pts[q - 1].y, pts[q].x, pts[q].y);
+          if (d < best) best = d;
+        }
+      }
+      return { inside: true, ink: best };
+    }
+    return null;
+  }
+
+  // 返回这一下点在哪个个体上；点空返回 null
+  function pickCanvasAgent(p) {
+    let best = null;
+    habitat.agents.forEach((a, idx) => {
+      if (a.mode === 'bench') return;
+      if (a.locked) return;                       // 锁定层不抢点
+      let tier, d;
+      if (a.kind === 'weave') {
+        const r = weaveInkDist(a, p);
+        if (!r) return;
+        d = r.ink;
+        // 丝线附近 = 真的点在这块的丝上；否则只是点进了它的包围盒
+        tier = (d <= Math.max(6, Math.min(a.w, a.h) * 0.10)) ? 1 : 0;
+      } else {
+        d = Math.hypot(a.x - p.x, a.y - p.y);
+        if (d >= 16) return;
+        tier = d < 9 ? 2 : 1;                     // 正好点在蚕身上，优先级最高
+      }
+      if (!best || tier > best.tier || (tier === best.tier && (d < best.d || (d === best.d && idx > best.idx)))) {
+        best = { agent: a, tier, d, idx };
+      }
+    });
+    return best ? best.agent : null;
+  }
+
+  // 选中并开始拖：编辑态下点另一块＝「点一下切过去编辑，按住拖就是把它挪走」
+  // px0/py0 记住按下点的世界坐标，拖动时按位移改位置（不再让块心吸到光标）
+  function beginAgentDrag(a, ev) {
+    if (!a || a.locked) return false;
+    const p0 = screenToHab(ev);
+    habitat.drag = {
+      kind: 'agent', id: a.id, modeBefore: a.mode === 'drag' ? 'idle' : a.mode,
+      x0: a.x, y0: a.y, px0: p0.x, py0: p0.y,
+    };
+    a.mode = 'drag';
+    try { world.setPointerCapture(ev.pointerId); } catch (_) { /* 合成事件无 pointer id */ }
+    renderList();
+    return true;
+  }
+
+  // 光标下是不是只有锁定层：给一句提示，避免"点了没反应"
+  function lockedAgentUnder(p) {
+    let found = null;
+    habitat.agents.forEach(a => {
+      if (!a.locked) return;
+      if (a.kind === 'weave') {
+        if (Math.abs(a.x - p.x) <= a.w / 2 && Math.abs(a.y - p.y) <= a.h / 2) found = a;
+      } else if (Math.hypot(a.x - p.x, a.y - p.y) < 16) found = a;
+    });
+    return found;
+  }
+
   world.addEventListener('pointerdown', (ev) => {
     // 成品预览里点画布 = 回到编辑视图（这一下之后照常选中 / 拖动）
     if (habitat.finalPreview) exitFinalPreview();
@@ -9623,12 +9704,16 @@ showSplitPreview();
       if (a && a.kind === 'weave') {
         const e = habitat.weaveEdit;
         // 先判断有没有点到"另一块"：点到另一块就整块切过去（不再把这一下当成画点）
-        const otherUnit = habitat.agents.find(z => z.kind === 'weave' && z.id !== a.id &&
-          Math.abs(z.x - p.x) <= z.w / 2 && Math.abs(z.y - p.y) <= z.h / 2);
+        const otherUnit = (() => {
+          const z = pickCanvasAgent(p);
+          return (z && z.kind === 'weave' && z.id !== a.id) ? z : null;
+        })();
         if (otherUnit) {
           const key0 = e.ix + ',' + e.iy;
           if (e.mode && (weaveEditDraft(e, key0) || []).length >= 2) finishWeaveEditLine();
           if (window.__weaveHooks && window.__weaveHooks.enter) window.__weaveHooks.enter(otherUnit.id);
+          // 切过去的同时允许直接拖它：一下拖不走等于又得再点一次
+          beginAgentDrag(otherUnit, ev);
           return;
         }
         const v = view();
@@ -9688,10 +9773,10 @@ showSplitPreview();
             const key0 = e.ix + ',' + e.iy;
             if (e.mode && (weaveEditDraft(e, key0) || []).length >= 2) finishWeaveEditLine();
             // 点到的是另一块：直接切到那一块继续编辑；点的是纯空白才退出
-            const other = habitat.agents.find(z => z.kind === 'weave' &&
-              Math.abs(z.x - p.x) <= z.w / 2 && Math.abs(z.y - p.y) <= z.h / 2);
-            if (other && other.id !== a.id && window.__weaveHooks && window.__weaveHooks.enter) {
+            const other = pickCanvasAgent(p);
+            if (other && other.kind === 'weave' && other.id !== a.id && window.__weaveHooks && window.__weaveHooks.enter) {
               window.__weaveHooks.enter(other.id);
+              beginAgentDrag(other, ev);
               return;
             }
             if (window.__weaveHooks && window.__weaveHooks.exit) window.__weaveHooks.exit();
@@ -9749,18 +9834,14 @@ showSplitPreview();
         return;
       }
     }
-    const hit = habitat.agents.find(a => {
-      if (a.mode === 'bench') return false;
-      if (a.kind === 'weave') {
-        return Math.abs(a.x - p.x) <= a.w / 2 && Math.abs(a.y - p.y) <= a.h / 2;
-      }
-      return Math.hypot(a.x - p.x, a.y - p.y) < 16;
-    });
+    const hit = pickCanvasAgent(p);
     if (!hit) {
+      const lockedOne = lockedAgentUnder(p);
       // 点场地空白 = 退出这一格的编辑（不用再去找「退出编辑」按钮）
       if (habitat.weaveEdit && habitat.weaveEdit.agentId && window.__weaveHooks && window.__weaveHooks.exit) {
         window.__weaveHooks.exit();
       }
+      if (lockedOne) toast('这一块已锁定，点不动。要改它：到右侧图层列表点「解锁这一层」。', 'err');
       return;
     }
     selectAgent(hit.id);
@@ -9768,7 +9849,10 @@ showSplitPreview();
     if (hit.kind === 'weave' && (!habitat.weaveEdit || habitat.weaveEdit.agentId !== hit.id)) {
       if (window.__weaveHooks && window.__weaveHooks.enter) window.__weaveHooks.enter(hit.id);
     }
-    habitat.drag = { kind: 'agent', id: hit.id, modeBefore: hit.mode === 'drag' ? 'idle' : hit.mode, x0: hit.x, y0: hit.y };
+    habitat.drag = {
+      kind: 'agent', id: hit.id, modeBefore: hit.mode === 'drag' ? 'idle' : hit.mode,
+      x0: hit.x, y0: hit.y, px0: p.x, py0: p.y,
+    };
     hit.mode = 'drag';
     renderList();
     world.setPointerCapture(ev.pointerId);
@@ -10128,10 +10212,15 @@ showSplitPreview();
     const p = screenToHab(ev);
     const agent = habitat.agents.find(a => a.id === d.id);
     if (!agent) return;
-    if (!blocked(p.x, p.y)) {
-      if (agent.kind === 'route') { agent.offX = p.x; agent.offY = p.y; applyRouteTransform(agent); }
-      else { agent.x = p.x; agent.y = p.y; }
+    if (agent.kind === 'route') {
+      if (!blocked(p.x, p.y)) { agent.offX = p.x; agent.offY = p.y; applyRouteTransform(agent); }
+      return;
     }
+    // 织网单元：按位移拖动（按下点 → 当前点），块心不会跳到光标上
+    const dx = p.x - (Number.isFinite(d.px0) ? d.px0 : p.x);
+    const dy = p.y - (Number.isFinite(d.py0) ? d.py0 : p.y);
+    const nx = d.x0 + dx, ny = d.y0 + dy;
+    if (!blocked(nx, ny)) { agent.x = nx; agent.y = ny; }
   });
 
   world.addEventListener('dblclick', () => {
@@ -12207,6 +12296,18 @@ showSplitPreview();
     agents: () => habitat.agents,
     finalPreview: () => !!habitat.finalPreview,
     ledScene: () => ledScene(),
+    // QA/调试用：命中打分与坐标换算（不影响正常操作）
+    pickAt: (x, y) => { const a = pickCanvasAgent({ x, y }); return a ? a.id : null; },
+    selectedId: () => habitat.selected,
+    exitEdit: () => { if (window.__weaveHooks && window.__weaveHooks.exit) window.__weaveHooks.exit(); },
+    editingId: () => (habitat.weaveEdit && habitat.weaveEdit.agentId) || null,
+    toClient: (x, y) => {
+      const v = view(), rect = world.getBoundingClientRect();
+      return {
+        clientX: rect.left + v.px(x) * (rect.width / (world.width || 1)),
+        clientY: rect.top + v.py(y) * (rect.height / (world.height || 1)),
+      };
+    },
     timeline: () => habitat.timeline,
     refreshTimeline: () => refreshTimeline(),
     ledCompose: (g, scene, T, loop, W, H, cache) => ledComposeFrame(g, scene, T, !!loop, W, H, cache || []),
@@ -14244,7 +14345,16 @@ showSplitPreview();
     if (focus) {
       sel.clear(); sel.add(focus);
       const card = document.querySelector('#habAgents .agent-card[data-id="' + focus + '"]');
-      if (card) card.click();
+      if (card) {
+        // 卡片真正“选中”是在 pointerdown 里做的，光 .click() 不会选中；
+        // 这里补一发 pointerdown，让图层列表点层名 = 真的选中这一层（含锁定层）
+        try {
+          card.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true, cancelable: true, button: 0, buttons: 1, pointerId: 1,
+          }));
+        } catch (_) { /* 老浏览器没有 PointerEvent 时退回 click */ }
+        card.click();
+      }
       refresh(true); return;
     }
     if (at('data-gsel')) {

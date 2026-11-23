@@ -14345,7 +14345,16 @@ showSplitPreview();
     if (focus) {
       sel.clear(); sel.add(focus);
       const card = document.querySelector('#habAgents .agent-card[data-id="' + focus + '"]');
-      if (card) card.click();
+      if (card) {
+        // 卡片真正“选中”是在 pointerdown 里做的，光 .click() 不会选中；
+        // 这里补一发 pointerdown，让图层列表点层名 = 真的选中这一层（含锁定层）
+        try {
+          card.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true, cancelable: true, button: 0, buttons: 1, pointerId: 1,
+          }));
+        } catch (_) { /* 老浏览器没有 PointerEvent 时退回 click */ }
+        card.click();
+      }
       refresh(true); return;
     }
     if (at('data-gsel')) {
