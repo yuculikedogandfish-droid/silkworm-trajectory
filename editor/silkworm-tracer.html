@@ -3271,6 +3271,7 @@ if (window.parent !== window) {
       <button type="button" id="habAddWeave">放入织网单元</button>
       <button type="button" id="habAddOutline">按轮廓新建单元</button>
       <button type="button" id="habAddMosaic">铺块群（≤20）</button>
+      <button type="button" id="habDupUnit">原地复制单元（Ctrl+D）</button>
       <button type="button" id="habAddRandom">添加随机演示蚕</button>
       <button type="button" id="habHide">隐藏蚕体</button>
       <button type="button" id="habShow">显示蚕体</button>
@@ -7083,7 +7084,7 @@ showSplitPreview();
     const worms = habitat.agents.filter(a => a.kind === 'route' && a.wormId != null);
     const soleWorm = worms.length === 1 ? worms[0].wormId : null;
     return {
-      id: 'wv-' + (habitat.agents.filter(a => a.kind === 'weave').length + 1),
+      id: nextWeaveId(),
       kind: 'weave',
       mode: 'idle',
       bodyVisible: true,
@@ -11048,6 +11049,8 @@ showSplitPreview();
   if (addOutlineBtn) addOutlineBtn.addEventListener('click', startOutlineUnit);
   const addMosaicBtn = document.getElementById('habAddMosaic');
   if (addMosaicBtn) addMosaicBtn.addEventListener('click', addWeaveMosaic);
+  const dupUnitBtn = document.getElementById('habDupUnit');
+  if (dupUnitBtn) dupUnitBtn.addEventListener('click', () => { duplicateSelectedWeave(); });
   window.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if (habitat.newOutline) { habitat.newOutline = null; hint('已取消轮廓绘制。'); }
@@ -11089,6 +11092,97 @@ showSplitPreview();
     const k = (ev.key || '').toLowerCase();
     if (k === 'z' && !ev.shiftKey) { ev.preventDefault(); undoStep(); }
     else if ((k === 'z' && ev.shiftKey) || k === 'y') { ev.preventDefault(); redoStep(); }
+  });
+
+  /* ---------- 原地复制 / 粘贴一块织网单元 ---------- */
+  // 编号取「当前没被占用的最小 wv-N」，删过块再新建也不会撞号
+  function nextWeaveId() {
+    const used = {};
+    habitat.agents.forEach(a => { used[a.id] = 1; });
+    let n = habitat.agents.filter(a => a.kind === 'weave').length + 1;
+    while (used['wv-' + n]) n++;
+    return 'wv-' + n;
+  }
+  // 新块追加到出场顺序的最后（用户可见顺序 = 数组顺序 = 叠放顺序，后放在上）
+  function nextWeaveOrder() {
+    let m = -1;
+    habitat.agents.forEach(a => {
+      if (a.kind !== 'weave' || !a.schedule) return;
+      const o = Number(a.schedule.order);
+      if (Number.isFinite(o) && o > m) m = o;
+    });
+    return m + 1;
+  }
+  const weaveClip = { unit: null };
+  // 剪贴板里存的是「数据快照 + 当时的位置」，所以贴回来还是原地（原块挪走了也仍贴回原处）
+  function captureWeaveClip(src) {
+    weaveClip.unit = JSON.parse(JSON.stringify(src));
+    return weaveClip.unit;
+  }
+  function cloneWeaveFrom(data, x, y) {
+    const agent = JSON.parse(JSON.stringify(data));
+    agent.id = nextWeaveId();
+    agent.kind = 'weave';
+    agent.mode = 'idle';
+    agent.x = x; agent.y = y;
+    agent.locked = false;      // 复制件不继承锁，否则一贴上去就点不到
+    agent.silk = [];           // 不继承原块跑到一半的轨迹
+    agent.cache = null; agent.sample = null;
+    agent.schedule = { order: nextWeaveOrder(), manualStart: null };
+    delete agent.flashUntil;
+    buildWeave(agent);
+    return agent;
+  }
+  function placeWeaveCopy(src, label) {
+    pushUndo();
+    const agent = cloneWeaveFrom(src, src.x, src.y);
+    habitat.agents.push(agent);
+    timelineDirty();
+    habitat.selected = agent.id;
+    agent.flashUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 1600;
+    renderList();
+    toast('已' + label + ' 1 块织网单元（' + agent.id + '），和原块完全重合、排在最上层。', 'ok');
+    hint('复制件压在 ' + src.id + ' 正上方：直接拖它就能分开，或在右侧图层列表选它改参数。');
+    return agent;
+  }
+  function duplicateSelectedWeave() {
+    const src = chosen();
+    if (!src || src.kind !== 'weave') {
+      toast('先在画布或图层列表里选中一块织网单元，再按 Ctrl+D 原地复制。', 'err');
+      hint('Ctrl+D = 原地复制；Ctrl+C 复制、Ctrl+V 原地粘贴。');
+      return null;
+    }
+    return placeWeaveCopy(src, '原地复制');
+  }
+  function pasteWeaveClip() {
+    const d = weaveClip.unit;
+    if (!d) {
+      toast('还没有复制过单元：先按 Ctrl+C 复制一块。', 'err');
+      return null;
+    }
+    return placeWeaveCopy(d, '原地粘贴');
+  }
+  window.addEventListener('keydown', (ev) => {
+    const tag = (ev.target && ev.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (ev.target && ev.target.isContentEditable)) return;
+    if (!(ev.ctrlKey || ev.metaKey)) return;
+    const k = (ev.key || '').toLowerCase();
+    if (k === 'd') { ev.preventDefault(); duplicateSelectedWeave(); return; }
+    if (k === 'c') {
+      const src = chosen();
+      if (!src || src.kind !== 'weave') return;
+      const picked = (window.getSelection && String(window.getSelection())) || '';
+      if (picked.trim()) return;    // 页面上选了文字时，让浏览器照常复制
+      captureWeaveClip(src);
+      ev.preventDefault();
+      toast('已复制 ' + src.id + '，按 Ctrl+V 可在原地贴一份。', 'ok');
+      return;
+    }
+    if (k === 'v') {
+      if (!weaveClip.unit) return;
+      ev.preventDefault();
+      pasteWeaveClip();
+    }
   });
   document.getElementById('habStart').addEventListener('click', () => {
     const ready = habitat.agents.filter(a =>
@@ -12298,6 +12392,10 @@ showSplitPreview();
     ledScene: () => ledScene(),
     // QA/调试用：命中打分与坐标换算（不影响正常操作）
     pickAt: (x, y) => { const a = pickCanvasAgent({ x, y }); return a ? a.id : null; },
+    duplicate: () => { const a = duplicateSelectedWeave(); return a ? a.id : null; },
+    copyUnit: () => { const a = chosen(); if (!a || a.kind !== 'weave') return null; captureWeaveClip(a); return a.id; },
+    pasteUnit: () => { const a = pasteWeaveClip(); return a ? a.id : null; },
+    clipUnit: () => (weaveClip.unit ? weaveClip.unit.id : null),
     selectedId: () => habitat.selected,
     exitEdit: () => { if (window.__weaveHooks && window.__weaveHooks.exit) window.__weaveHooks.exit(); },
     editingId: () => (habitat.weaveEdit && habitat.weaveEdit.agentId) || null,
