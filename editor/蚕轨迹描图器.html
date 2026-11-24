@@ -6098,10 +6098,8 @@ showSplitPreview();
     runningClock: false,
     tool: 'worm',
     selected: null,
-    selectedLeaf: null,
     agents: [],
     orphans: [],
-    obstacles: [],
     reference: null,
     undo: [],
     redo: [],
@@ -6154,17 +6152,14 @@ showSplitPreview();
   }
 
   function inLeaf(x, y, leaf, pad) {
-    const extra = pad || 0;
-    const dx = x - leaf.x, dy = y - leaf.y;
-    const c = Math.cos(-leaf.rot), s = Math.sin(-leaf.rot);
-    const lx = dx * c - dy * s;
-    const ly = dx * s + dy * c;
-    const rx = leaf.rx + extra, ry = leaf.ry + extra;
-    return (lx * lx) / (rx * rx) + (ly * ly) / (ry * ry) < 1;
+    // 桑叶障碍功能已移除（用户要求）：这个判定不再参与任何逻辑，留着只为兼容旧工程字段
+    return false;
   }
 
   function blocked(x, y) {
-    return !insideArena(x, y, 10);
+    // 边界限制已整体取消（用户要求）：不再因为"超出场地范围"拒绝放蚕 / 放单元 / 加孔洞。
+    // 场地形状（正方/长方/圆形）只用来定新单元的默认尺寸，不再构成限制。
+    return false;
   }
 
   /* ================= 织网单元（P1 单格引擎，移植自 prototype/weave-lab.html） ================= */
@@ -7589,7 +7584,6 @@ showSplitPreview();
     habitat.undo.push(JSON.stringify({
       agents: habitat.agents,
       orphans: habitat.orphans,
-      obstacles: habitat.obstacles,
     }));
     if (habitat.undo.length > 24) habitat.undo.shift();
     habitat.redo = [];        // 新的改动把"重做"清掉
@@ -7600,7 +7594,6 @@ showSplitPreview();
     return JSON.stringify({
       agents: habitat.agents,
       orphans: habitat.orphans,
-      obstacles: habitat.obstacles,
     });
   }
 
@@ -7608,7 +7601,6 @@ showSplitPreview();
     const data = JSON.parse(json);
     habitat.agents = data.agents || [];
     habitat.orphans = data.orphans || [];
-    habitat.obstacles = data.obstacles || [];
     habitat.selected = null;
     habitat.weaveEdit = null;
     habitat.drag = null;
@@ -8111,95 +8103,6 @@ showSplitPreview();
     habViewport.panX = 0;
     habViewport.panY = 0;
     updateHabZoomLabel();
-  }
-
-  function drawLeaf(ctx, x, y, rot, rx, ry, fill) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(rot);
-    ctx.beginPath();
-    ctx.moveTo(0, -ry);
-    ctx.bezierCurveTo(rx, -ry * 0.25, rx * 0.72, ry * 0.45, 0, ry);
-    ctx.bezierCurveTo(-rx * 0.72, ry * 0.45, -rx, -ry * 0.25, 0, -ry);
-    ctx.shadowColor = 'rgba(0,0,0,0.30)';
-    ctx.shadowBlur = 7;
-    ctx.shadowOffsetY = 2;
-
-    ctx.fillStyle = fill;
-    ctx.fill();
-
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-    ctx.beginPath();
-    ctx.moveTo(0, -ry * 0.8);
-    ctx.lineTo(0, ry * 0.75);
-    ctx.strokeStyle = 'rgba(180,196,176,0.18)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawBackdropLeaf(ctx, x, y, rot, rx, ry, opacity) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(rot);
-    ctx.globalAlpha = opacity;
-
-    ctx.shadowColor = 'rgba(0,0,0,0.34)';
-    ctx.shadowBlur = 18;
-
-    ctx.beginPath();
-    ctx.moveTo(0, -ry);
-    ctx.bezierCurveTo(
-      rx * 0.92, -ry * 0.28,
-      rx * 0.72, ry * 0.48,
-      0, ry
-    );
-    ctx.bezierCurveTo(
-      -rx * 0.72, ry * 0.48,
-      -rx * 0.92, -ry * 0.28,
-      0, -ry
-    );
-
-    const grad = ctx.createLinearGradient(-rx, 0, rx, 0);
-    grad.addColorStop(0, 'rgba(17,35,29,0.92)');
-    grad.addColorStop(0.48, 'rgba(42,70,52,0.86)');
-    grad.addColorStop(1, 'rgba(16,31,27,0.92)');
-
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = 'rgba(142,171,139,0.20)';
-    ctx.lineWidth = 1;
-
-    ctx.beginPath();
-    ctx.moveTo(0, -ry * 0.88);
-    ctx.quadraticCurveTo(0, 0, 0, ry * 0.88);
-    ctx.stroke();
-
-    for (let i = 0; i < 6; i++) {
-      const t = -0.55 + i * 0.19;
-      const yy = t * ry;
-      const spread = rx * (0.28 + 0.28 * Math.cos(t * 1.35));
-      const side = i % 2 ? -1 : 1;
-
-      ctx.beginPath();
-      ctx.moveTo(0, yy);
-      ctx.quadraticCurveTo(
-        side * spread * 0.48,
-        yy - ry * 0.05,
-        side * spread,
-        yy - ry * 0.18
-      );
-
-      ctx.strokeStyle = 'rgba(160,184,148,0.12)';
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
-    }
-
-    ctx.restore();
   }
 
   function paintStatic() {
@@ -8776,8 +8679,7 @@ showSplitPreview();
     const nW = agents.filter(a => a.kind === 'weave').length;
     const nR = agents.filter(a => a.kind === 'route').length;
     const nD = agents.filter(a => a.kind !== 'weave' && a.kind !== 'route').length;
-    const nO = (habitat.obstacles || []).length;
-    el.textContent = '场地里现在有：' + nW + ' 块织网单元 · ' + nR + ' 只蚕 · ' + nD + ' 个演示个体 · ' + nO + ' 个障碍。';
+    el.textContent = '场地里现在有：' + nW + ' 块织网单元 · ' + nR + ' 只蚕 · ' + nD + ' 个演示个体。';
   }
 
   function renderDrive() {
@@ -8857,7 +8759,6 @@ showSplitPreview();
 
   function selectAgent(id) {
     habitat.selected = id;
-    habitat.selectedLeaf = null;
     renderList();
   }
 
@@ -9704,8 +9605,13 @@ showSplitPreview();
       const a = habitat.agents.find(x => x.id === habitat.weaveEdit.agentId);
       if (a && a.kind === 'weave') {
         const e = habitat.weaveEdit;
-        // 先判断有没有点到"另一块"：点到另一块就整块切过去（不再把这一下当成画点）
-        const otherUnit = (() => {
+        // 先判断有没有点到"另一块"：只有点到**当前这一块的包围盒之外**才切过去。
+        // 踩过的坑：块与块贴合/叠放（尤其 Ctrl+D 复制出来的重合件）时，格内任意一点都会
+        // 同时落在邻居的包围盒里，早先无条件切块会让「加孔洞/拖手柄」变成"跳到另一块"，点了半天加不进去。
+        // 例外：正在编辑的这块被锁定时，它对画布点击是透明的，点到别人就切过去。
+        const insideEdited = !a.locked
+          && Math.abs(p.x - a.x) <= a.w / 2 && Math.abs(p.y - a.y) <= a.h / 2;
+        const otherUnit = insideEdited ? null : (() => {
           const z = pickCanvasAgent(p);
           return (z && z.kind === 'weave' && z.id !== a.id) ? z : null;
         })();
@@ -9737,18 +9643,10 @@ showSplitPreview();
           syncEditNote();
           return;
         }
-        // 形状 / 孔洞 / 缺口：不画线，只认拖手柄；点空白按工具语义挪孔或缺口
+        // 形状 / 孔洞 / 缺口：不画线，只认拖手柄；点空白按工具语义加孔 / 挪缺口
         if (!e.mode) {
           if (e.tool === 'hole') {
-            pushUndo();
-            const sh = ensureShapeOverride(a, 0, 0);
-            if (!sh.islands || !sh.islands.length) sh.islands = [{ cx: 0, cy: 0, r: Math.min(a.w, a.h) * 0.26 }];
-            sh.islands[0].cx = Math.max(-a.w / 2, Math.min(a.w / 2, p.x - a.x));
-            sh.islands[0].cy = Math.max(-a.h / 2, Math.min(a.h / 2, p.y - a.y));
-            if (a.cache && a.cache.delete) a.cache.delete('0,0');
-            weaveCellContent(a, 0, 0);
-            syncEditNote();
-            toast('孔洞已移到你点的地方。', 'ok');
+            addIslandAtPoint(a, p);
             return;
           }
           if (e.tool === 'notch') {
@@ -10101,13 +9999,7 @@ showSplitPreview();
     }
     showCtxMenu(ev.clientX, ev.clientY, hitItems.concat([
       { label: '添加孔洞（放在这一点）', run: () => {
-          pushUndo();
-          const sh = ensureShapeOverride(a, e.ix, e.iy);
-          if (!sh.islands || !sh.islands.length) sh.islands = [{ cx: 0, cy: 0, r: Math.min(a.w, a.h) * 0.26 }];
-          sh.islands[0].cx = lx; sh.islands[0].cy = ly;
-          if (a.cache && a.cache.delete) a.cache.delete(e.ix + ',' + e.iy);
-          weaveCellContent(a, e.ix, e.iy); syncEditNote();
-          toast('孔已开在你点的地方，拖青圈可改大小。', 'ok');
+          addIslandAtPoint(a, { x: a.x + lx, y: a.y + ly }, e.ix, e.iy);
         } },
       { label: '添加缺口（放在这一点）', run: () => {
           pushUndo();
@@ -10260,7 +10152,7 @@ showSplitPreview();
     const rect = world.getBoundingClientRect();
     const inside = ev.clientX >= rect.left && ev.clientX <= rect.right && ev.clientY >= rect.top && ev.clientY <= rect.bottom;
     const ok = inside && !blocked(screenToHab(ev).x, screenToHab(ev).y);
-    ghost.textContent = ok ? '松手放到「' + label + '」处' : (inside ? '这里被桑叶或边界挡住' : '拖到场地里松手');
+    ghost.textContent = ok ? '松手放到「' + label + '」处' : (inside ? '松手位置放不下' : '拖到画布范围内松手');
     ghost.className = ok ? 'canDrop' : (inside ? 'noDrop' : '');
     ghost.style.display = 'block';
     ghost.style.left = ev.clientX + 'px';
@@ -10321,11 +10213,6 @@ showSplitPreview();
       return;
     }
     const p = screenToHab(ev);
-    if (blocked(p.x, p.y)) {
-      toast('放不进去：该处超出场地边界，换个位置。', 'err');
-      hint('该位置不可放置，请换一处。');
-      return;
-    }
     if (agent.kind === 'route') {
       agent.offX = p.x;
       agent.offY = p.y;
@@ -10363,12 +10250,10 @@ showSplitPreview();
     btn.addEventListener('click', () => {
       habitat.shape = btn.dataset.shape;
       document.querySelectorAll('[data-shape]').forEach(b => b.classList.toggle('active', b === btn));
-      habitat.agents.forEach(a => {
-        if (a.mode !== 'bench' && blocked(a.x, a.y)) a.mode = 'paused';
-      });
+      // 场地形状现在只决定新单元的默认尺寸，不再限制放置，所以不需要把越界的蚕暂停
     });
   });
-  // 桑叶障碍已移除（用户要求删掉桑叶功能）
+  // 桑叶障碍已整体移除（数据字段、判定、绘制全部删掉）
 
   function chosen() { return habitat.agents.find(a => a.id === habitat.selected); }
 
@@ -10556,6 +10441,35 @@ showSplitPreview();
       };
     }
     return a.custom.shapes[key];
+  }
+
+  // 在点上「加」一个孔（不是把已有的孔搬过去）：孔洞工具点空白 = 新增；
+  // 早先这里写的是 islands[0].cx = 点 → 只挪第一个孔，自动生成的孔又还在，看起来就是「点了没加进去」。
+  function addIslandAtPoint(a, p, ix, iy) {
+    const cx0 = Number.isFinite(ix) ? ix : 0;
+    const cy0 = Number.isFinite(iy) ? iy : 0;
+    const key = cx0 + ',' + cy0;
+    const sh = ensureShapeOverride(a, cx0, cy0);
+    if (!Array.isArray(sh.islands)) sh.islands = [];
+    const lx = Math.max(-a.w / 2, Math.min(a.w / 2, p.x - a.x));
+    const ly = Math.max(-a.h / 2, Math.min(a.h / 2, p.y - a.y));
+    const near = sh.islands.find(o => Math.hypot(o.cx - lx, o.cy - ly) < Math.min(a.w, a.h) * 0.12);
+    if (near) {
+      toast('这一点已经有一个孔：拖青圈改大小，右键可删。', 'ok');
+      return null;
+    }
+    if (sh.islands.length >= 8) {
+      toast('一格最多 8 个孔：先在右键菜单删掉一个再加。', 'err');
+      return null;
+    }
+    pushUndo();
+    const r = Math.max(16, Math.round(Math.min(a.w, a.h) * 0.18));
+    sh.islands.push({ cx: lx, cy: ly, r });
+    if (a.cache && a.cache.delete) a.cache.delete(key);
+    weaveCellContent(a, cx0, cy0);
+    syncEditNote();
+    toast('已在这一点加了第 ' + sh.islands.length + ' 个孔：拖青圈改大小，右键可删。', 'ok');
+    return sh.islands[sh.islands.length - 1];
   }
 
   const WEAVE_HANDLE_LABEL = {
@@ -11247,7 +11161,6 @@ showSplitPreview();
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
       shape: habitat.shape,
-      obstacles: habitat.obstacles,
       agents: habitat.agents.map(a => ({
         id: a.id, mode: a.mode, bodyVisible: a.bodyVisible,
         x: a.x, y: a.y, heading: a.heading, silk: a.silk,
@@ -11577,9 +11490,7 @@ showSplitPreview();
       shape: habitat.shape,
       tool: habitat.tool,
       selected: habitat.selected,
-      selectedLeaf: habitat.selectedLeaf,
       layerGroups: (window.__layerStore && window.__layerStore.dump) ? window.__layerStore.dump() : null,
-      obstacles: habitat.obstacles,
       orphanSilk: habitat.orphans,
       reference: habitat.reference,
       agents: habitat.agents.map(a => ({
@@ -12256,7 +12167,6 @@ showSplitPreview();
       document.querySelectorAll('[data-shape]').forEach(b => b.classList.toggle('active', b.dataset.shape === data.shape));
     }
     habitat.tool = 'worm';
-    habitat.obstacles = [];
     habitat.orphans = Array.isArray(data.orphanSilk) ? data.orphanSilk : [];
     habitat.reference = data.reference || null;
     // r49：恢复全局丝线默认值（旧工程没有这个字段 → 保持当前默认，行为与 r48 一致）
@@ -12288,7 +12198,6 @@ showSplitPreview();
     timelineDirty();
     syncTimelineUI();
     habitat.selected = data.selected || null;
-    habitat.selectedLeaf = data.selectedLeaf || null;
     if (Array.isArray(data.agents)) {
       habitat.agents = data.agents.map(a => {
         const agent = {
@@ -12392,6 +12301,12 @@ showSplitPreview();
     ledScene: () => ledScene(),
     // QA/调试用：命中打分与坐标换算（不影响正常操作）
     pickAt: (x, y) => { const a = pickCanvasAgent({ x, y }); return a ? a.id : null; },
+    blockedAt: (x, y) => blocked(x, y),
+    islands: (id) => {
+      const a = habitat.agents.find(z => z.id === id);
+      const sh = a && a.custom && a.custom.shapes && a.custom.shapes['0,0'];
+      return (sh && sh.islands) ? sh.islands.length : 0;
+    },
     duplicate: () => { const a = duplicateSelectedWeave(); return a ? a.id : null; },
     copyUnit: () => { const a = chosen(); if (!a || a.kind !== 'weave') return null; captureWeaveClip(a); return a.id; },
     pasteUnit: () => { const a = pasteWeaveClip(); return a ? a.id : null; },
