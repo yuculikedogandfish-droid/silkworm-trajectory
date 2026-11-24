@@ -972,6 +972,26 @@
       <div class=&quot;stat&quot; id=&quot;playStat&quot;>—</div>
     </div>
     <div class=&quot;section&quot;>
+      <h2>路线织造（沿线爬）</h2>
+      <div class=&quot;hint&quot;>给蚕一条线：正圆＝圆周那条线，直线＝两点之间，封闭曲线＝首尾相接，开放曲线＝不闭合。蚕沿线爬，把你描线器里那一笔真实丝路一笔一笔铺过去，接笔处软接不断口。</div>
+      <div class=&quot;row&quot;>
+        <button type=&quot;button&quot; data-route=&quot;circle&quot; style=&quot;flex:1&quot;>+ 正圆</button>
+        <button type=&quot;button&quot; data-route=&quot;line&quot; style=&quot;flex:1&quot;>+ 直线</button>
+      </div>
+      <div class=&quot;row&quot;>
+        <button type=&quot;button&quot; data-route=&quot;closed&quot; style=&quot;flex:1&quot;>+ 封闭曲线</button>
+        <button type=&quot;button&quot; data-route=&quot;open&quot; style=&quot;flex:1&quot;>+ 开放曲线</button>
+      </div>
+      <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;routeOn&quot;> 沿线爬（替代方格场）</label>
+      <div class=&quot;row&quot;><label>一笔尺度</label><input type=&quot;range&quot; id=&quot;routeBand&quot; min=&quot;1&quot; max=&quot;12&quot; step=&quot;0.5&quot; value=&quot;3&quot;><span id=&quot;routeBandVal&quot;>3.0%</span></div>
+      <div class=&quot;row&quot;><label>路线时长</label>
+        <select id=&quot;routeDur&quot;><option value=&quot;10&quot;>10 秒</option><option value=&quot;20&quot; selected>20 秒</option><option value=&quot;30&quot;>30 秒</option><option value=&quot;45&quot;>45 秒</option></select>
+      </div>
+      <button type=&quot;button&quot; id=&quot;routeClear&quot; style=&quot;width:100%&quot;>清空路线</button>
+      <div class=&quot;stat&quot; id=&quot;routeStat&quot;>还没有路线。</div>
+      <div class=&quot;hint&quot;>拖橙点改形状；曲线上双击加点；右键点删点。导出视频／PNG 用的是同一套，时长由上面的「路线时长」定。</div>
+    </div>
+    <div class=&quot;section&quot;>
       <h2>向旁边扩散</h2>
       <div class=&quot;hint&quot;>只能点亮上下左右相邻的格子。下一格不是另画一条线接过去，而是把你在第一格里画出的笔迹再走一遍，并慢慢漂进旁边那一格。差别只是整段略转、略缩放，不会点点乱抖。再点一次取消。</div>
       <button type=&quot;button&quot; onclick=&quot;clearLit()&quot; style=&quot;width:100%&quot;>清空点亮格</button>
@@ -1228,8 +1248,18 @@ function computeBounds() {
       maxX = Math.max(maxX, box.x1); maxY = Math.max(maxY, box.y1);
     }
   }
+  if (window.__routeMerge && window.__routeMerge.on) {
+    for (const rp of window.__routeMerge.paths) {
+      const ln = rp.line || [];
+      for (const q of ln) {
+        minX = Math.min(minX, q.x); minY = Math.min(minY, q.y);
+        maxX = Math.max(maxX, q.x); maxY = Math.max(maxY, q.y);
+      }
+    }
+  }
   const home = homeBox();
   const reach = 2;
+  if (!(window.__routeMerge && window.__routeMerge.on)) {
   minX = Math.min(minX, home.x0 - home.w * reach);
   minY = Math.min(minY, home.y0 - home.h * reach);
   maxX = Math.max(maxX, home.x1 + home.w * reach);
@@ -1239,6 +1269,8 @@ function computeBounds() {
     minX = Math.min(minX, r.x0); minY = Math.min(minY, r.y0);
     maxX = Math.max(maxX, r.x1); maxY = Math.max(maxY, r.y1);
   }
+  }
+  if (!Number.isFinite(minX)) { minX = 0; minY = 0; maxX = 300; maxY = 300; }
   const pad = Math.max(20, (maxX - minX) * 0.08);
   state.bounds = { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
 }
@@ -2356,7 +2388,7 @@ function draw() {
   ctx.fillStyle = '#1a1c21';
   ctx.fillRect(0, 0, W, H);
 
-  if (!state.points.length) {
+  if (!state.points.length && !(window.__routeMerge && window.__routeMerge.on && state.route.length)) {
     ctx.fillStyle = '#8a8f99';
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
@@ -2364,6 +2396,7 @@ function draw() {
     return;
   }
 
+  if (!(window.__routeMerge && window.__routeMerge.on)) {
   const home = homeBox();
   ctx.strokeStyle = 'rgba(210,206,198,0.14)';
   ctx.lineWidth = 1;
@@ -2406,12 +2439,14 @@ function draw() {
       ctx.fillText(String(box.id || bu.boxId || i + 1), corners[0].x + 8, corners[0].y + 20);
     });
   }
+  }
 
   const route = state.route.length ? state.route : state.points;
   const end = Math.min(state.frame + 1, route.length);
   const slice = route.slice(0, end);
   if (document.getElementById('showSilk').checked && slice.length >= 2) {
-    drawRibbon(ctx, slice, state.style, state.color, state.style.opacity);
+    if (typeof drawRibbonSegs === 'function') drawRibbonSegs(ctx, route, end, state.style, state.color, state.style.opacity);
+    else drawRibbon(ctx, slice, state.style, state.color, state.style.opacity);
   }
   if (document.getElementById('showPts') && document.getElementById('showPts').checked) {
     ctx.fillStyle = state.color;
@@ -2420,6 +2455,7 @@ function draw() {
       ctx.beginPath(); ctx.arc(sc.x, sc.y, 2.2, 0, Math.PI * 2); ctx.fill();
     }
   }
+  if (typeof rtDrawGuides === 'function') rtDrawGuides(ctx, route, end);
   const head = slice[slice.length - 1];
   if (document.getElementById('showResidue') && document.getElementById('showResidue').checked) {
     (state.cellMarks || []).forEach((mark) => {
@@ -2445,7 +2481,7 @@ function tick(ts) {
   const dt = (ts - state.lastT) / 1000;
   state.lastT = ts;
   const pps = parseFloat(document.getElementById('pps').value);
-  const rate = Number.isFinite(pps) ? pps : 4;
+  const rate = (typeof rtRate === 'function') ? rtRate(pps) : (Number.isFinite(pps) ? pps : 4);
   state.playAcc += dt * rate;
   const adv = Math.floor(state.playAcc);
   state.playAcc -= adv;
@@ -2597,7 +2633,7 @@ function onPointerMove(e) {
 function onPointerUp(e) {
   const d = state.drag;
   if (!d || d.id !== e.pointerId) return;
-  if (!d.moved) toggleCellAt(d.sx, d.sy);
+  if (!d.moved && !(window.__routeMerge && window.__routeMerge.on)) toggleCellAt(d.sx, d.sy);
   state.drag = null;
 }
 
@@ -2860,6 +2896,12 @@ function studioPreviewSlice() {
     panX: state.panX,
     panY: state.panY,
     litCells: state.litCells.map(c => ({ ix: c.ix, iy: c.iy })),
+    route: (window.__routeMerge ? {
+      on: window.__routeMerge.on,
+      band: window.__routeMerge.band,
+      dur: window.__routeMerge.dur,
+      paths: window.__routeMerge.paths.map(p => ({ type: p.type, ctrl: p.ctrl, r: p.r })),
+    } : null),
     trajectories: state.trajectories,
     activeIdx: state.activeIdx,
     behaviorBoxes: state.behaviorBoxes,
@@ -2892,6 +2934,7 @@ function applyStudioPreview(preview) {
       provenance: preview.provenance || 'measured',
     }, preview.activeIdx || 0);
   }
+  if (preview.route && typeof rtRestore === 'function') rtRestore(preview.route);
   if (Array.isArray(preview.litCells)) {
     state.litCells = preview.litCells.map(c => ({ ix: c.ix, iy: c.iy }));
     rebuildRoute();
@@ -3018,7 +3061,10 @@ if (window.parent !== window) {
     var k = W / baseW;
     var px = state.panX, py = state.panY;
     state.panX = px * k; state.panY = py * k;
-    if (slice.length >= 2) drawRibbon(g, slice, state.style, state.color, state.style.opacity);
+    if (slice.length >= 2) {
+      if (typeof drawRibbonSegs === 'function') drawRibbonSegs(g, route, end, state.style, state.color, state.style.opacity);
+      else drawRibbon(g, slice, state.style, state.color, state.style.opacity);
+    }
     if (opt.worm && slice.length) {
       var head = slice[slice.length - 1];
       var ang = slice.length > 1 ? screenHeading(slice[slice.length - 2], head, W, H) : 0;
@@ -3040,6 +3086,9 @@ if (window.parent !== window) {
 
   function framesTotal(fps) {
     var route = routeNow();
+    if (typeof rtActive === 'function' && rtActive()) {
+      return { total: Math.max(2, Math.round(rtDur() * fps)), loops: 1, span: Math.max(1, route.length - 1), pps: route.length / rtDur() };
+    }
     var pps = num('pps', 4);
     var loops = Math.max(1, Math.min(20, parseInt((document.getElementById('expLoops') || {}).value, 10) || 1));
     var span = Math.max(1, route.length - 1) * loops;
@@ -3127,6 +3176,552 @@ if (window.parent !== window) {
   }, setOn: function (v) { EXP.on = v; draw(); } };
 })();
 </script>
+<script>
+/* ===== 路线织造（并入运动预览）===== */
+(function () {
+  var MOTIF = [-0.2858,0.3183,-0.2858,0.3003,-0.2858,0.2823,-0.2858,0.2643,-0.2855,0.2463,-0.2849,0.2283,-0.2841,0.2104,-0.2832,0.1924,-0.2823,0.1744,-0.2814,0.1565,-0.2805,0.1385,-0.2796,0.1205,-0.2787,0.1025,-0.2779,0.0846,-0.2770,0.0666,-0.2765,0.0486,-0.2764,0.0306,-0.2764,0.0126,-0.2764,-0.0054,-0.2764,-0.0234,-0.2764,-0.0413,-0.2764,-0.0593,-0.2764,-0.0773,-0.2764,-0.0953,-0.2764,-0.1133,-0.2764,-0.1313,-0.2777,-0.1492,-0.2808,-0.1669,-0.2842,-0.1846,-0.2863,-0.2024,-0.2906,-0.2191,-0.3050,-0.2298,-0.3199,-0.2399,-0.3375,-0.2431,-0.3555,-0.2425,-0.3603,-0.2278,-0.3607,-0.2098,-0.3607,-0.1918,-0.3607,-0.1738,-0.3605,-0.1558,-0.3595,-0.1379,-0.3572,-0.1200,-0.3541,-0.1023,-0.3493,-0.0850,-0.3409,-0.0690,-0.3332,-0.0528,-0.3275,-0.0358,-0.3176,-0.0213,-0.3045,-0.0090,-0.2908,0.0026,-0.2767,0.0139,-0.2627,0.0251,-0.2492,0.0370,-0.2362,0.0494,-0.2229,0.0616,-0.2080,0.0716,-0.1939,0.0829,-0.1810,0.0953,-0.1683,0.1081,-0.1555,0.1208,-0.1428,0.1335,-0.1301,0.1462,-0.1173,0.1589,-0.1046,0.1716,-0.0920,0.1844,-0.0803,0.1981,-0.0700,0.2129,-0.0605,0.2282,-0.0508,0.2433,-0.0407,0.2582,-0.0304,0.2729,-0.0202,0.2878,-0.0108,0.3031,-0.0031,0.3193,0.0023,0.3365,0.0073,0.3538,0.0131,0.3708,0.0202,0.3873,0.0229,0.4050,0.0226,0.4229,0.0128,0.4359,-0.0039,0.4400,-0.0219,0.4400,-0.0399,0.4400,-0.0578,0.4393,-0.0751,0.4353,-0.0900,0.4252,-0.1047,0.4149,-0.1168,0.4016,-0.1273,0.3870,-0.1346,0.3706,-0.1409,0.3538,-0.1444,0.3363,-0.1452,0.3183,-0.1452,0.3003,-0.1453,0.2824,-0.1456,0.2644,-0.1468,0.2464,-0.1487,0.2285,-0.1511,0.2107,-0.1529,0.1928,-0.1541,0.1748,-0.1545,0.1569,-0.1546,0.1389,-0.1546,0.1209,-0.1546,0.1029,-0.1546,0.0849,-0.1546,0.0669,-0.1546,0.0489,-0.1546,0.0309,-0.1546,0.0129,-0.1546,-0.0051,-0.1546,-0.0231,-0.1546,-0.0411,-0.1546,-0.0591,-0.1546,-0.0770,-0.1546,-0.0950,-0.1546,-0.1130,-0.1546,-0.1310,-0.1546,-0.1490,-0.1546,-0.1670,-0.1546,-0.1850,-0.1546,-0.2030,-0.1546,-0.2210,-0.1638,-0.2317,-0.1687,-0.2408,-0.1586,-0.2557,-0.1484,-0.2705,-0.1440,-0.2875,-0.1391,-0.3046,-0.1301,-0.3200,-0.1185,-0.3338,-0.1064,-0.3470,-0.0940,-0.3600,-0.0813,-0.3728,-0.0686,-0.3855,-0.0555,-0.3978,-0.0420,-0.4098,-0.0280,-0.4210,-0.0118,-0.4282,0.0038,-0.4241,0.0178,-0.4128,0.0306,-0.4003,0.0409,-0.3857,0.0480,-0.3692,0.0549,-0.3526,0.0626,-0.3363,0.0715,-0.3207,0.0765,-0.3034,0.0833,-0.2868,0.0917,-0.2708,0.0969,-0.2539,0.0987,-0.2360,0.0997,-0.2180,0.1012,-0.2001,0.1031,-0.1822,0.1053,-0.1644,0.1077,-0.1465,0.1108,-0.1288,0.1150,-0.1113,0.1194,-0.0939,0.1236,-0.0764,0.1273,-0.0588,0.1305,-0.0411,0.1337,-0.0234,0.1372,-0.0057,0.1412,0.0118,0.1455,0.0293,0.1499,0.0467,0.1533,0.0644,0.1547,0.0823,0.1576,0.1001,0.1615,0.1176,0.1637,0.1354,0.1640,0.1534,0.1646,0.1713,0.1670,0.1891,0.1708,0.2067,0.1733,0.2245,0.1733,0.2425,0.1733,0.2605,0.1602,0.2703,0.1425,0.2715,0.1268,0.2640,0.1197,0.2484,0.1175,0.2306,0.1171,0.2126,0.1171,0.1946,0.1171,0.1766,0.1165,0.1587,0.1139,0.1409,0.1091,0.1235,0.1078,0.1056,0.1078,0.0876,0.1078,0.0696,0.1083,0.0516,0.1116,0.0341,0.1180,0.0173,0.1259,0.0012,0.1340,-0.0149,0.1423,-0.0309,0.1513,-0.0464,0.1611,-0.0615,0.1698,-0.0773,0.1791,-0.0927,0.1879,-0.1084,0.1915,-0.1256,0.1951,-0.1432,0.2032,-0.1589,0.2136,-0.1736,0.2201,-0.1898,0.2209,-0.2077,0.2251,-0.2251,0.2332,-0.2412,0.2384,-0.2584,0.2389,-0.2764,0.2389,-0.2944,0.2389,-0.3123,0.2389,-0.3303,0.2389,-0.3483,0.2389,-0.3529,0.2389,-0.3349,0.2390,-0.3169,0.2392,-0.2989,0.2407,-0.2811,0.2456,-0.2638,0.2527,-0.2472,0.2593,-0.2305,0.2660,-0.2138,0.2724,-0.1970,0.2789,-0.1802,0.2853,-0.1634,0.2917,-0.1466,0.2980,-0.1297,0.3043,-0.1129,0.3107,-0.0960,0.3170,-0.0792,0.3232,-0.0623,0.3295,-0.0454,0.3358,-0.0286,0.3420,-0.0117,0.3482,0.0052,0.3542,0.0222,0.3589,0.0395,0.3607,0.0573,0.3607,0.0753,0.3607,0.0933,0.3607,0.1113,0.3607,0.1293,0.3606,0.1473,0.3567,0.1648,0.3478,0.1800,0.3369,0.1943,0.3278,0.2097,0.3206,0.2262,0.3130,0.2425,0.3040,0.2581,0.2932,0.2723,0.2776,0.2805,0.2657,0.2674,0.2626,0.2497,0.2602,0.2318,0.2584,0.2139,0.2586,0.1960,0.2615,0.1783,0.2658,0.1608,0.2708,0.1435,0.2759,0.1263,0.2809,0.1090,0.2858,0.0917,0.2905,0.0743,0.2950,0.0569,0.2992,0.0394,0.3032,0.0218,0.3067,0.0042,0.3100,-0.0135,0.3133,-0.0312,0.3171,-0.0488,0.3212,-0.0663,0.3254,-0.0838,0.3293,-0.1013,0.3322,-0.1191,0.3334,-0.1370,0.3376,-0.1545,0.3425,-0.1718,0.3470,-0.1892,0.3502,-0.2069,0.3514,-0.2248,0.3514,-0.2428,0.3514,-0.2608,0.3514,-0.2788,0.3514,-0.2968,0.3514,-0.3148,0.3514,-0.3328,0.3514,-0.3508,0.3513,-0.3688,0.3505,-0.3867,0.3485,-0.4046,0.3455,-0.4224,0.3420,-0.4400];
+
+  var RM = { on: false, band: 3, dur: 20, paths: [], active: -1, segs: [], drag: null };
+  window.__routeMerge = RM;
+
+  var RAW = [], minX = 1e9, maxX = -1e9, maxY = 0.05, i;
+  for (i = 0; i < MOTIF.length; i += 2) RAW.push({ x: MOTIF[i], y: MOTIF[i + 1] });
+  for (i = 0; i < RAW.length; i++) {
+    if (RAW[i].x < minX) minX = RAW[i].x;
+    if (RAW[i].x > maxX) maxX = RAW[i].x;
+    if (Math.abs(RAW[i].y) > maxY) maxY = Math.abs(RAW[i].y);
+  }
+  var SPAN0 = Math.max(0.1, maxX - minX);
+  var M = RAW;
+  (function () {
+    var rawLen = 0;
+    for (var k = 1; k < RAW.length; k++) rawLen += Math.hypot(RAW[k].x - RAW[k - 1].x, RAW[k].y - RAW[k - 1].y);
+    if (rawLen > 0) {
+      var rs = rtResample(RAW, rawLen / 120);
+      if (rs.length > 40) M = rs;
+    }
+  })();
+
+  function rtRand(seed) { return mulberry32(seed || 1); }
+
+  /* ------- 几何 ------- */
+  function rtCircle(cx, cy, r, n) {
+    var out = [], N = n || 200;
+    for (var k = 0; k < N; k++) {
+      var a = k / N * Math.PI * 2;
+      out.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+    }
+    return out;
+  }
+  function rtSpline(ctrl, closed, per) {
+    var n = ctrl.length;
+    if (n < 2) return ctrl.slice();
+    if (n === 2) return [{ x: ctrl[0].x, y: ctrl[0].y }, { x: ctrl[1].x, y: ctrl[1].y }];
+    var P = function (k) {
+      if (closed) return ctrl[((k % n) + n) % n];
+      return ctrl[Math.max(0, Math.min(n - 1, k))];
+    };
+    var segs = closed ? n : n - 1, out = [], p2 = per || 26;
+    for (var s = 0; s < segs; s++) {
+      var p0 = P(s - 1), p1 = P(s), p2v = P(s + 1), p3 = P(s + 2);
+      for (var k = 0; k < p2; k++) {
+        var t = k / p2, t2 = t * t, t3 = t2 * t;
+        out.push({
+          x: 0.5 * ((2 * p1.x) + (-p0.x + p2v.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2v.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2v.x + p3.x) * t3),
+          y: 0.5 * ((2 * p1.y) + (-p0.y + p2v.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2v.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2v.y + p3.y) * t3)
+        });
+      }
+    }
+    if (!closed) out.push({ x: ctrl[n - 1].x, y: ctrl[n - 1].y });
+    return out;
+  }
+  function rtResample(pts, step) {
+    if (!pts.length) return [];
+    var out = [{ x: pts[0].x, y: pts[0].y }], acc = 0, k;
+    for (k = 1; k < pts.length; k++) {
+      var ax = pts[k - 1].x, ay = pts[k - 1].y, bx = pts[k].x, by = pts[k].y;
+      var seg = Math.hypot(bx - ax, by - ay);
+      if (seg <= 1e-9) continue;
+      var need = step - acc;
+      while (seg >= need) {
+        var f = need / seg;
+        ax += (bx - ax) * f; ay += (by - ay) * f;
+        out.push({ x: ax, y: ay });
+        seg = Math.hypot(bx - ax, by - ay);
+        acc = 0; need = step;
+      }
+      acc += seg;
+    }
+    var last = pts[pts.length - 1];
+    if (out.length < 2) out.push({ x: last.x, y: last.y });
+    return out;
+  }
+  function rtArc(pts, closed) {
+    if (!pts.length) return pts;
+    if (closed && pts.length > 1) pts.push({ x: pts[0].x, y: pts[0].y });
+    var len = 0;
+    pts[0].s = 0;
+    for (var k = 1; k < pts.length; k++) {
+      len += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y);
+      pts[k].s = len;
+    }
+    pts.len = len;
+    return pts;
+  }
+  function rtCenter(p) {
+    var raw;
+    if (p.type === 'circle') raw = rtCircle(p.ctrl[0].x, p.ctrl[0].y, p.r || 160, 200);
+    else if (p.type === 'line') raw = [{ x: p.ctrl[0].x, y: p.ctrl[0].y }, { x: p.ctrl[1].x, y: p.ctrl[1].y }];
+    else raw = rtSpline(p.ctrl, p.type === 'closed', 26);
+    var L0 = 0;
+    for (var t0 = 1; t0 < raw.length; t0++) L0 += Math.hypot(raw[t0].x - raw[t0 - 1].x, raw[t0].y - raw[t0 - 1].y);
+    var step = Math.max(1.5, Math.min(8, L0 / 300));
+    return rtArc(rtResample(raw, step), p.type !== 'open');
+  }
+  function rtPointOn(p, sAbs) {
+    var pts = p.line || p, L = pts.len || 1;
+    var s2 = Math.max(0, Math.min(L, sAbs));
+    var lo = 0, hi = pts.length - 1;
+    while (lo < hi - 1) {
+      var mid = (lo + hi) >> 1;
+      if (pts[mid].s <= s2) lo = mid; else hi = mid;
+    }
+    var a = pts[lo], b = pts[hi], seg = Math.max(1e-9, b.s - a.s);
+    var f = Math.min(1, Math.max(0, (s2 - a.s) / seg));
+    return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+  }
+  function rtTangent(p, sAbs) {
+    var a = rtPointOn(p, sAbs - 2.5), b = rtPointOn(p, sAbs + 2.5);
+    var dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy);
+    if (l < 1e-6) return { x: 1, y: 0 };
+    return { x: dx / l, y: dy / l };
+  }
+  function rtDistSeg(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    var t = L2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
+    return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+  }
+
+  /* ------- 铺笔：把描线器那一笔顺着线铺过去 ------- */
+  function rtSweep(path, band, seed) {
+    var line = path.line, L = Math.max(1, line.len);
+    var rand = rtRand(seed), sc0 = band / maxY;
+    var bounce = (path.type === 'open' || path.type === 'line');
+    var laps = (path.type === 'circle' || path.type === 'closed') ? 1.55 : 1.4;
+    var target = L * laps;
+    var pts = [], sBase = 0, dir = 1, travelled = 0, prevLat = null, guard = 0;
+    var rampN = 30;
+    while (travelled < target && guard++ < 6000) {
+      var sc = sc0 * (0.55 + rand() * 0.7);
+      var rot = (rand() - 0.5) * 1.1, cr = Math.cos(rot), sr = Math.sin(rot);
+      var mir = rand() < 0.5 ? 1 : -1;
+      var latC = (rand() - 0.5) * band * 0.25;
+      var span = SPAN0 * sc;
+      if (bounce) {
+        if (dir === 1 && sBase + span > L) { sBase = Math.max(0, L - span); dir = -1; }
+        else if (dir === -1 && sBase - span < 0) { sBase = Math.min(L, span); dir = 1; }
+      }
+      for (var k = 0; k < M.length; k++) {
+        var mx = (M[k].x - minX) - SPAN0 / 2;
+        var my = M[k].y * mir;
+        var rx = (mx * cr - my * sr) * sc;
+        var ry = (mx * sr + my * cr) * sc;
+        var sNow = sBase + (rx * dir + span / 2);
+        if (bounce) sNow = Math.max(0, Math.min(L, sNow));
+        else sNow = ((sNow % L) + L) % L;
+        var q = rtPointOn(path, sNow), tg = rtTangent(path, sNow);
+        var lat = ry + latC;
+        if (prevLat !== null && k < rampN) {
+          var fk = 0.5 - 0.5 * Math.cos(Math.PI * k / rampN);
+          lat = prevLat * (1 - fk) + lat * fk;
+        }
+        pts.push({ x: q.x - tg.y * lat, y: q.y + tg.x * lat, kind: 'stroke' });
+      }
+      prevLat = M[M.length - 1].y * mir * sc + latC;
+      var adv = span * (0.55 + rand() * 0.4);
+      sBase += dir * adv;
+      travelled += adv;
+    }
+    return pts;
+  }
+
+  function rtPathSpan(path) {
+    var ln = path.line || [], x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (var k = 0; k < ln.length; k++) {
+      if (ln[k].x < x0) x0 = ln[k].x; if (ln[k].x > x1) x1 = ln[k].x;
+      if (ln[k].y < y0) y0 = ln[k].y; if (ln[k].y > y1) y1 = ln[k].y;
+    }
+    if (!Number.isFinite(x0)) return 400;
+    return Math.max(60, Math.max(x1 - x0, y1 - y0));
+  }
+  function rtBandPx(path) {
+    var span = path.span || rtPathSpan(path);
+    return Math.max(2, span * (RM.band / 100));
+  }
+
+  function rtRebuild() {
+    if (!RM.on || !RM.paths.length) { RM.segs = []; return false; }
+    var route = [], segs = [], seed = 20261125;
+    for (var k = 0; k < RM.paths.length; k++) {
+      var path = RM.paths[k];
+      path.line = rtCenter(path);
+      path.hint = path.line.len;
+      path.span = rtPathSpan(path);
+      var pts = rtSweep(path, rtBandPx(path), seed + k * 7919);
+      if (pts.length < 2) continue;
+      segs.push({ s: route.length, e: route.length + pts.length - 1 });
+      for (var j = 0; j < pts.length; j++) route.push(pts[j]);
+    }
+    var n = route.length;
+    for (var m = 0; m < n; m++) route[m].u = n > 1 ? m / (n - 1) : 0;
+    state.route = route;
+    state.routeSegs = segs;
+    RM.segs = segs;
+    state.frame = 0;
+    computeBounds();
+    return true;
+  }
+  window.rtRebuild = rtRebuild;
+
+  function rtActive() { return !!(RM.on && state.route && state.route.length && RM.segs.length); }
+  window.rtActive = rtActive;
+
+  function rtRate(fallback) {
+    if (!rtActive()) return Number.isFinite(fallback) ? fallback : 4;
+    return state.route.length / Math.max(2, RM.dur);
+  }
+  window.rtRate = rtRate;
+
+  function rtDur() { return Math.max(2, RM.dur); }
+  window.rtDur = rtDur;
+
+  /* 路线丝：按 lineWidth 跟分辨率一起放大的「真丝线」，不是发丝级细线 */
+  window.rtDrawSilk = function (ctx, pts) {
+    var n = pts.length;
+    if (n < 2) return;
+    var W = ctx.canvas.width, H = ctx.canvas.height;
+    var q0 = projectPoint(pts[0], W, H);
+    var w = Math.max(0.55, 0.34 * (q0.scale || 1));
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (var i = 0; i < n; i++) {
+      var q = projectPoint(pts[i], W, H);
+      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    }
+    ctx.globalAlpha = 0.30; ctx.strokeStyle = 'rgba(255,248,236,1)'; ctx.lineWidth = w * 3.0; ctx.stroke();
+    ctx.globalAlpha = 0.62; ctx.strokeStyle = 'rgba(248,244,235,1)'; ctx.lineWidth = w * 1.8; ctx.stroke();
+    ctx.globalAlpha = 0.98; ctx.strokeStyle = 'rgba(255,253,247,1)'; ctx.lineWidth = w; ctx.stroke();
+    ctx.restore();
+  };
+
+  window.drawRibbonSegs = function (ctx, route, end, style, color, alpha) {
+    if (!rtActive()) { drawRibbon(ctx, route.slice(0, end), style, color, alpha); return; }
+    for (var k = 0; k < RM.segs.length; k++) {
+      var sg = RM.segs[k];
+      if (end < sg.s + 2) break;
+      var e2 = Math.min(end, sg.e + 1);
+      if (e2 - sg.s >= 2) rtDrawSilk(ctx, route.slice(sg.s, e2));
+    }
+  };
+
+  /* ------- 编辑态辅助线 ------- */
+  function rtScreenOf(p, W, H) { return projectPoint(p, W, H); }
+
+  function rtHandles(path) {
+    if (path.type === 'circle') {
+      return [{ x: path.ctrl[0].x, y: path.ctrl[0].y, k: 'center' },
+      { x: path.ctrl[0].x + (path.r || 160), y: path.ctrl[0].y, k: 'r' }];
+    }
+    return path.ctrl.map(function (c, i) { return { x: c.x, y: c.y, k: 'ctrl', i: i }; });
+  }
+  window.rtDrawGuides = function (ctx, route, end) {
+    if (!RM.on || !RM.paths.length) return;
+    var cvs = document.getElementById('cvs');
+    var W = cvs.width, H = cvs.height;
+    ctx.save();
+    for (var k = 0; k < RM.paths.length; k++) {
+      var path = RM.paths[k];
+      path.line = rtCenter(path);
+      var line = path.line;
+      ctx.beginPath();
+      for (var i = 0; i < line.length; i++) {
+        var q = rtScreenOf(line[i], W, H);
+        if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+      }
+      ctx.strokeStyle = k === RM.active ? 'rgba(240,180,90,0.92)' : 'rgba(240,180,90,0.45)';
+      ctx.lineWidth = k === RM.active ? 1.6 : 1.1;
+      ctx.setLineDash([]);
+      ctx.stroke();
+
+      var hs = rtHandles(path);
+      for (var h = 0; h < hs.length; h++) {
+        var sp = rtScreenOf(hs[h], W, H);
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, k === RM.active ? 5 : 3.4, 0, Math.PI * 2);
+        ctx.fillStyle = k === RM.active ? '#ffd08a' : 'rgba(240,180,90,0.7)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(24,18,10,0.9)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      if (k === RM.active) {
+        var band = rtBandPx(path), off = [];
+        for (var j = 0; j < line.length; j += 4) {
+          var tg = rtTangent(path, line[j].s);
+          off.push({ p: line[j], n: { x: -tg.y, y: tg.x } });
+        }
+        ctx.setLineDash([4, 5]);
+        ctx.strokeStyle = 'rgba(240,180,90,0.32)';
+        ctx.lineWidth = 1;
+        for (var side = -1; side <= 1; side += 2) {
+          ctx.beginPath();
+          for (var m = 0; m < off.length; m++) {
+            var qq = rtScreenOf({ x: off[m].p.x + off[m].n.x * band * side, y: off[m].p.y + off[m].n.y * band * side }, W, H);
+            if (m === 0) ctx.moveTo(qq.x, qq.y); else ctx.lineTo(qq.x, qq.y);
+          }
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+    }
+    ctx.restore();
+  };
+
+  /* ------- 加路径 ------- */
+  function rtBox() {
+    var b = state.bounds;
+    if (!b || !Number.isFinite(b.minX)) b = { minX: 0, minY: 0, maxX: 900, maxY: 900 };
+    return b;
+  }
+  window.rtAddPath = function (type) {
+    if (!RM.box0) {
+      var b0 = rtBox();
+      RM.box0 = { minX: b0.minX, minY: b0.minY, maxX: b0.maxX, maxY: b0.maxY };
+    }
+    var b = RM.box0;
+    var bw = b.maxX - b.minX, bh = b.maxY - b.minY;
+    var k = RM.paths.length;
+    var col = k % 2, row = Math.floor(k / 2) % 2;
+    var cw = bw / 2, ch = bh / 2;
+    var cx = b.minX + cw * (col + 0.5), cy = b.minY + ch * (row + 0.5);
+    var rx = cw * 0.36, ry = ch * 0.34;
+    var path = { type: type, ctrl: [] };
+    if (type === 'circle') {
+      path.ctrl = [{ x: cx, y: cy }, { x: cx + Math.min(rx, ry), y: cy }];
+      path.r = Math.min(rx, ry);
+    } else if (type === 'line') {
+      path.ctrl = [{ x: cx - rx, y: cy + ry * 0.25 }, { x: cx + rx, y: cy - ry * 0.25 }];
+    } else if (type === 'closed') {
+      path.ctrl = [
+        { x: cx - rx, y: cy }, { x: cx - rx * 0.3, y: cy - ry },
+        { x: cx + rx * 0.6, y: cy - ry * 0.8 }, { x: cx + rx, y: cy + ry * 0.2 },
+        { x: cx + rx * 0.2, y: cy + ry }
+      ];
+    } else {
+      path.ctrl = [
+        { x: cx - rx, y: cy + ry }, { x: cx - rx * 0.35, y: cy - ry },
+        { x: cx + rx * 0.35, y: cy + ry }, { x: cx + rx, y: cy - ry }
+      ];
+    }
+    RM.paths.push(path);
+    RM.active = RM.paths.length - 1;
+    RM.on = true;
+    var ck = document.getElementById('routeOn');
+    if (ck) ck.checked = true;
+    rtRebuild();
+    draw();
+    rtSync();
+  };
+
+  /* ------- 指针：拖控制点 ------- */
+  function cvsXY(e) {
+    var cvs = document.getElementById('cvs');
+    var rect = cvs.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (cvs.width / rect.width),
+      y: (e.clientY - rect.top) * (cvs.height / rect.height),
+    };
+  }
+  function hitHandle(sx, sy) {
+    var cvs = document.getElementById('cvs');
+    var W = cvs.width, H = cvs.height;
+    for (var k = 0; k < RM.paths.length; k++) {
+      var path = RM.paths[k];
+      var hs = rtHandles(path);
+      for (var h = 0; h < hs.length; h++) {
+        var sp = rtScreenOf(hs[h], W, H);
+        if (Math.hypot(sp.x - sx, sp.y - sy) <= 11) return { path: k, handle: hs[h] };
+      }
+    }
+    return null;
+  }
+  function hitLine(sx, sy) {
+    var cvs = document.getElementById('cvs');
+    var W = cvs.width, H = cvs.height;
+    for (var k = 0; k < RM.paths.length; k++) {
+      var path = RM.paths[k];
+      path.line = rtCenter(path);
+      var line = path.line, best = 1e9, at = 0;
+      for (var i = 1; i < line.length; i++) {
+        var a = rtScreenOf(line[i - 1], W, H), b = rtScreenOf(line[i], W, H);
+        var d = rtDistSeg(sx, sy, a.x, a.y, b.x, b.y);
+        if (d < best) { best = d; at = i; }
+      }
+      if (best <= 9) return { path: k, at: at };
+    }
+    return null;
+  }
+
+  var cvs0 = document.getElementById('cvs');
+  cvs0.addEventListener('pointerdown', function (e) {
+    if (!RM.on) return;
+    var s = cvsXY(e);
+    var h = hitHandle(s.x, s.y);
+    if (!h) {
+      var l = hitLine(s.x, s.y);
+      if (l) { RM.active = l.path; }
+      return;
+    }
+    RM.active = h.path;
+    RM.drag = { id: e.pointerId, path: h.path, handle: h.handle };
+    e.stopPropagation();
+    e.preventDefault();
+    cvs0.setPointerCapture(e.pointerId);
+    draw();
+    rtSync();
+  }, true);
+
+  cvs0.addEventListener('pointermove', function (e) {
+    var d = RM.drag;
+    if (!d || d.id !== e.pointerId) return;
+    var s = cvsXY(e);
+    var w = screenToWorld(s.x, s.y);
+    var path = RM.paths[d.path];
+    if (!path) return;
+    if (d.handle.k === 'r') {
+      path.r = Math.max(6, Math.hypot(w.x - path.ctrl[0].x, w.y - path.ctrl[0].y));
+    } else if (d.handle.k === 'center') {
+      var dx = w.x - path.ctrl[0].x, dy = w.y - path.ctrl[0].y;
+      path.ctrl[0] = { x: w.x, y: w.y };
+      path.ctrl[1] = { x: path.ctrl[1].x + dx, y: path.ctrl[1].y + dy };
+      if (path.type !== 'circle') for (var q = 1; q < path.ctrl.length; q++) { }
+    } else if (d.handle.k === 'ctrl') {
+      path.ctrl[d.handle.i] = { x: w.x, y: w.y };
+    }
+    rtRebuild();
+    draw();
+    e.stopPropagation();
+  }, true);
+
+  cvs0.addEventListener('pointerup', function (e) {
+    if (RM.drag && RM.drag.id === e.pointerId) {
+      RM.drag = null;
+      e.stopPropagation();
+      rtSync();
+    }
+  }, true);
+
+  cvs0.addEventListener('dblclick', function (e) {
+    if (!RM.on) return;
+    var s = cvsXY(e);
+    var l = hitLine(s.x, s.y);
+    if (!l) return;
+    var path = RM.paths[l.path];
+    if (path.type !== 'closed' && path.type !== 'open') return;
+    var w = screenToWorld(s.x, s.y);
+    var idx = Math.max(0, Math.min(path.ctrl.length - 1, Math.round(l.at / Math.max(1, path.line.length / (path.ctrl.length)))));
+    if (idx > 0) path.ctrl.splice(idx, 0, { x: w.x, y: w.y });
+    rtRebuild();
+    draw();
+    rtSync();
+  });
+
+  cvs0.addEventListener('contextmenu', function (e) {
+    if (!RM.on) return;
+    var s = cvsXY(e);
+    var h = hitHandle(s.x, s.y);
+    if (!h || h.handle.k !== 'ctrl') return;
+    var path = RM.paths[h.path];
+    if (path.ctrl.length <= 2) return;
+    path.ctrl.splice(h.handle.i, 1);
+    e.preventDefault();
+    rtRebuild();
+    draw();
+    rtSync();
+  });
+
+  /* ------- 右侧面板 ------- */
+  function rtSync() {
+    var st = document.getElementById('routeStat');
+    if (!st) return;
+    if (!RM.paths.length) { st.textContent = '还没有路线。点上面的按钮加一条线，再拖橙点改形状。'; return; }
+    var names = { circle: '正圆', line: '直线', closed: '封闭曲线', open: '开放曲线' };
+    var parts = [];
+    for (var k = 0; k < RM.paths.length; k++) {
+      var p = RM.paths[k];
+      var len = (p.line && p.line.len) ? Math.round(p.line.len) : 0;
+      parts.push((k === RM.active ? '● ' : '') + names[p.type] + '（线长 ' + len + '）');
+    }
+    st.textContent = parts.join(' · ') + '；共 ' + (state.route ? state.route.length : 0) + ' 个丝点 · 时长 ' + RM.dur + ' 秒' + (RM.on ? '' : '（已切回方格）');
+  }
+  window.rtSync = rtSync;
+
+  function bindUI() {
+    var cvsWrap = document.getElementById('cvs');
+    document.querySelectorAll('[data-route]').forEach(function (b) {
+      b.addEventListener('click', function () { window.rtAddPath(b.getAttribute('data-route')); });
+    });
+    var on = document.getElementById('routeOn');
+    if (on) on.addEventListener('change', function () {
+      RM.on = on.checked;
+      if (RM.on) { rtRebuild(); } else { rebuildRoute(); computeBounds(); }
+      state.frame = 0;
+      draw();
+      rtSync();
+    });
+    var band = document.getElementById('routeBand');
+    if (band) band.addEventListener('input', function () {
+      RM.band = parseFloat(band.value);
+      var v = document.getElementById('routeBandVal');
+      if (v) v.textContent = RM.band.toFixed(1) + '%';
+      rtRebuild();
+      draw();
+    });
+    var dur = document.getElementById('routeDur');
+    if (dur) dur.addEventListener('change', function () {
+      RM.dur = parseFloat(dur.value) || 20;
+      rtSync();
+      draw();
+    });
+    var clr = document.getElementById('routeClear');
+    if (clr) clr.addEventListener('click', function () {
+      RM.paths = []; RM.active = -1; RM.segs = []; RM.on = false;
+      if (on) on.checked = false;
+      rebuildRoute(); computeBounds(); state.frame = 0;
+      draw(); rtSync();
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindUI);
+  else bindUI();
+  rtSync();
+
+  window.rtRestore = function (r) {
+    if (!r) return;
+    RM.on = !!r.on;
+    RM.band = Number.isFinite(r.band) ? r.band : RM.band;
+    RM.dur = Number.isFinite(r.dur) ? r.dur : RM.dur;
+    RM.paths = (r.paths || []).map(function (p) { return { type: p.type, ctrl: (p.ctrl || []).slice(), r: p.r }; });
+    RM.active = RM.paths.length ? 0 : -1;
+    var ck = document.getElementById('routeOn'); if (ck) ck.checked = RM.on;
+    var bd = document.getElementById('routeBand'); if (bd) bd.value = RM.band;
+    var du = document.getElementById('routeDur'); if (du) du.value = String(RM.dur);
+    if (RM.on && RM.paths.length) rtRebuild(); else { rebuildRoute(); computeBounds(); }
+    state.frame = 0; draw(); rtSync();
+  };
+})();
+</script>
 </body>
 </html>
 "></iframe>
@@ -3182,9 +3777,9 @@ if (window.parent !== window) {
   </div>
   <div class="hab-stage">
     <aside class="hab-side left" id="habLeft">
-      <h3>路线织造（新）</h3>
-      <p class="hab-note">不想再用方格？给蚕一条线：正圆（圆周那条线）/ 直线 / 封闭曲线 / 开放曲线，蚕沿着这条线一路爬、边爬边摆头吐丝，绕成一条有厚度的丝带；可导出透明底。</p>
-      <button type="button" id="habOpenRoute" style="width:100%">打开「路线织造」</button>
+      <h3>路线织造（已并入运动预览）</h3>
+      <p class="hab-note">不想再用方格？到右上「蚕吐丝运动预览」的右栏「路线织造（沿线爬）」里加一条线：正圆（圆周那条线）/ 直线 / 封闭曲线 / 开放曲线，蚕沿着这条线把你描的那一笔真实丝路一笔一笔铺过去，可导出透明底。</p>
+      <p class="hab-note">原来的独立页「路线织造.html」保留着，但新用法都在预览面板里。</p>
       <h3>气候 · 演示</h3>
       <div class="row"><label>温度</label><input type="range" id="habTemp" min="16" max="34" step="0.5" value="25"><span id="habTempVal">25</span></div>
       <div class="row"><label>湿度</label><input type="range" id="habHum" min="35" max="90" step="1" value="65"><span id="habHumVal">65</span></div>
@@ -11650,12 +12245,6 @@ showSplitPreview();
     }));
     toast('已铺入蚕 ' + (t0.wormId != null ? t0.wormId : 1) + ' 的只读底图。', 'ok');
   });
-  const habOpenRouteBtn = document.getElementById('habOpenRoute');
-  if (habOpenRouteBtn) {
-    habOpenRouteBtn.addEventListener('click', () => {
-      window.open('路线织造.html', '_blank');
-    });
-  }
   document.getElementById('habClearRef').addEventListener('click', () => { habitat.reference = null; toast('已去掉底图。', 'ok'); });
   const stage = document.querySelector('.hab-stage');
   const narrow = () => window.matchMedia('(max-width: 860px)').matches;
