@@ -9182,7 +9182,7 @@ showSplitPreview();
       const sh = ensureShapeOverride(a, e.ix, e.iy);
       delete sh.notchPts;
       delete sh.notch;
-      if (a.cache && a.cache.delete) a.cache.delete(e.ix + ',' + e.iy);
+      dropWeaveCellCache(a, e.ix + ',' + e.iy);
       weaveCellContent(a, e.ix, e.iy);
       setWeaveTool('notch');
       e.mode = 'notch';
@@ -9655,7 +9655,7 @@ showSplitPreview();
             if (!sh.notch) sh.notch = { cx: 0, cy: 0, r: Math.min(a.w, a.h) * 0.34 };
             sh.notch.cx = Math.max(-a.w / 2, Math.min(a.w / 2, p.x - a.x));
             sh.notch.cy = Math.max(-a.h / 2, Math.min(a.h / 2, p.y - a.y));
-            if (a.cache && a.cache.delete) a.cache.delete('0,0');
+            dropWeaveCellCache(a, '0,0');
             weaveCellContent(a, 0, 0);
             syncEditNote();
             toast('缺口已移到你点的地方。', 'ok');
@@ -9715,7 +9715,7 @@ showSplitPreview();
                 x: q0.x + (q1.x - q0.x) * bt,
                 y: q0.y + (q1.y - q0.y) * bt,
               });
-              if (a.cache && a.cache.delete) a.cache.delete(ek);
+              dropWeaveCellCache(a, ek);
               weaveCellContent(a, e.ix, e.iy);
               // 插完直接进入"拖这个新锚点"，手感跟钢笔工具一样顺
               habitat.drag = { kind: 'weaveHandle', handle: { kind: 'notchV', vi: bi + 1 } };
@@ -9815,7 +9815,7 @@ showSplitPreview();
         const sh = ensureShapeOverride(a, e.ix, e.iy);
         if (sh.islands && sh.islands[hit.i]) {
           sh.islands.splice(hit.i, 1);
-          if (a.cache && a.cache.delete) a.cache.delete(key);
+          dropWeaveCellCache(a, key);
           weaveCellContent(a, e.ix, e.iy);
           syncEditNote();
           toast('已删掉这个孔洞。想再加就选「孔洞」工具点一下。', 'ok');
@@ -9827,7 +9827,7 @@ showSplitPreview();
         const sh = ensureShapeOverride(a, e.ix, e.iy);
         if (sh.notch) {
           delete sh.notch;
-          if (a.cache && a.cache.delete) a.cache.delete(key);
+          dropWeaveCellCache(a, key);
           weaveCellContent(a, e.ix, e.iy);
           syncEditNote();
           toast('已删掉这个缺口。', 'ok');
@@ -9850,7 +9850,7 @@ showSplitPreview();
             pushUndo();
             b.lines.splice(i, 1);
             if (!b.lines.length) delete (b.type === 'wall' ? a.custom.walls : a.custom.paths)[key];
-            if (a.cache && a.cache.delete) a.cache.delete(key);
+            dropWeaveCellCache(a, key);
             weaveCellContent(a, e.ix, e.iy);
             syncEditNote();
             toast('已删掉这一条' + b.name + '。', 'ok');
@@ -9868,7 +9868,7 @@ showSplitPreview();
         const sh = ensureShapeOverride(a, e.ix, e.iy);
         if (sh.notchPts) {
           delete sh.notchPts;
-          if (a.cache && a.cache.delete) a.cache.delete(key);
+          dropWeaveCellCache(a, key);
           weaveCellContent(a, e.ix, e.iy);
           syncEditNote();
           toast('已删掉这个缺口。', 'ok');
@@ -9883,7 +9883,7 @@ showSplitPreview();
         const sh = ensureShapeOverride(a, e.ix, e.iy);
         if (sh.notch) {
           delete sh.notch;
-          if (a.cache && a.cache.delete) a.cache.delete(key);
+          dropWeaveCellCache(a, key);
           weaveCellContent(a, e.ix, e.iy);
           syncEditNote();
           toast('已删掉这个缺口。', 'ok');
@@ -9968,7 +9968,7 @@ showSplitPreview();
       const sh = ensureShapeOverride(a, e.ix, e.iy);
       delete sh.notchPts;
       delete sh.notch;
-      if (a.cache && a.cache.delete) a.cache.delete(e.ix + ',' + e.iy);
+      dropWeaveCellCache(a, e.ix + ',' + e.iy);
       weaveCellContent(a, e.ix, e.iy);
       syncEditNote();
       toast('这一格的缺口整个删掉了。', 'ok');
@@ -9978,7 +9978,7 @@ showSplitPreview();
       const sh = ensureShapeOverride(a, e.ix, e.iy);
       if (sh.islands && sh.islands[i]) {
         sh.islands.splice(i, 1);
-        if (a.cache && a.cache.delete) a.cache.delete(e.ix + ',' + e.iy);
+        dropWeaveCellCache(a, e.ix + ',' + e.iy);
         weaveCellContent(a, e.ix, e.iy);
         syncEditNote();
         toast('这个孔删掉了。', 'ok');
@@ -10013,7 +10013,7 @@ showSplitPreview();
           }
           sh.notchPts = pts0;
           if (sh.notch) delete sh.notch;
-          if (a.cache && a.cache.delete) a.cache.delete(e.ix + ',' + e.iy);
+          dropWeaveCellCache(a, e.ix + ',' + e.iy);
           weaveCellContent(a, e.ix, e.iy);
           setWeaveTool('notch');
           syncEditNote();
@@ -10023,7 +10023,7 @@ showSplitPreview();
           pushUndo();
           const sh = ensureShapeOverride(a, e.ix, e.iy);
           delete sh.notchPts; delete sh.notch;
-          if (a.cache && a.cache.delete) a.cache.delete(e.ix + ',' + e.iy);
+          dropWeaveCellCache(a, e.ix + ',' + e.iy);
           weaveCellContent(a, e.ix, e.iy);
           setWeaveTool('notch');
           e.mode = 'notch'; e.drafts = {};
@@ -10387,7 +10387,7 @@ showSplitPreview();
       sh.notchPts = draft.map(q => ({ x: q.x, y: q.y }));
       if (sh.notch) delete sh.notch;
       draft.length = 0;
-      if (a.cache && a.cache.delete) a.cache.delete(key);
+      dropWeaveCellCache(a, key);
       weaveCellContent(a, e.ix, e.iy);
       a.sample = a.sample || {};
       syncRoutePanel();
@@ -10402,7 +10402,7 @@ showSplitPreview();
     const bucket = e.mode === 'wall' ? a.custom.walls : a.custom.paths;
     (bucket[key] = bucket[key] || []).push({ pts: draft.slice(), closed: e.mode === 'wall' });
     draft.length = 0;
-    if (a.cache && a.cache.delete) a.cache.delete(key);
+    dropWeaveCellCache(a, key);
     weaveCellContent(a, e.ix, e.iy);
     a.sample = a.sample || {};
     if (a.sample.custom != null) a.sample.custom += 1;
@@ -10421,11 +10421,25 @@ showSplitPreview();
     if (a.custom && a.custom.paths) delete a.custom.paths[key];
     if (a.custom && a.custom.shapes) delete a.custom.shapes[key];
     if (e.drafts && e.drafts[key]) e.drafts[key].length = 0;
-    if (a.cache && a.cache.delete) a.cache.delete(key);
+    dropWeaveCellCache(a, key);
     weaveCellContent(a, e.ix, e.iy);
     syncRoutePanel();
     syncEditNote();
     toast('已清掉格 (' + e.ix + ',' + e.iy + ') 的自定义壁、丝路与孔洞。', 'ok');
+  }
+
+  // 按格作废织网内容缓存。缓存 key 是「ix,iy,密度」三段（见 weaveCellContent），
+  // 早先各处写 a.cache.delete('0,0') 根本删不掉 '0,0,2.00'，于是加孔/改形后画面不动，
+  // 要等下一次 cache.clear()（换选中、改样式、重新织）才更新。这里按前缀整段删。
+  function dropWeaveCellCache(agent, cellKey) {
+    if (!agent || !agent.cache || typeof agent.cache.forEach !== 'function') return;
+    const k = String(cellKey);
+    const dead = [];
+    agent.cache.forEach((v, key) => {
+      const ks = String(key);
+      if (ks === k || ks.indexOf(k + ',') === 0) dead.push(key);
+    });
+    dead.forEach(key => agent.cache.delete(key));
   }
 
   /* ===== 多边形式手柄：单元缩放 / 移动、圆孔与缺口、壁与丝路顶点 ===== */
@@ -10465,7 +10479,7 @@ showSplitPreview();
     pushUndo();
     const r = Math.max(16, Math.round(Math.min(a.w, a.h) * 0.18));
     sh.islands.push({ cx: lx, cy: ly, r });
-    if (a.cache && a.cache.delete) a.cache.delete(key);
+    dropWeaveCellCache(a, key);
     weaveCellContent(a, cx0, cy0);
     syncEditNote();
     toast('已在这一点加了第 ' + sh.islands.length + ' 个孔：拖青圈改大小，右键可删。', 'ok');
@@ -10652,7 +10666,7 @@ showSplitPreview();
       pts[h.vi].x = p.x - ox;
       pts[h.vi].y = p.y - oy;
     } else return;
-    if (a.cache && a.cache.delete) a.cache.delete(key);
+    dropWeaveCellCache(a, key);
     weaveCellContent(a, ix, iy);
   }
 
@@ -10679,7 +10693,7 @@ showSplitPreview();
       pushUndo();
       if (sh.notchPts.length <= 3) delete sh.notchPts;
       else sh.notchPts.splice(h.vi, 1);
-      if (a.cache && a.cache.delete) a.cache.delete(key2);
+      dropWeaveCellCache(a, key2);
       weaveCellContent(a, e.ix, e.iy);
       syncRoutePanel();
       syncEditNote();
@@ -10696,7 +10710,7 @@ showSplitPreview();
     if (pts.length <= 2) delete bucket[key][wi];
     else pts.splice(h.vi, 1);
     if (!bucket[key] || !bucket[key].length) delete bucket[key];
-    if (a.cache && a.cache.delete) a.cache.delete(key);
+    dropWeaveCellCache(a, key);
     weaveCellContent(a, e.ix, e.iy);
     syncRoutePanel();
     toast('已删除一个顶点。', 'ok');
@@ -12302,6 +12316,20 @@ showSplitPreview();
     // QA/调试用：命中打分与坐标换算（不影响正常操作）
     pickAt: (x, y) => { const a = pickCanvasAgent({ x, y }); return a ? a.id : null; },
     blockedAt: (x, y) => blocked(x, y),
+    cacheKeys: (id) => {
+      const a = habitat.agents.find(z => z.id === id);
+      if (!a || !a.cache || typeof a.cache.forEach !== 'function') return [];
+      const out = []; a.cache.forEach((v, k) => out.push(String(k)));
+      return out;
+    },
+    cachedCell: (id, ix, iy) => {
+      const a = habitat.agents.find(z => z.id === id);
+      if (!a || !a.cache || typeof a.cache.forEach !== 'function') return null;
+      const pfx = (Number.isFinite(ix) ? ix : 0) + ',' + (Number.isFinite(iy) ? iy : 0) + ',';
+      let hit = null;
+      a.cache.forEach((v, k) => { if (!hit && String(k).indexOf(pfx) === 0) hit = v; });
+      return hit ? { islands: ((hit.cell && hit.cell.islands) || []).length, paths: (hit.paths || []).length } : null;
+    },
     islands: (id) => {
       const a = habitat.agents.find(z => z.id === id);
       const sh = a && a.custom && a.custom.shapes && a.custom.shapes['0,0'];
