@@ -3028,6 +3028,7 @@ if (window.parent !== window) {
       <label class="row"><input type="checkbox" id="habGridToggle" checked> 显示场地格线</label>
       <label class="row"><input type="checkbox" id="habHideAllBody"> 隐藏所有蚕体（只留丝）</label>
       <label class="row"><input type="checkbox" id="habHideAllSilk"> 隐藏所有丝迹（只留蚕）</label>
+      <label class="row"><input type="checkbox" id="habDimOthers"> 编辑时压暗其余块（默认关＝编辑时也看到导出亮度）</label>
       <h3>丝线与蚕的观感</h3>
       <div class="row"><label>蚕大小</label><input type="range" id="habWormSize" min="0.5" max="2" step="0.05" value="1"><span class="hab-note" id="habWormSizeVal" style="margin:0">1.00×</span></div>
       <div class="row"><label>重复密度</label><input type="range" id="habPathBoost" min="0.5" max="3" step="0.1" value="1"><span class="hab-note" id="habPathBoostVal" style="margin:0">1.0×</span></div>
@@ -6106,6 +6107,8 @@ showSplitPreview();
     drag: null,
     mistPhase: 0,
     showGrid: true,
+    // 编辑时是否把其余块压暗：默认关 —— 编辑态看到的亮度＝导出/预览亮度
+    dimOthersWhileEdit: false,
     weaveEdit: null,
     // r49：全局丝线默认值。单元未覆盖的项一律继承这一套
     silkDefaults: { pathBoost: 1, silkWidth: 1, silkGain: 1, silkMode: 'silk' },
@@ -8527,12 +8530,21 @@ showSplitPreview();
           );
           ctx.restore();
         } else {
-        // 编辑某一块时，其余块压暗到 42%；成品预览里不压暗（那就不是成品了）
-        const dimOther = editAgent && editAgent.id !== agent.id && !habitat.finalPreview;
-        if (dimOther) ctx.save();
-        if (dimOther) ctx.globalAlpha = 0.42;
+        // 编辑某一块时，其余块默认不压暗：编辑态看到的亮度和导出/预览完全一致。
+        // 需要专注某一块时，把左栏「编辑时压暗其余块」勾上，才回到 42% 的压暗。
+        const dimOther = habitat.dimOthersWhileEdit && editAgent && editAgent.id !== agent.id && !habitat.finalPreview;
         drawWeave(ctx, agent, v);
-        if (dimOther) ctx.restore();
+        // 压暗用「盖一层黑」而不是 ctx.globalAlpha：drawWeave 内部的丝线渲染会自己重设
+        // globalAlpha，外面那层 0.42 会被它覆盖掉（等于没压暗）。场地底色本来就是黑，
+        // 盖 58% 黑与「整体透明度 42%」看起来完全一样，且不影响导出（导出不压暗）。
+        if (dimOther) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = 'rgba(0,0,0,0.58)';
+          ctx.fillRect(v.px(agent.x - agent.w / 2), v.py(agent.y - agent.h / 2), agent.w * v.s, agent.h * v.s);
+          ctx.restore();
+        }
         }
         if (!habitat.finalPreview && agent.id === habitat.selected) {
           ctx.strokeStyle = 'rgba(230,236,233,0.35)';
@@ -9206,6 +9218,15 @@ showSplitPreview();
       habitat.hideSilkAll = !!hideAllSilk.checked;
       renderList();
     });
+    // 编辑时是否压暗其余块：默认关（编辑态显示的就是导出亮度）
+    const dimOthersEl = document.getElementById('habDimOthers');
+    if (dimOthersEl) {
+      dimOthersEl.checked = !!habitat.dimOthersWhileEdit;
+      dimOthersEl.addEventListener('change', () => {
+        habitat.dimOthersWhileEdit = !!dimOthersEl.checked;
+        hint(habitat.dimOthersWhileEdit ? '编辑时其余块压暗到 42%。' : '编辑时不再压暗，画面亮度＝导出亮度。');
+      });
+    }
     // 蚕的大小 / 沿丝路重复 / 丝线粗细 / 亮度 / 观感
     const wormSizeEl = document.getElementById('habWormSize');
     if (wormSizeEl) wormSizeEl.addEventListener('input', () => {
@@ -9623,6 +9644,15 @@ showSplitPreview();
           beginAgentDrag(otherUnit, ev);
           return;
         }
+        // 点到这块之外的纯空白：退出编辑并取消选择（右栏回到「未选中个体」）
+        if (!insideEdited) {
+          const key0 = e.ix + ',' + e.iy;
+          if (e.mode && (weaveEditDraft(e, key0) || []).length >= 2) finishWeaveEditLine();
+          if (window.__weaveHooks && window.__weaveHooks.exit) window.__weaveHooks.exit();
+          selectAgent(null);
+          if (window.__layerSel && window.__layerSel.clear) window.__layerSel.clear();
+          return;
+        }
         const v = view();
         const tol = 14 / v.s;
         const hs = weaveHandles(a, e.ix, e.iy);
@@ -9736,6 +9766,9 @@ showSplitPreview();
     const hit = pickCanvasAgent(p);
     if (!hit) {
       const lockedOne = lockedAgentUnder(p);
+      // 点单元格外面的空白 = 取消选择（右栏回到「未选中个体」，看到的亮度就是导出亮度）
+      selectAgent(null);
+      if (window.__layerSel && window.__layerSel.clear) window.__layerSel.clear();
       // 点场地空白 = 退出这一格的编辑（不用再去找「退出编辑」按钮）
       if (habitat.weaveEdit && habitat.weaveEdit.agentId && window.__weaveHooks && window.__weaveHooks.exit) {
         window.__weaveHooks.exit();
@@ -12359,6 +12392,21 @@ showSplitPreview();
     ledCompose: (g, scene, T, loop, W, H, cache) => ledComposeFrame(g, scene, T, !!loop, W, H, cache || []),
     timelineState: () => timelineSnapshot(),
     suggestedEnd: () => suggestedEnd(),
+    repaint: () => { try { paintMist(); paintWorld(); } catch (err) { return String(err); } return 'ok'; },
+    state: () => ({
+      editing: (habitat.weaveEdit && habitat.weaveEdit.agentId) || null,
+      selected: habitat.selected || null,
+      dim: !!habitat.dimOthersWhileEdit,
+      preview: !!habitat.finalPreview,
+    }),
+    unitEff: (id) => {
+      const a = habitat.agents.find(z => z.id === id);
+      return a ? Math.round(unitEffectiveDuration(a) * 100) / 100 : null;
+    },
+    unitStart: (id) => {
+      const a = habitat.agents.find(z => z.id === id);
+      return a ? Math.round(unitStartTime(a) * 100) / 100 : null;
+    },
     drawingOutline: () => !!habitat.newOutline,
     // 编辑态自检：当前在改哪一块、用什么工具、已经点了几个顶点
     weaveEditState: () => {
