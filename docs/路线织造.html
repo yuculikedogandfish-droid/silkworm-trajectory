@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>路线织造 · 蚕在大路径里织网</title>
+<title>路线织造 · 蚕沿线路径爬行吐丝</title>
 <style>
   :root{
     --bg:#0b0d0f; --panel:#14171b; --panel2:#191d22; --border:#262b32;
@@ -60,7 +60,7 @@
 <body>
 <header>
   <h1>路线织造</h1>
-  <span class="sub">路径是场地：蚕在大路径里按吐丝行为爬行织网</span>
+  <span class="sub">路径是一条线：蚕沿着这条线爬、边爬边吐丝</span>
   <span class="spacer"></span>
   <button type="button" id="btnPlay" class="primary">▶ 播放 / 暂停</button>
   <button type="button" id="btnReset">回到起点</button>
@@ -70,50 +70,37 @@
 <main>
   <section id="stage">
     <canvas id="cvs"></canvas>
-    <div id="tip">左键点边界选中场地；拖白点改形状；曲线上双击加一个点；右键点删掉那个点。</div>
+    <div id="tip">左键点线选中路径；拖白点改形状；曲线上双击加一个点；右键点删掉那个点。</div>
     <div id="hud"></div>
   </section>
   <aside>
-    <h3>路径＝场地</h3>
+    <h3>路径（线）</h3>
     <div class="btnrow">
-      <button type="button" data-add="circle">＋ 正圆场地</button>
-      <button type="button" data-add="line">＋ 直线场地</button>
+      <button type="button" data-add="circle">＋ 正圆线</button>
+      <button type="button" data-add="line">＋ 直线</button>
     </div>
     <div class="btnrow">
-      <button type="button" data-add="closed">＋ 封闭曲线场地</button>
-      <button type="button" data-add="open">＋ 开放曲线场地</button>
+      <button type="button" data-add="closed">＋ 封闭曲线</button>
+      <button type="button" data-add="open">＋ 开放曲线</button>
     </div>
     <div class="paths" id="pathList"></div>
-    <div class="note">每个路径都是一个“方格”那样的场地，各自有一只蚕在里面来回爬、边爬边吐丝；块与块之间互不干扰。</div>
-    <div class="row" id="circleLoopRow" style="display:none">
-      <label>正圆</label>
-      <label class="chk" style="flex:1 1 auto;margin:0"><input type="checkbox" id="chkCircleLoop"> 头尾相接循环爬行</label>
-    </div>
-    <div class="row" id="circleLapsRow" style="display:none">
-      <label>圈数</label>
-      <input type="number" id="numLaps" min="1" max="40" step="1" value="3">
-      <span class="note" style="margin:0">圈</span>
-    </div>
-    <div class="row" id="bandRow" style="display:none">
-      <label>带宽</label>
-      <input type="range" id="rngBand" min="40" max="300" step="5" value="120"><span class="val" id="vBand">120</span>
-    </div>
+    <div class="note">每个路径就是一条线：正圆＝圆周那条线，直线＝两点之间，封闭曲线＝首尾相接的那条，开放曲线＝不闭合的那条。蚕沿着这条线爬，边爬边吐丝；丝会在这条线两侧摆开一点，成为一条有厚度的丝带。</div>
 
-    <h3>织造</h3>
-    <div class="row"><label>行为</label>
+    <h3>爬行与吐丝</h3>
+    <div class="row"><label>爬法</label>
       <select id="selMode">
-        <option value="weave" selected>在场地内织网（像方格）</option>
-        <option value="trace">沿路径爬一根丝</option>
+        <option value="along" selected>沿线爬行（吐丝行为）</option>
+        <option value="fill">整块织满（像方格）</option>
       </select>
     </div>
-    <div class="row"><label>织造时长</label>
+    <div class="row"><label>时长</label>
       <select id="selDur"><option value="10">10 秒</option><option value="20" selected>20 秒</option><option value="30">30 秒</option><option value="45">45 秒</option><option value="60">60 秒</option></select>
     </div>
-    <div class="row"><label>爬行速度</label><input type="range" id="rngSpeed" min="40" max="900" step="10" value="480"><span class="val" id="vSpeed">480</span></div>
-    <div class="note">世界单位/秒。速度决定丝的密度：同样时长里爬得越多、织得越密；导出时长由「织造时长」定。</div>
-    <div class="row" id="swingRow"><label>摆动幅度</label><input type="range" id="rngSwing" min="0" max="80" step="1" value="42"><span class="val" id="vSwing">42</span></div>
-    <div class="row" id="hzRow"><label>摆动频率</label><input type="range" id="rngHz" min="0.10" max="6" step="0.05" value="1.6"><span class="val" id="vHz">1.60</span></div>
-    <div class="note" id="swingNote">摆动＝蚕左右摆头（摆头波长要比场地小，才会来回叠成网）。幅度大、频率高＝更密更绕；碰边界时按法线反弹。</div>
+    <div class="row"><label>爬行速度</label><input type="range" id="rngSpeed" min="60" max="900" step="10" value="320"><span class="val" id="vSpeed">320</span></div>
+    <div class="note">世界单位/秒（场地按 1000×750）。速度越大，同样时长里沿这条线爬的圈数越多、丝带越厚实。</div>
+    <div class="row"><label>摆动幅度</label><input type="range" id="rngBand" min="2" max="45" step="1" value="12"><span class="val" id="vBand">12</span></div>
+    <div class="row"><label>摆动频率</label><input type="range" id="rngHz" min="0.5" max="12" step="0.1" value="5"><span class="val" id="vHz">5.0</span></div>
+    <div class="note" id="bandNote">摆动幅度＝丝在线两侧摆开多少（这条丝带的半宽）；频率＝摆得多快，波长≈速度／频率。两个都是 0 附近就是一根干净的细线，往右就是越织越“绕”的手织丝。</div>
     <div class="row"><label>丝线宽度</label><input type="range" id="rngW" min="0.3" max="4" step="0.05" value="1.8"><span class="val" id="vW">1.80</span></div>
     <div class="row"><label>丝线亮度</label><input type="range" id="rngGain" min="0.2" max="1.6" step="0.02" value="1"><span class="val" id="vGain">1.00</span></div>
     <div class="row"><label>材质</label>
@@ -124,7 +111,7 @@
         <option value="bright">亮丝</option>
       </select>
     </div>
-    <div class="row"><label>丝线抖动</label><input type="range" id="rngWob" min="0" max="2" step="0.02" value="0.5"><span class="val" id="vWob">0.50</span></div>
+    <div class="row"><label>丝线抖动</label><input type="range" id="rngWob" min="0" max="2" step="0.02" value="0.35"><span class="val" id="vWob">0.35</span></div>
     <label class="chk"><input type="checkbox" id="chkWorm" checked> 画面里显示正在爬的蚕</label>
     <button type="button" id="btnReseed" style="width:100%">换一次爬行（重新织）</button>
 
@@ -176,14 +163,12 @@
 var WORLD = { w: 1000, h: 750 };
 var S = {
   paths: [], sel: -1,
-  mode: 'weave',            // weave = 在场地内织网；trace = 沿路径一根丝
+  mode: 'along',            // along = 沿着这条线爬；fill = 在围合地块里织满
   durSec: 20,
-  weaveDur: 20,      // 记着“织网”档的片长，切回织网时还原
-  speed: 480,                // 世界单位/秒
-  swing: 42,                // 摆头幅度（度）
-  hz: 1.6,                  // 摆头频率（Hz）
-  band: 120,                // 直线场地的带宽
-  silkW: 1.8, gain: 1, mat: 'silk', wob: 0.5, showWorm: true,
+  speed: 320,               // 世界单位/秒
+  band: 12,                 // 丝带半宽（摆动幅度）
+  hz: 5,                    // 摆动频率
+  silkW: 1.8, gain: 1, mat: 'silk', wob: 0.35, showWorm: true,
   bg: '#000000', alpha: false,
   fps: 30, mbps: 16, res: '2048x1536',
   W: 1200, H: 900,
@@ -194,7 +179,7 @@ var cv = document.getElementById('cvs');
 var ctx = cv.getContext('2d');
 var seedCounter = 0;
 
-/* ===== 随机（可复现，导出和预览同一条轨迹） ===== */
+/* ===== 随机（预览与导出同一条轨迹） ===== */
 function mulberry32(a) {
   return function () {
     a |= 0; a = a + 0x6D2B79F5 | 0;
@@ -206,25 +191,24 @@ function mulberry32(a) {
 
 /* ===== 基础几何 ===== */
 function circlePts(cx, cy, r, n) {
-  var out = [], N = n || 160;
+  var out = [], N = n || 180;
   for (var i = 0; i < N; i++) {
     var a = i / N * Math.PI * 2;
     out.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
   }
   return out;
 }
-function linePts(a, b) { return [{ x: a.x, y: a.y }, { x: b.x, y: b.y }]; }
 function splinePts(ctrl, closed, per) {
   var n = ctrl.length;
   if (n < 2) return ctrl.slice();
-  if (n === 2) return linePts(ctrl[0], ctrl[1]);
+  if (n === 2) return [{ x: ctrl[0].x, y: ctrl[0].y }, { x: ctrl[1].x, y: ctrl[1].y }];
   var P = function (i) {
     if (closed) return ctrl[((i % n) + n) % n];
     return ctrl[Math.max(0, Math.min(n - 1, i))];
   };
   var segs = closed ? n : n - 1, out = [], per2 = per || 26;
-  for (var s = 0; s < segs; s++) {
-    var p0 = P(s - 1), p1 = P(s), p2 = P(s + 1), p3 = P(s + 2);
+  for (var s2 = 0; s2 < segs; s2++) {
+    var p0 = P(s2 - 1), p1 = P(s2), p2 = P(s2 + 1), p3 = P(s2 + 2);
     for (var k = 0; k < per2; k++) {
       var t = k / per2, t2 = t * t, t3 = t2 * t;
       out.push({
@@ -238,8 +222,8 @@ function splinePts(ctrl, closed, per) {
 }
 function resample(pts, step) {
   if (!pts.length) return [];
-  var out = [{ x: pts[0].x, y: pts[0].y }], acc = 0;
-  for (var i = 1; i < pts.length; i++) {
+  var out = [{ x: pts[0].x, y: pts[0].y }], acc = 0, i;
+  for (i = 1; i < pts.length; i++) {
     var ax = pts[i - 1].x, ay = pts[i - 1].y, bx = pts[i].x, by = pts[i].y;
     var seg = Math.hypot(bx - ax, by - ay);
     if (seg <= 1e-9) continue;
@@ -260,24 +244,52 @@ function resample(pts, step) {
 function pathTypeName(t) {
   return { circle: '正圆', line: '直线', closed: '封闭曲线', open: '开放曲线' }[t] || t;
 }
-
-/* ===== 路径 → 场地轮廓（闭合多边形） ===== */
-function regionOf(p) {
-  var raw;
-  if (p.type === 'circle') {
-    raw = circlePts(p.ctrl[0].x, p.ctrl[0].y, p.r || 160, 120);
-  } else if (p.type === 'closed') {
-    raw = splinePts(p.ctrl, true, 26);
-  } else if (p.type === 'open') {
-    // 开放曲线本身不围合，所以沿曲线两侧各展开半个带宽，成为一条弯走廊
-    raw = ribbonPoly(splinePts(p.ctrl, false, 26), p.band || S.band);
-  } else {
-    // 直线：同样向两侧展开半个带宽，是一条直走廊
-    raw = ribbonPoly([p.ctrl[0], p.ctrl[1]], p.band || S.band);
-  }
-  return raw;
+function distToSeg(px, py, ax, ay, bx, by) {
+  var dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+  var t = L2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
+  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
 }
-/* 沿一条线（直线或曲线）向两侧各展开 h，围出一条走廊 */
+
+/* ===== 线：沿线爬的中心线 ===== */
+function withArc(pts, closed) {
+  if (!pts.length) return pts;
+  if (closed && pts.length > 1) pts.push({ x: pts[0].x, y: pts[0].y });
+  var len = 0;
+  pts[0].s = 0;
+  for (var i = 1; i < pts.length; i++) {
+    len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    pts[i].s = len;
+  }
+  pts.len = len;
+  return pts;
+}
+function centerlineOf(p) {
+  var raw;
+  if (p.type === 'circle') raw = circlePts(p.ctrl[0].x, p.ctrl[0].y, p.r || 160, 200);
+  else if (p.type === 'line') raw = [{ x: p.ctrl[0].x, y: p.ctrl[0].y }, { x: p.ctrl[1].x, y: p.ctrl[1].y }];
+  else raw = splinePts(p.ctrl, p.type === 'closed', 26);
+  return withArc(resample(raw, 3), p.type !== 'open');
+}
+function pointOnLine(p, sAbs) {
+  var pts = p.line, L = pts.len || 1;
+  var s2 = Math.max(0, Math.min(L, sAbs));
+  var lo = 0, hi = pts.length - 1;
+  while (lo < hi - 1) {
+    var mid = (lo + hi) >> 1;
+    if (pts[mid].s <= s2) lo = mid; else hi = mid;
+  }
+  var a = pts[lo], b = pts[hi], seg = Math.max(1e-9, b.s - a.s);
+  var f = Math.min(1, Math.max(0, (s2 - a.s) / seg));
+  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+}
+function tangentOnLine(p, sAbs) {
+  var a = pointOnLine(p, sAbs - 2.5), b = pointOnLine(p, sAbs + 2.5);
+  var dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy);
+  if (l < 1e-6) return { x: 1, y: 0 };
+  return { x: dx / l, y: dy / l };
+}
+
+/* ===== 围合地块（「整块织满」用） ===== */
 function ribbonPoly(pts, band) {
   var h = Math.max(8, band) / 2;
   if (pts.length < 2) return pts.slice();
@@ -293,7 +305,12 @@ function ribbonPoly(pts, band) {
   for (var j = right.length - 1; j >= 0; j--) out.push(right[j]);
   return out;
 }
-
+function regionOf(p) {
+  if (p.type === 'circle') return circlePts(p.ctrl[0].x, p.ctrl[0].y, p.r || 160, 120);
+  if (p.type === 'closed') return splinePts(p.ctrl, true, 26);
+  if (p.type === 'open') return ribbonPoly(splinePts(p.ctrl, false, 26), Math.max(30, S.band * 5));
+  return ribbonPoly([p.ctrl[0], p.ctrl[1]], Math.max(30, S.band * 5));
+}
 function insidePoly(poly, x, y) {
   var c = false;
   for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -302,7 +319,6 @@ function insidePoly(poly, x, y) {
   }
   return c;
 }
-/* 最近的边界点 + 指向内部（-外法线）的法线 */
 function nearestOnPoly(poly, x, y) {
   var best = null;
   for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -313,8 +329,7 @@ function nearestOnPoly(poly, x, y) {
     var d = Math.hypot(x - qx, y - qy);
     if (!best || d < best.d) {
       var nx = -dy, ny = dx, nl = Math.hypot(nx, ny) || 1;
-      nx /= nl; ny /= nl;
-      best = { x: qx, y: qy, nx: nx, ny: ny, d: d };
+      best = { x: qx, y: qy, nx: nx / nl, ny: ny / nl, d: d };
     }
   }
   return best;
@@ -334,58 +349,9 @@ function polygonAreaCentroid(poly) {
   return { x: cx / (6 * a), y: cy / (6 * a), area: Math.abs(a) };
 }
 
-/* ===== 路径（场地）对象 ===== */
-function addPath(type) {
-  var idx = S.paths.length;
-  var col = idx % 2, row = Math.floor(idx / 2) % 2;
-  var cx = 250 + col * 500, cy = 190 + row * 370;
-  var k = 118, p, half = 178;
-  seedCounter += 1;
-  var seed = ((S.seed + seedCounter * 977) >>> 0);
-  if (type === 'circle') {
-    p = { type: 'circle', ctrl: [{ x: cx, y: cy }], r: 145, loop: true, laps: 3, seed: seed };
-  } else if (type === 'line') {
-    p = { type: 'line', ctrl: [{ x: cx - half, y: cy }, { x: cx + half, y: cy }], band: Math.min(S.band, 96), seed: seed };
-  } else if (type === 'closed') {
-    p = { type: 'closed', ctrl: [{ x: cx - k, y: cy - k }, { x: cx + k, y: cy - k }, { x: cx + k, y: cy + k }, { x: cx - k, y: cy + k }], seed: seed };
-  } else {
-    p = { type: 'open', ctrl: [{ x: cx - half, y: cy + 105 }, { x: cx - 58, y: cy - 118 }, { x: cx + 58, y: cy + 105 }, { x: cx + half, y: cy - 55 }], band: Math.min(S.band, 96), seed: seed };
-  }
-  buildPath(p);
-  S.paths.push(p);
-  S.sel = S.paths.length - 1;
-  S.t = 0; S.playing = false;
-  rebuildAll(); fitWorld(); renderList(); draw();
-  return p;
-}
-
-/* ===== 生成：区域织网 / 沿路径爬 ===== */
-function buildPath(p) {
-  p.poly = regionOf(p);
-  p.center = polygonAreaCentroid(p.poly);
-  p.samples = resample(p.poly.concat([p.poly[0]]), 4);
-  p.len = 0;
-  for (var i = 1; i < p.samples.length; i++) {
-    p.len += Math.hypot(p.samples[i].x - p.samples[i - 1].x, p.samples[i].y - p.samples[i - 1].y);
-    p.samples[i].s = p.len;
-  }
-  if (p.samples[0]) p.samples[0].s = 0;
-  p.stamp = Date.now() + Math.random();
-}
-
-/* 描线器里提出来的一笔真实蚕丝（归一化坐标，原始 300 点，取自已上线的 index.html） */
+/* ===== 描线器里提出来的一笔真实蚕丝（归一化，300 点） ===== */
 var MOTIF_FLAT = [-0.2858,0.3183,-0.2858,0.3003,-0.2858,0.2823,-0.2858,0.2643,-0.2855,0.2463,-0.2849,0.2283,-0.2841,0.2104,-0.2832,0.1924,-0.2823,0.1744,-0.2814,0.1565,-0.2805,0.1385,-0.2796,0.1205,-0.2787,0.1025,-0.2779,0.0846,-0.277,0.0666,-0.2765,0.0486,-0.2764,0.0306,-0.2764,0.0126,-0.2764,-0.0054,-0.2764,-0.0234,-0.2764,-0.0413,-0.2764,-0.0593,-0.2764,-0.0773,-0.2764,-0.0953,-0.2764,-0.1133,-0.2764,-0.1313,-0.2777,-0.1492,-0.2808,-0.1669,-0.2842,-0.1846,-0.2863,-0.2024,-0.2906,-0.2191,-0.305,-0.2298,-0.3199,-0.2399,-0.3375,-0.2431,-0.3555,-0.2425,-0.3603,-0.2278,-0.3607,-0.2098,-0.3607,-0.1918,-0.3607,-0.1738,-0.3605,-0.1558,-0.3595,-0.1379,-0.3572,-0.12,-0.3541,-0.1023,-0.3493,-0.085,-0.3409,-0.069,-0.3332,-0.0528,-0.3275,-0.0358,-0.3176,-0.0213,-0.3045,-0.009,-0.2908,0.0026,-0.2767,0.0139,-0.2627,0.0251,-0.2492,0.037,-0.2362,0.0494,-0.2229,0.0616,-0.208,0.0716,-0.1939,0.0829,-0.181,0.0953,-0.1683,0.1081,-0.1555,0.1208,-0.1428,0.1335,-0.1301,0.1462,-0.1173,0.1589,-0.1046,0.1716,-0.092,0.1844,-0.0803,0.1981,-0.07,0.2129,-0.0605,0.2282,-0.0508,0.2433,-0.0407,0.2582,-0.0304,0.2729,-0.0202,0.2878,-0.0108,0.3031,-0.0031,0.3193,0.0023,0.3365,0.0073,0.3538,0.0131,0.3708,0.0202,0.3873,0.0229,0.405,0.0226,0.4229,0.0128,0.4359,-0.0039,0.44,-0.0219,0.44,-0.0399,0.44,-0.0578,0.4393,-0.0751,0.4353,-0.09,0.4252,-0.1047,0.4149,-0.1168,0.4016,-0.1273,0.387,-0.1346,0.3706,-0.1409,0.3538,-0.1444,0.3363,-0.1452,0.3183,-0.1452,0.3003,-0.1453,0.2824,-0.1456,0.2644,-0.1468,0.2464,-0.1487,0.2285,-0.1511,0.2107,-0.1529,0.1928,-0.1541,0.1748,-0.1545,0.1569,-0.1546,0.1389,-0.1546,0.1209,-0.1546,0.1029,-0.1546,0.0849,-0.1546,0.0669,-0.1546,0.0489,-0.1546,0.0309,-0.1546,0.0129,-0.1546,-0.0051,-0.1546,-0.0231,-0.1546,-0.0411,-0.1546,-0.0591,-0.1546,-0.077,-0.1546,-0.095,-0.1546,-0.113,-0.1546,-0.131,-0.1546,-0.149,-0.1546,-0.167,-0.1546,-0.185,-0.1546,-0.203,-0.1546,-0.221,-0.1638,-0.2317,-0.1687,-0.2408,-0.1586,-0.2557,-0.1484,-0.2705,-0.144,-0.2875,-0.1391,-0.3046,-0.1301,-0.32,-0.1185,-0.3338,-0.1064,-0.347,-0.094,-0.36,-0.0813,-0.3728,-0.0686,-0.3855,-0.0555,-0.3978,-0.042,-0.4098,-0.028,-0.421,-0.0118,-0.4282,0.0038,-0.4241,0.0178,-0.4128,0.0306,-0.4003,0.0409,-0.3857,0.048,-0.3692,0.0549,-0.3526,0.0626,-0.3363,0.0715,-0.3207,0.0765,-0.3034,0.0833,-0.2868,0.0917,-0.2708,0.0969,-0.2539,0.0987,-0.236,0.0997,-0.218,0.1012,-0.2001,0.1031,-0.1822,0.1053,-0.1644,0.1077,-0.1465,0.1108,-0.1288,0.115,-0.1113,0.1194,-0.0939,0.1236,-0.0764,0.1273,-0.0588,0.1305,-0.0411,0.1337,-0.0234,0.1372,-0.0057,0.1412,0.0118,0.1455,0.0293,0.1499,0.0467,0.1533,0.0644,0.1547,0.0823,0.1576,0.1001,0.1615,0.1176,0.1637,0.1354,0.164,0.1534,0.1646,0.1713,0.167,0.1891,0.1708,0.2067,0.1733,0.2245,0.1733,0.2425,0.1733,0.2605,0.1602,0.2703,0.1425,0.2715,0.1268,0.264,0.1197,0.2484,0.1175,0.2306,0.1171,0.2126,0.1171,0.1946,0.1171,0.1766,0.1165,0.1587,0.1139,0.1409,0.1091,0.1235,0.1078,0.1056,0.1078,0.0876,0.1078,0.0696,0.1083,0.0516,0.1116,0.0341,0.118,0.0173,0.1259,0.0012,0.134,-0.0149,0.1423,-0.0309,0.1513,-0.0464,0.1611,-0.0615,0.1698,-0.0773,0.1791,-0.0927,0.1879,-0.1084,0.1915,-0.1256,0.1951,-0.1432,0.2032,-0.1589,0.2136,-0.1736,0.2201,-0.1898,0.2209,-0.2077,0.2251,-0.2251,0.2332,-0.2412,0.2384,-0.2584,0.2389,-0.2764,0.2389,-0.2944,0.2389,-0.3123,0.2389,-0.3303,0.2389,-0.3483,0.2389,-0.3529,0.2389,-0.3349,0.239,-0.3169,0.2392,-0.2989,0.2407,-0.2811,0.2456,-0.2638,0.2527,-0.2472,0.2593,-0.2305,0.266,-0.2138,0.2724,-0.197,0.2789,-0.1802,0.2853,-0.1634,0.2917,-0.1466,0.298,-0.1297,0.3043,-0.1129,0.3107,-0.096,0.317,-0.0792,0.3232,-0.0623,0.3295,-0.0454,0.3358,-0.0286,0.342,-0.0117,0.3482,0.0052,0.3542,0.0222,0.3589,0.0395,0.3607,0.0573,0.3607,0.0753,0.3607,0.0933,0.3607,0.1113,0.3607,0.1293,0.3606,0.1473,0.3567,0.1648,0.3478,0.18,0.3369,0.1943,0.3278,0.2097,0.3206,0.2262,0.313,0.2425,0.304,0.2581,0.2932,0.2723,0.2776,0.2805,0.2657,0.2674,0.2626,0.2497,0.2602,0.2318,0.2584,0.2139,0.2586,0.196,0.2615,0.1783,0.2658,0.1608,0.2708,0.1435,0.2759,0.1263,0.2809,0.109,0.2858,0.0917,0.2905,0.0743,0.295,0.0569,0.2992,0.0394,0.3032,0.0218,0.3067,0.0042,0.31,-0.0135,0.3133,-0.0312,0.3171,-0.0488,0.3212,-0.0663,0.3254,-0.0838,0.3293,-0.1013,0.3322,-0.1191,0.3334,-0.137,0.3376,-0.1545,0.3425,-0.1718,0.347,-0.1892,0.3502,-0.2069,0.3514,-0.2248,0.3514,-0.2428,0.3514,-0.2608,0.3514,-0.2788,0.3514,-0.2968,0.3514,-0.3148,0.3514,-0.3328,0.3514,-0.3508,0.3513,-0.3688,0.3505,-0.3867,0.3485,-0.4046,0.3455,-0.4224,0.342,-0.44];
 var MOTIF_CACHE = null;
-
-/* 行为母题：把抽出来的那一笔做高斯平滑，再去掉重复点 */
-function motifPts() {
-  if (MOTIF_CACHE) return MOTIF_CACHE;
-  var out = [];
-  for (var i = 0; i < MOTIF_FLAT.length; i += 2) out.push({ x: MOTIF_FLAT[i], y: MOTIF_FLAT[i + 1] });
-  out = gaussSmooth(out, 2, 1.4);
-  MOTIF_CACHE = out;
-  return out;
-}
 function gaussSmooth(pts, passes, sigma) {
   var k = [], r = Math.ceil(sigma * 2.2), sum = 0, i;
   for (i = -r; i <= r; i++) { var w = Math.exp(-(i * i) / (2 * sigma * sigma)); k.push(w); sum += w; }
@@ -405,52 +371,114 @@ function gaussSmooth(pts, passes, sigma) {
   }
   return cur;
 }
+function motifPts() {
+  if (MOTIF_CACHE) return MOTIF_CACHE;
+  var out = [];
+  for (var i = 0; i < MOTIF_FLAT.length; i += 2) out.push({ x: MOTIF_FLAT[i], y: MOTIF_FLAT[i + 1] });
+  MOTIF_CACHE = gaussSmooth(out, 2, 1.4);
+  return MOTIF_CACHE;
+}
 
-/* 区域织网：蚕在场地里爬，摆头 + 碰边反弹，边走边吐丝 */
-function simulateWeave(p) {
+/* ===== 路径 ===== */
+function addPath(type) {
+  var idx = S.paths.length;
+  var col = idx % 2, row = Math.floor(idx / 2) % 2;
+  var cx = 270 + col * 460, cy = 190 + row * 370;
+  var k = 120, p, half = 180;
+  seedCounter += 1;
+  var seed = ((S.seed + seedCounter * 977) >>> 0);
+  if (type === 'circle') {
+    p = { type: 'circle', ctrl: [{ x: cx, y: cy }], r: 132, seed: seed };
+  } else if (type === 'line') {
+    p = { type: 'line', ctrl: [{ x: cx - half, y: cy }, { x: cx + half, y: cy }], seed: seed };
+  } else if (type === 'closed') {
+    p = { type: 'closed', ctrl: [{ x: cx - k, y: cy - k * 0.8 }, { x: cx + k, y: cy - k }, { x: cx + k * 0.9, y: cy + k }, { x: cx - k, y: cy + k * 0.75 }], seed: seed };
+  } else {
+    p = { type: 'open', ctrl: [{ x: cx - half, y: cy + 100 }, { x: cx - 58, y: cy - 112 }, { x: cx + 58, y: cy + 100 }, { x: cx + half, y: cy - 52 }], seed: seed };
+  }
+  S.paths.push(p);
+  S.sel = S.paths.length - 1;
+  S.t = 0; S.playing = false;
+  buildPath(p);
+  rebuildAll(); fitWorld(); renderList(); draw();
+  return p;
+}
+function buildPath(p) {
+  p.line = centerlineOf(p);
+  p.lineLen = p.line.len;
+  p.poly = regionOf(p);
+  p.center = polygonAreaCentroid(p.poly);
+}
+
+/* ===== 沿线爬行：蚕贴着这条线走，左右摆动，边走边吐丝 ===== */
+function simulateAlong(p) {
+  var seed = p.seed || 1, rnd = mulberry32(seed);
+  var L = Math.max(1, p.lineLen), dur = S.durSec;
+  var speed = Math.max(10, S.speed);
+  var lam1 = Math.max(12, speed / Math.max(0.2, S.hz));
+  var lam2 = lam1 * 4.6, lam3 = lam1 * 0.52;
+  var ph1 = rnd() * 6.283, ph2 = rnd() * 6.283, ph3 = rnd() * 6.283;
+  var bounce = (p.type === 'open' || p.type === 'line');   // 不闭合的线：到头掉头，别跳回起点
+  var dt = 1 / 60, sAcc = 0, t = 0, pts = [];
+  while (t <= dur + 1e-9) {
+    var sAbs = bounce ? triFold(sAcc, L) : (sAcc % L);
+    var q = pointOnLine(p, sAbs);
+    var tg = tangentOnLine(p, sAbs);
+    var nx = -tg.y, ny = tg.x;
+    // 每圈的摆相位都不同：慢分量用「已爬总长」而不是圈内位置，
+    // 于是第二圈不会正好压在第一圈上，丝才会叠成一条有厚度的丝带。
+    var lap = Math.floor(sAcc / L);
+    var a = 0.52 * Math.sin(2 * Math.PI * sAbs / lam1 + ph1 + lap * 1.73)
+          + 0.30 * Math.sin(2 * Math.PI * sAcc / (L * 0.41) + ph2)
+          + 0.18 * Math.sin(2 * Math.PI * sAcc / (L * 0.137) + ph3);
+    var off = S.band * a * (0.86 + 0.14 * Math.sin(2 * Math.PI * sAcc / (L * 0.29) + ph2));
+    pts.push({ t: t, x: q.x + nx * off, y: q.y + ny * off });
+    sAcc += speed * dt; t += dt;
+  }
+  p.silk = silkOf(pts, seed);
+  p.dur = dur;
+  p.ptsCount = pts.length;
+  p.laps = sAcc / L;
+  p.waveLen = lam1;
+}
+function triFold(sAbs, L) {
+  var m = sAbs % (2 * L);
+  return m <= L ? m : (2 * L - m);
+}
+
+/* ===== 整块织满（保留可切换） ===== */
+function simulateFill(p) {
   var poly = p.poly, c = p.center, seed = p.seed || 1;
   var rnd = mulberry32(seed);
   var M = motifPts();
   var tMax = S.durSec, speed = Math.max(5, S.speed);
   var t = 0, pts = [], last = null;
 
-  // 场地尺度：重心到轮廓的最远距离
   var maxR = 0;
   for (var i = 0; i < poly.length; i++) {
     var d0 = Math.hypot(poly[i].x - c.x, poly[i].y - c.y);
     if (d0 > maxR) maxR = d0;
   }
   if (maxR < 5) maxR = 5;
-
-  // 母题自身的“半径”（母题是归一化坐标）
   var mr = 0;
   for (i = 0; i < M.length; i++) { var dm = Math.hypot(M[i].x, M[i].y); if (dm > mr) mr = dm; }
   if (mr < 0.01) mr = 0.44;
 
-  // 走廊型场地（直线 / 开放曲线）：笔幅受带宽限制，沿轴线一笔一笔落
   var corridor = (p.type === 'line' || p.type === 'open');
-  var bandHalf = Math.max(12, (p.band || S.band) / 2);
-  var axis = corridor ? resample(p.type === 'line' ? [p.ctrl[0], p.ctrl[1]] : splinePts(p.ctrl, false, 26), 6) : (p.samples || []);
-  var baseAng = (p.type === 'line')
-    ? Math.atan2(p.ctrl[1].y - p.ctrl[0].y, p.ctrl[1].x - p.ctrl[0].x) : null;
-
-  var axisProg = rnd() * 0.3;      // 走廊里当前织到哪一段（0..1）
-  var axisDir = 1;                 // 走到头就掉头，别横穿回起点
-  var guard = 0;
+  var bandHalf = Math.max(14, (p.poly ? 60 : 60));
+  var axis = corridor ? p.line : p.poly;
+  var guard = 0, axisProg = rnd() * 0.3, axisDir = 1;
   while (t < tMax - 0.02 && guard++ < 900) {
     var place = null, ang = 0, sc = 1, ca = 1, sa = 0;
-
-    for (var att = 0; att < 30 && !place; att++) {
+    for (var att = 0; att < 26 && !place; att++) {
       var cx, cy;
       if (corridor) {
-        // 沿轴线随机取一点，笔幅按带宽收缩，整笔必须落在走廊里
         var kk = Math.round(axisProg * (axis.length - 1));
         var q = axis[kk], q2 = axis[Math.min(axis.length - 1, kk + 2)];
         ang = Math.atan2(q2.y - q.y, q2.x - q.x) + (rnd() - 0.5) * 1.0;
         sc = bandHalf * (0.72 + rnd() * 0.30) / mr;
         cx = q.x; cy = q.y;
       } else {
-        // 闭合场地：笔幅可放到场地半径量级，超出边界的那部分会被“挡”回去
         ang = rnd() * Math.PI * 2;
         sc = maxR * (0.62 + rnd() * 0.42) / mr;
         var rr = maxR * 0.66 * Math.sqrt(rnd()), aa = rnd() * Math.PI * 2;
@@ -458,16 +486,14 @@ function simulateWeave(p) {
         cy = c.y + Math.sin(aa) * rr;
       }
       ca = Math.cos(ang); sa = Math.sin(ang);
-
       var outCount = 0;
       for (i = 0; i < M.length; i += 2) {
         var wx = cx + (M[i].x * ca - M[i].y * sa) * sc;
         var wy = cy + (M[i].x * sa + M[i].y * ca) * sc;
         if (!insidePoly(poly, wx, wy)) outCount++;
       }
-      var limit = corridor ? 0 : M.length / 12;   // 走廊必须整笔在里面；闭合场地允许一点点出界
-      if (outCount <= limit) place = { x: cx, y: cy };
-      else sc *= 0.87;
+      var limit = corridor ? 0 : M.length / 12;
+      if (outCount <= limit) place = { x: cx, y: cy }; else sc *= 0.87;
     }
     if (!place) break;
     if (corridor) {
@@ -475,17 +501,13 @@ function simulateWeave(p) {
       if (axisProg > 1) { axisProg = 2 - axisProg; axisDir = -1; }
       else if (axisProg < 0) { axisProg = -axisProg; axisDir = 1; }
     }
-
     for (i = 0; i < M.length; i++) {
       var X = place.x + (M[i].x * ca - M[i].y * sa) * sc;
       var Y = place.y + (M[i].x * sa + M[i].y * ca) * sc;
-      // 闭合场地的边角：越界点被场地挡回来，贴着边界走
       if (!corridor && !insidePoly(poly, X, Y)) {
         var nb = nearestOnPoly(poly, X, Y);
         X = nb.x + nb.nx * 1.4; Y = nb.y + nb.ny * 1.4;
-        p.blocked = (p.blocked || 0) + 1;
       }
-      // 点太密就不落笔（省点数，形状不变）
       if (last && Math.hypot(X - last.x, Y - last.y) < 1.2) continue;
       if (last) {
         var segLen = Math.hypot(X - last.x, Y - last.y);
@@ -496,7 +518,6 @@ function simulateWeave(p) {
             if (!insidePoly(poly, fx, fy)) { cross = true; break; }
           }
           if (cross) {
-            // 直爬会出场地：从场地中心绕一下
             t += (Math.hypot(c.x - last.x, c.y - last.y) + Math.hypot(X - c.x, Y - c.y)) / speed;
             pts.push({ t: t, x: c.x, y: c.y });
             last = { x: c.x, y: c.y };
@@ -517,42 +538,9 @@ function simulateWeave(p) {
   p.dur = tMax;
   p.ptsCount = pts.length;
   p.strokes = guard;
-  p.corridor = corridor;
-}
-/* 沿路径爬一根丝（旧行为，可切换） */
-function simulateTrace(p) {
-  var passes = (p.type === 'circle' && p.loop) ? Math.max(1, Math.round(p.laps || 1)) : 1;
-  var raw = [];
-  for (var k = 0; k < passes; k++) {
-    for (var i = 0; i < p.samples.length; i++) raw.push(p.samples[i]);
-  }
-  var totalLen = p.len * passes;
-  var speed = Math.max(1, S.speed);
-  var dt = 1 / 60, t = 0, s = 0, out = [];
-  while (s <= totalLen) {
-    out.push({ t: t, s: s, x: pointOnByS(p, s).x, y: pointOnByS(p, s).y });
-    s += speed * dt; t += dt;
-  }
-  p.silk = silkOf(out, p.seed);
-  p.dur = Math.max(0.5, totalLen / speed);
-  p.ptsCount = out.length;
-  p.traceLen = totalLen;
-}
-function pointOnByS(p, s) {
-  var pts = p.samples;
-  if (!pts.length) return { x: 0, y: 0 };
-  var s2 = s % Math.max(1e-6, p.len);
-  var lo = 0, hi = pts.length - 1;
-  while (lo < hi - 1) {
-    var mid = (lo + hi) >> 1;
-    if (pts[mid].s <= s2) lo = mid; else hi = mid;
-  }
-  var a = pts[lo], b = pts[hi], seg = Math.max(1e-9, b.s - a.s);
-  var f = Math.min(1, Math.max(0, (s2 - a.s) / seg));
-  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
 }
 
-/* 丝的横向抖动：沿法线做一点偏移，免得像打印出来的矢量线 */
+/* 细微抖动 */
 function silkOf(pts, seed) {
   var out = [], amp = S.wob, rnd = mulberry32((seed || 1) + 33);
   for (var i = 0; i < pts.length; i++) {
@@ -567,33 +555,11 @@ function silkOf(pts, seed) {
 function rebuildAll() {
   for (var i = 0; i < S.paths.length; i++) {
     var p = S.paths[i];
+    p.line = centerlineOf(p);
+    p.lineLen = p.line.len;
     p.poly = regionOf(p);
     p.center = polygonAreaCentroid(p.poly);
-    p.samples = resample(p.poly.concat([p.poly[0]]), 4);
-    p.len = 0;
-    for (var j = 1; j < p.samples.length; j++) {
-      p.len += Math.hypot(p.samples[j].x - p.samples[j - 1].x, p.samples[j].y - p.samples[j - 1].y);
-      p.samples[j].s = p.len;
-    }
-    if (p.samples[0]) p.samples[0].s = 0;
-    if (S.mode === 'trace') simulateTrace(p); else simulateWeave(p);
-  }
-  // 沿路径爬的时候，片子长度跟着“路线总长 ÷ 速度”走（否则后面十几秒是空场）
-  if (S.mode === 'trace' && S.paths.length) {
-    var dmax = 0;
-    for (var k = 0; k < S.paths.length; k++) dmax = Math.max(dmax, S.paths[k].dur || 0);
-    var want = Math.max(3, Math.round(dmax));
-    if (Math.abs(want - S.durSec) > 0.5) {
-      S.durSec = want;
-      var sel = document.getElementById('selDur');
-      if (!Array.prototype.some.call(sel.options, function (o) { return o.value === String(want); })) {
-        var op = document.createElement('option');
-        op.value = String(want); op.textContent = want + ' 秒';
-        sel.appendChild(op);
-      }
-      sel.value = String(want);
-      if (S.t > S.durSec) S.t = S.durSec;
-    }
+    if (S.mode === 'fill') simulateFill(p); else simulateAlong(p);
   }
 }
 function reseedAll() {
@@ -608,9 +574,10 @@ var FRAME_BOX = null;
 function worldBox() {
   var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
   for (var i = 0; i < S.paths.length; i++) {
-    var poly = S.paths[i].poly || [];
-    for (var j = 0; j < poly.length; j++) {
-      var q = poly[j]; any = true;
+    var p = S.paths[i];
+    var pts = (S.mode === 'fill' ? p.poly : p.line) || [];
+    for (var j = 0; j < pts.length; j++) {
+      var q = pts[j]; any = true;
       if (q.x < x0) x0 = q.x; if (q.y < y0) y0 = q.y;
       if (q.x > x1) x1 = q.x; if (q.y > y1) y1 = q.y;
     }
@@ -660,12 +627,10 @@ function renderFrame(g, W, H, frac, opt) {
     if (opt.overlay) drawGuide(g, p, scale, ox, oy, i === S.sel);
   }
 }
-
 function drawSilk(g, p, tNow, scale, ox, oy, col, wCore) {
   var s = p.silk, n = 0;
   while (n < s.length && (s[n].t || 0) <= tNow) n++;
   if (n < 2) return;
-  // 抽掉画面上过密的点（每段至少 1.2 px），4K 也画得动
   var seg = [s[0]], lastX = s[0].x * scale + ox, lastY = s[0].y * scale + oy;
   for (var i = 1; i < n; i++) {
     var X = s[i].x * scale + ox, Y = s[i].y * scale + oy;
@@ -692,7 +657,7 @@ function strokePoly(g, pts, scale, ox, oy) {
   g.stroke();
 }
 
-/* 蚕：走到哪画到哪（每条场地各一只） */
+/* 蚕 */
 function wormPos(p, tNow) {
   var s = p.silk || [];
   if (!s.length) return null;
@@ -731,30 +696,45 @@ function drawWorm(g, p, tNow, scale, ox, oy, Wpx) {
   g.restore();
 }
 
-/* 编辑态：场地轮廓 + 控制点 */
+/* 编辑态：这条线＋摆动边界＋手柄 */
 function drawGuide(g, p, scale, ox, oy, on) {
-  var poly = p.poly || [];
-  g.strokeStyle = on ? 'rgba(232,160,76,0.8)' : 'rgba(150,156,164,0.28)';
-  g.lineWidth = on ? 1.5 : 1;
+  var pts = (S.mode === 'fill' ? p.poly : p.line) || [];
+  g.lineWidth = on ? 1.6 : 1;
   g.setLineDash(on ? [] : [5, 6]);
+  g.strokeStyle = on ? 'rgba(232,160,76,0.85)' : 'rgba(150,156,164,0.30)';
   g.beginPath();
-  for (var i = 0; i < poly.length; i++) {
-    var X = poly[i].x * scale + ox, Y = poly[i].y * scale + oy;
+  for (var i = 0; i < pts.length; i++) {
+    var X = pts[i].x * scale + ox, Y = pts[i].y * scale + oy;
     if (i === 0) g.moveTo(X, Y); else g.lineTo(X, Y);
   }
-  g.closePath(); g.stroke();
+  g.stroke();
+
+  if (S.mode === 'along' && S.band > 0.5) {
+    g.setLineDash([3, 5]);
+    g.lineWidth = 1;
+    g.strokeStyle = on ? 'rgba(232,160,76,0.32)' : 'rgba(150,156,164,0.16)';
+    for (var side = -1; side <= 1; side += 2) {
+      g.beginPath();
+      for (var j = 0; j < pts.length; j++) {
+        var a = pts[Math.max(0, j - 1)], b = pts[Math.min(pts.length - 1, j + 1)];
+        var dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1;
+        var X2 = (pts[j].x + (-dy / l) * side * S.band) * scale + ox;
+        var Y2 = (pts[j].y + (dx / l) * side * S.band) * scale + oy;
+        if (j === 0) g.moveTo(X2, Y2); else g.lineTo(X2, Y2);
+      }
+      g.stroke();
+    }
+  }
   g.setLineDash([]);
 
-  var pts = (p.type === 'circle')
-    ? [p.ctrl[0], { x: p.ctrl[0].x + (p.r || 160), y: p.ctrl[0].y }]
-    : p.ctrl;
-  for (var j = 0; j < pts.length; j++) {
-    var X2 = pts[j].x * scale + ox, Y2 = pts[j].y * scale + oy;
-    var big = (p.type === 'circle' && j === 1) ? 5 : (on ? 6 : 4);
-    if (p.type === 'circle' && j === 1) { g.fillStyle = 'rgba(232,160,76,0.95)'; g.strokeStyle = 'rgba(232,160,76,0.95)'; }
+  var hp = handlesOf(p);
+  for (var h = 0; h < hp.length; h++) {
+    var HX = hp[h].x * scale + ox, HY = hp[h].y * scale + oy;
+    var big = (p.type === 'circle' && h === 1) ? 5 : (on ? 6 : 4);
+    if (p.type === 'circle' && h === 1) { g.fillStyle = 'rgba(232,160,76,0.95)'; g.strokeStyle = 'rgba(232,160,76,0.95)'; }
     else { g.fillStyle = on ? 'rgba(240,246,242,0.92)' : 'rgba(200,206,212,0.55)'; g.strokeStyle = 'rgba(16,18,22,0.9)'; }
     g.lineWidth = 1;
-    g.beginPath(); g.rect(X2 - big, Y2 - big, big * 2, big * 2); g.fill(); g.stroke();
+    g.beginPath(); g.rect(HX - big, HY - big, big * 2, big * 2); g.fill(); g.stroke();
   }
 }
 
@@ -769,14 +749,16 @@ function draw() {
   });
   var total = 0;
   S.paths.forEach(function (p) { total += (p.ptsCount || 0); });
+  var p0 = S.sel >= 0 ? S.paths[S.sel] : null;
   document.getElementById('hud').innerHTML =
-    '场地 <b>' + S.paths.length + '</b> 个 · 行为 <b>' + (S.mode === 'weave' ? '场地内织网' : '沿路径爬') +
-    '</b> · 时长 <b>' + d.toFixed(0) + '</b> 秒 · 进度 <b>' + Math.round(frac * 100) +
-    '%</b> · 丝点 <b>' + total + '</b>';
+    '路径 <b>' + S.paths.length + '</b> 条 · 爬法 <b>' + (S.mode === 'fill' ? '整块织满' : '沿线爬行') +
+    '</b> · 时长 <b>' + d.toFixed(0) + '</b> 秒 · 进度 <b>' + Math.round(frac * 100) + '%</b>' +
+    (p0 && S.mode === 'along' ? ' · 线长 <b>' + Math.round(p0.lineLen) + '</b>' : '') +
+    ' · 丝点 <b>' + total + '</b>';
   document.getElementById('btnPlay').textContent = S.playing ? '⏸ 暂停' : '▶ 播放 / 暂停';
 }
 
-/* ===== 交互：改形状 ===== */
+/* ===== 交互 ===== */
 var drag = null;
 function canvasPos(e) {
   var r = cv.getBoundingClientRect();
@@ -797,17 +779,13 @@ function hitHandle(x, y) {
   }
   return null;
 }
-function distToSeg(px, py, ax, ay, bx, by) {
-  var dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
-  var t = L2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
-  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
-}
 function hitPath(x, y) {
   var best = null, bestD = 12;
   for (var i = S.paths.length - 1; i >= 0; i--) {
-    var poly = S.paths[i].poly;
-    for (var j = 0; j < poly.length; j++) {
-      var a = w2s(poly[j]), b = w2s(poly[(j + 1) % poly.length]);
+    var p = S.paths[i];
+    var pts = (S.mode === 'fill' ? p.poly : p.line) || [];
+    for (var j = 0; j < pts.length - (S.mode === 'fill' ? 0 : 1); j++) {
+      var a = w2s(pts[j]), b = w2s(pts[(j + 1) % pts.length]);
       var d = distToSeg(x, y, a.x, a.y, b.x, b.y);
       if (d < bestD) { bestD = d; best = { path: i }; }
     }
@@ -823,7 +801,7 @@ cv.addEventListener('pointerdown', function (e) {
       var p = S.paths[hh.path];
       if ((p.type === 'open' && p.ctrl.length > 2) || (p.type === 'closed' && p.ctrl.length > 3)) {
         p.ctrl.splice(hh.idx, 1);
-        rebuildAll(); renderList(); draw();
+        buildPath(p); rebuildAll(); renderList(); draw();
       }
     }
     e.preventDefault();
@@ -850,8 +828,7 @@ cv.addEventListener('pointermove', function (e) {
   } else {
     p.ctrl[drag.idx] = { x: w.x, y: w.y };
   }
-  p.poly = regionOf(p);
-  rebuildAll(); draw();
+  buildPath(p); rebuildAll(); draw();
 });
 cv.addEventListener('pointerup', function () { drag = null; });
 cv.addEventListener('dblclick', function (e) {
@@ -866,7 +843,7 @@ cv.addEventListener('dblclick', function (e) {
     if (d < bestD) { bestD = d; best = i; }
   }
   p.ctrl.splice(best, 0, w);
-  rebuildAll(); renderList(); draw();
+  buildPath(p); rebuildAll(); renderList(); draw();
 });
 cv.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
@@ -902,6 +879,7 @@ document.getElementById('btnReseed').onclick = function () { S.t = 0; reseedAll(
 /* ===== 控件 ===== */
 function bindRange(id, key, outId, fmt, after) {
   var el = document.getElementById(id);
+  if (!el) return;
   el.oninput = function () {
     S[key] = parseFloat(el.value);
     document.getElementById(outId).textContent = fmt ? fmt(S[key]) : String(S[key]);
@@ -910,12 +888,8 @@ function bindRange(id, key, outId, fmt, after) {
   };
 }
 bindRange('rngSpeed', 'speed', 'vSpeed', null, function () { rebuildAll(); });
-bindRange('rngSwing', 'swing', 'vSwing', null, function () { rebuildAll(); });
-bindRange('rngHz', 'hz', 'vHz', function (v) { return v.toFixed(2); }, function () { rebuildAll(); });
-bindRange('rngBand', 'band', 'vBand', null, function () {
-  var p = S.sel >= 0 ? S.paths[S.sel] : null;
-  if (p && p.type === 'line') { p.band = S.band; rebuildAll(); }
-});
+bindRange('rngBand', 'band', 'vBand', null, function () { rebuildAll(); });
+bindRange('rngHz', 'hz', 'vHz', function (v) { return v.toFixed(1); }, function () { rebuildAll(); });
 bindRange('rngW', 'silkW', 'vW', function (v) { return v.toFixed(2); });
 bindRange('rngGain', 'gain', 'vGain', function (v) { return v.toFixed(2); });
 bindRange('rngWob', 'wob', 'vWob', function (v) { return v.toFixed(2); }, function () { rebuildAll(); });
@@ -933,28 +907,19 @@ document.getElementById('selFps').onchange = function () { S.fps = parseInt(this
 document.getElementById('selBit').onchange = function () { S.mbps = parseFloat(this.value); };
 document.getElementById('selDur').onchange = function () {
   S.durSec = parseInt(this.value, 10) || 20;
-  if (S.mode === 'weave') S.weaveDur = S.durSec;
   if (S.t > S.durSec) S.t = S.durSec;
   rebuildAll(); draw();
 };
 document.getElementById('selMode').onchange = function () {
-  if (S.mode === 'weave') S.weaveDur = S.durSec;
   S.mode = this.value;
-  var weaving = S.mode === 'weave';
-  if (weaving) {
-    S.durSec = S.weaveDur || 20;
-    document.getElementById('selDur').value = String(S.durSec);
-    if (!document.getElementById('selDur').value) {
-      var op0 = document.createElement('option');
-      op0.value = String(S.durSec); op0.textContent = S.durSec + ' 秒';
-      document.getElementById('selDur').appendChild(op0);
-      document.getElementById('selDur').value = String(S.durSec);
-    }
-  }
-  document.getElementById('swingRow').style.display = weaving ? 'flex' : 'none';
-  document.getElementById('hzRow').style.display = weaving ? 'flex' : 'none';
-  document.getElementById('swingNote').style.display = weaving ? 'block' : 'none';
-  rebuildAll(); renderList(); draw();
+  var along = S.mode === 'along';
+  document.getElementById('rngBand').parentNode.style.display = along ? 'flex' : 'none';
+  document.getElementById('rngHz').parentNode.style.display = along ? 'flex' : 'none';
+  document.getElementById('bandNote').style.display = along ? 'block' : 'none';
+  document.getElementById('bandNote').innerHTML = along
+    ? '摆动幅度＝丝在线两侧摆开多少（这条丝带的半宽）；频率＝摆得多快，波长≈速度／频率。'
+    : '「整块织满」用的是描线器里那一笔的样子，在围合地块里反复落笔（直线/开放曲线按带宽成为走廊）。';
+  rebuildAll(); renderList(); fitWorld(); draw();
 };
 document.getElementById('selRes').onchange = function () {
   S.res = this.value;
@@ -962,19 +927,6 @@ document.getElementById('selRes').onchange = function () {
   applyAspect();
 };
 document.getElementById('numW').oninput = document.getElementById('numH').oninput = applyAspect;
-document.getElementById('chkCircleLoop').onchange = function () {
-  var p = S.sel >= 0 ? S.paths[S.sel] : null;
-  if (!p || p.type !== 'circle') return;
-  p.loop = this.checked;
-  document.getElementById('circleLapsRow').style.display = this.checked ? 'flex' : 'none';
-  rebuildAll(); renderList(); draw();
-};
-document.getElementById('numLaps').oninput = function () {
-  var p = S.sel >= 0 ? S.paths[S.sel] : null;
-  if (!p || p.type !== 'circle') return;
-  p.laps = Math.max(1, Math.min(40, parseInt(this.value, 10) || 1));
-  rebuildAll(); renderList(); draw();
-};
 
 function resDims() {
   if (S.res === 'custom') {
@@ -1003,41 +955,22 @@ function renderList() {
     var el = document.createElement('div');
     el.className = 'pitem' + (i === S.sel ? ' sel' : '');
     var sub = p.type === 'circle'
-      ? ('r ' + Math.round(p.r || 0) + (S.mode === 'trace' ? (p.loop ? ' · 循环 ' + (p.laps || 1) + ' 圈' : ' · 一圈') : ' · 场地'))
-      : (p.type === 'line' ? ('带宽 ' + Math.round(p.band || S.band)) : (p.ctrl.length + ' 控制点'));
-    el.innerHTML = '<span class="nm">' + (i + 1) + '. ' + pathTypeName(p.type) + '</span>' +
-      '<small>' + sub + ' · 丝 ' + (p.ptsCount || 0) + '</small>';
+      ? ('r ' + Math.round(p.r || 0) + ' · 线长 ' + Math.round(p.lineLen || 0))
+      : (p.type === 'line' ? ('线长 ' + Math.round(p.lineLen || 0)) : (p.ctrl.length + ' 控制点 · 线长 ' + Math.round(p.lineLen || 0)));
+    el.innerHTML = '<span class="nm">' + (i + 1) + '. ' + pathTypeName(p.type) + '</span><small>' + sub + '</small>';
     var del = document.createElement('button');
     del.type = 'button'; del.textContent = '删';
     del.onclick = function (ev) {
       ev.stopPropagation();
       S.paths.splice(i, 1);
       if (S.sel >= S.paths.length) S.sel = S.paths.length - 1;
-      S.t = Math.min(S.t, S.durSec);
       rebuildAll(); renderList(); fitWorld(); draw();
     };
     el.appendChild(del);
-    el.onclick = function () { S.sel = i; renderList(); syncSelUI(); draw(); };
+    el.onclick = function () { S.sel = i; renderList(); draw(); };
     box.appendChild(el);
   });
-  if (!S.paths.length) box.innerHTML = '<div class="note">还没有场地。点上面的按钮加一个正圆或一条曲线。</div>';
-  syncSelUI();
-}
-function syncSelUI() {
-  var p = S.sel >= 0 ? S.paths[S.sel] : null;
-  var isCircle = p && p.type === 'circle';
-  var showLoop = isCircle && S.mode === 'trace';
-  document.getElementById('circleLoopRow').style.display = showLoop ? 'flex' : 'none';
-  document.getElementById('circleLapsRow').style.display = (showLoop && p.loop) ? 'flex' : 'none';
-  document.getElementById('bandRow').style.display = (p && p.type === 'line') ? 'flex' : 'none';
-  if (p && p.type === 'line') {
-    document.getElementById('rngBand').value = String(p.band || S.band);
-    document.getElementById('vBand').textContent = String(Math.round(p.band || S.band));
-  }
-  if (isCircle && showLoop) {
-    document.getElementById('chkCircleLoop').checked = !!p.loop;
-    document.getElementById('numLaps').value = String(p.laps || 1);
-  }
+  if (!S.paths.length) box.innerHTML = '<div class="note">还没有路径。点上面的按钮加一条正圆线或一条曲线。</div>';
 }
 Array.prototype.forEach.call(document.querySelectorAll('[data-add]'), function (b) {
   b.onclick = function () { addPath(b.getAttribute('data-add')); };
