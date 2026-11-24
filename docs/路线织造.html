@@ -84,7 +84,7 @@
       <button type="button" data-add="open">＋ 开放曲线</button>
     </div>
     <div class="paths" id="pathList"></div>
-    <div class="note">每个路径就是一条线：正圆＝圆周那条线，直线＝两点之间，封闭曲线＝首尾相接的那条，开放曲线＝不闭合的那条。蚕沿着这条线爬，边爬边吐丝；丝会在这条线两侧摆开一点，成为一条有厚度的丝带。</div>
+    <div class="note">每个路径就是一条线：正圆＝圆周那条线，直线＝两点之间，封闭曲线＝首尾相接的那条，开放曲线＝不闭合的那条。蚕沿着这条线爬，把你描线器里那一笔真实丝路一笔一笔铺过去（那一笔本身就带小圈和回钩），笔与笔之间短距离连爬，整条丝连成一体。</div>
 
     <h3>爬行与吐丝</h3>
     <div class="row"><label>爬法</label>
@@ -96,11 +96,11 @@
     <div class="row"><label>时长</label>
       <select id="selDur"><option value="10">10 秒</option><option value="20" selected>20 秒</option><option value="30">30 秒</option><option value="45">45 秒</option><option value="60">60 秒</option></select>
     </div>
-    <div class="row"><label>爬行速度</label><input type="range" id="rngSpeed" min="60" max="900" step="10" value="320"><span class="val" id="vSpeed">320</span></div>
+    <div class="row"><label>爬行速度</label><input type="range" id="rngSpeed" min="60" max="1200" step="10" value="420"><span class="val" id="vSpeed">420</span></div>
     <div class="note">世界单位/秒（场地按 1000×750）。速度越大，同样时长里沿这条线爬的圈数越多、丝带越厚实。</div>
-    <div class="row"><label>摆动幅度</label><input type="range" id="rngBand" min="1" max="24" step="0.5" value="6"><span class="val" id="vBand">6.0</span></div>
-    <div class="row"><label>摆动频率</label><input type="range" id="rngHz" min="0.5" max="12" step="0.1" value="5"><span class="val" id="vHz">5.0</span></div>
-    <div class="note" id="bandNote">摆动幅度＝丝在线两侧摆开多少（这条丝带的半宽）；频率＝摆得多快，波长≈速度／频率。两个都是 0 附近就是一根干净的细线，往右就是越织越“绕”的手织丝。</div>
+    <div class="row"><label>一笔尺度</label><input type="range" id="rngBand" min="4" max="60" step="1" value="18"><span class="val" id="vBand">18</span></div>
+    <div class="row" style="display:none"><label>摆动频率</label><input type="range" id="rngHz" min="0.5" max="12" step="0.1" value="5"><span class="val" id="vHz">5.0</span></div>
+    <div class="note" id="bandNote">一笔尺度＝描线器里那一笔铺开多大。小＝贴着线的一串小圈；大＝整条丝带又宽又花。</div>
     <div class="row"><label>丝线宽度</label><input type="range" id="rngW" min="0.3" max="4" step="0.05" value="1.8"><span class="val" id="vW">1.80</span></div>
     <div class="row"><label>丝线亮度</label><input type="range" id="rngGain" min="0.2" max="1.6" step="0.02" value="1"><span class="val" id="vGain">1.00</span></div>
     <div class="row"><label>材质</label>
@@ -165,8 +165,8 @@ var S = {
   paths: [], sel: -1,
   mode: 'along',            // along = 沿着这条线爬；fill = 在围合地块里织满
   durSec: 20,
-  speed: 320,               // 世界单位/秒
-  band: 6,                  // 丝带半宽（摆动幅度）
+  speed: 420,               // 世界单位/秒
+  band: 18,                 // 这一笔的横向尺度（丝带半宽）
   hz: 5,                    // 摆动频率
   silkW: 1.8, gain: 1, mat: 'silk', wob: 0.35, showWorm: true,
   bg: '#000000', alpha: false,
@@ -410,83 +410,82 @@ function buildPath(p) {
   p.center = polygonAreaCentroid(p.poly);
 }
 
-/* ===== 沿线爬行：把描线器里那一笔的“摆动节奏”顺着线铺开 =====
-   从那一笔里取出它自己的横向摆动曲线（谁画的、抖成什么样，就照什么样走），
-   蚕沿着这条线前进时，横向偏移按这条曲线走——一条连续的丝，
-   不是一圈一圈叠出来的编织，接缝也没有折角。 */
-function motifProfile() {
-  if (PROFILE_CACHE) return PROFILE_CACHE;
-  var M = motifPts(), i;
-  // 累积弧长，并按弧长取它的横向偏移（相对中心）
-  var acc = [0];
-  for (i = 1; i < M.length; i++) {
-    acc.push(acc[i - 1] + Math.hypot(M[i].x - M[i - 1].x, M[i].y - M[i - 1].y));
-  }
-  var total = acc[acc.length - 1] || 1;
-  var raw = [];
-  for (i = 0; i < M.length; i++) raw.push({ u: acc[i] / total, v: M[i].y });
-  // 按 u 重采样成 256 格，再平滑，得到“手抖但不毛躁”的摆动曲线
-  var N = 256, out = [], k;
-  for (k = 0; k < N; k++) {
-    var target = k / N, j = 0;
-    while (j < raw.length - 2 && raw[j + 1].u < target) j++;
-    var a = raw[j], b = raw[j + 1] || raw[j];
-    var f = (b.u > a.u) ? (target - a.u) / (b.u - a.u) : 0;
-    out.push(a.v + (b.v - a.v) * Math.max(0, Math.min(1, f)));
-  }
-  out = gaussSmooth(out.map(function (v) { return { x: 0, y: v }; }), 3, 5.0).map(function (q) { return q.y; });
-  var mx = 0;
-  for (k = 0; k < out.length; k++) mx = Math.max(mx, Math.abs(out[k]));
-  if (mx < 1e-6) mx = 1;
-  for (k = 0; k < out.length; k++) out[k] /= mx;
-  // 去掉低频大起伏：只留手抖的细节，丝的走向才贴着线本身
-  var low = gaussSmooth(out.map(function (v) { return { x: 0, y: v }; }), 1, 16).map(function (q) { return q.y; });
-  var hp = [];
-  mx = 0;
-  for (k = 0; k < out.length; k++) { hp.push(out[k] - low[k]); mx = Math.max(mx, Math.abs(hp[k])); }
-  if (mx < 1e-6) mx = 1;
-  for (k = 0; k < hp.length; k++) hp[k] /= mx;
-  PROFILE_CACHE = hp;
-  return hp;
-}
-var PROFILE_CACHE = null;
-function profAt(u) {
-  var arr = motifProfile(), nn = arr.length;
-  var x = (u - Math.floor(u)) * nn;
-  var i0 = Math.floor(x) % nn, i1 = (i0 + 1) % nn, f = x - Math.floor(x);
-  return arr[i0] * (1 - f) + arr[i1] * f;
-}
-
+/* ===== 沿线爬行：拿描线器里那一笔真实丝路，顺着你画的线一笔接一笔铺过去 =====
+   每一笔的形状就是描线器里那一笔本体（有回环、有打圈、有粗细呼吸）；
+   一笔的尺寸、朝向、左右位置都随机一点，笔与笔之间短距离连爬再起笔，
+   所以整条丝是连续的，同时又保留你真实吐丝时那种小圈叠小圈的样子。 */
 function simulateAlong(p) {
+  var M = motifPts(), i;
   var seed = p.seed || 1, rnd = mulberry32(seed);
   var L = Math.max(1, p.lineLen), dur = S.durSec, speed = Math.max(20, S.speed);
-  var PL = L * (0.42 + rnd() * 0.16);      // 一段摆动曲线铺多长（和线长不成整数倍，避免圈圈对齐）
-  var ph = rnd() * 6.283;
-  var bounce = (p.type === 'open' || p.type === 'line');
-  var dt = 1 / 60, sAcc = 0, t = 0, pts = [];
-  while (t <= dur + 1e-9) {
-    var sAbs = bounce ? triFold(sAcc, L) : (sAcc % L);
-    var q = pointOnLine(p, sAbs);
-    var tg = tangentOnLine(p, sAbs);
-    var nx = -tg.y, ny = tg.x;
 
-    // 主摆动＝描出来的那条曲线；再叠一点极慢漂移，免得每圈一模一样
-    var u = sAcc / PL + ph;
-    var lat = S.band * (0.45 * profAt(u)
-            + 0.55 * Math.sin(2 * Math.PI * sAcc / (L * 1.37) + ph * 2.1));
-
-    pts.push({ t: t, x: q.x + nx * lat, y: q.y + ny * lat });
-    sAcc += speed * dt; t += dt;
+  var minX = 1e9, maxX = -1e9, maxY = 0.05;
+  for (i = 0; i < M.length; i++) {
+    if (M[i].x < minX) minX = M[i].x;
+    if (M[i].x > maxX) maxX = M[i].x;
+    if (Math.abs(M[i].y) > maxY) maxY = Math.abs(M[i].y);
   }
+  var span0 = Math.max(0.1, maxX - minX);
+
+  var bounce = (p.type === 'open' || p.type === 'line');
+  var sBase = 0, dir = 1;
+  var t = 0, pts = [], lastPos = null, prevLat = null, copies = 0;
+  var rampN = Math.max(5, Math.round(M.length * 0.10));
+
+  while (t < dur - 1e-6 && copies < 3000) {
+    copies++;
+    // 每一笔：尺寸、朝向、左右位置都不一样，才不会像盖章
+    var sc = (S.band / maxY) * (0.55 + rnd() * 0.70);
+    var rot = (rnd() - 0.5) * 1.1;                 // 相对路径切线的转角（弧度）
+    var cr = Math.cos(rot), sr = Math.sin(rot);
+    var mir = (rnd() < 0.5) ? 1 : -1;
+    var latC = (rnd() - 0.5) * S.band * 0.75;      // 这一笔整体偏在线的哪一侧
+    var span = span0 * sc;
+
+    if (bounce) {
+      if (dir === 1 && sBase + span > L) { sBase = Math.max(0, L - span); dir = -1; }
+      else if (dir === -1 && sBase - span < 0) { sBase = Math.min(L, span); dir = 1; }
+    } else {
+      sBase = ((sBase % L) + L) % L;
+    }
+
+    for (i = 0; i < M.length; i++) {
+      var mx = (M[i].x - minX) - span0 / 2;
+      var my = M[i].y * mir;
+      var rx = (mx * cr - my * sr) * sc;
+      var ry = (mx * sr + my * cr) * sc;
+      var alongS = rx * dir + span / 2;
+      var latNat = ry + latC;
+
+      var sNow = sBase + alongS;
+      if (bounce) sNow = Math.max(0, Math.min(L, sNow));
+      else sNow = ((sNow % L) + L) % L;
+
+      var q = pointOnLine(p, sNow);
+      var tg = tangentOnLine(p, sNow);
+      var nx = -tg.y, ny = tg.x;
+
+      var lat = latNat;
+      if (prevLat !== null && i < rampN) {          // 起笔从上一笔的收笔位置软接过来
+        var fk = 0.5 - 0.5 * Math.cos(Math.PI * i / rampN);
+        lat = prevLat * (1 - fk) + latNat * fk;
+      }
+      var P = { x: q.x + nx * lat, y: q.y + ny * lat };
+      if (lastPos) t += Math.hypot(P.x - lastPos.x, P.y - lastPos.y) / speed;
+      pts.push({ t: t, x: P.x, y: P.y });
+      lastPos = P;
+      if (t >= dur) break;
+    }
+    prevLat = (M[M.length - 1].y * mir) * sc + latC;
+    sBase += dir * span * (0.55 + rnd() * 0.4);     // 下一笔往沿线推进一小段，允许相互压着
+  }
+
+  if (!pts.length) pts.push({ t: 0, x: p.line[0].x, y: p.line[0].y });
   p.silk = silkOf(pts, seed);
   p.dur = dur;
   p.ptsCount = pts.length;
-  p.laps = sAcc / L;
-  p.profLen = PL;
-}
-function triFold(sAbs, L) {
-  var m = sAbs % (2 * L);
-  return m <= L ? m : (2 * L - m);
+  p.copies = copies;
+  p.laps = (copies * span0 * (S.band / maxY)) / L;
 }
 
 /* ===== 整块织满（保留可切换） ===== */
@@ -960,7 +959,7 @@ document.getElementById('selMode').onchange = function () {
   document.getElementById('rngHz').parentNode.style.display = along ? 'flex' : 'none';
   document.getElementById('bandNote').style.display = along ? 'block' : 'none';
   document.getElementById('bandNote').innerHTML = along
-    ? '摆动幅度＝丝在线两侧摆开多少（这条丝带的半宽）；频率＝摆得多快，波长≈速度／频率。'
+    ? '一笔尺度＝描线器里那一笔铺开多大。小＝贴着线的一串小圈；大＝整条丝带又宽又花。'
     : '「整块织满」用的是描线器里那一笔的样子，在围合地块里反复落笔（直线/开放曲线按带宽成为走廊）。';
   rebuildAll(); renderList(); fitWorld(); draw();
 };
