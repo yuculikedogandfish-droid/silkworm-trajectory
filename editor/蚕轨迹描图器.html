@@ -3048,7 +3048,7 @@ if (window.parent !== window) {
         <option value="manual">手动逐块</option>
       </select></div>
       <div class="row"><label>顺序间隔</label><input type="number" id="habTlInterval" min="0" max="30" step="0.5" value="2" style="width:64px"> 秒</div>
-      <div class="row"><label>全场速度</label><input type="number" id="habTlSpeed" min="0.25" max="2" step="0.05" value="0.4" style="width:64px"> ×</div>
+      <div class="row"><label>全场速度</label><input type="number" id="habTlSpeed" min="0.1" max="2" step="0.05" value="0.2" style="width:64px"> ×</div>
       <div class="row"><label>片尾静止</label><input type="number" id="habTlTail" min="0" max="10" step="0.5" value="3" style="width:64px"> 秒</div>
       <div class="row"><label>模拟区间</label><input type="number" id="habTlStart" min="0" max="600" step="0.5" value="0" style="width:60px"> → <input type="number" id="habTlEnd" min="0.5" max="600" step="0.5" style="width:68px"> 秒</div>
       <div class="row"><button type="button" id="habTlAdopt">采用建议终点</button></div>
@@ -6113,7 +6113,7 @@ showSplitPreview();
     // r49：全局丝线默认值。单元未覆盖的项一律继承这一套
     silkDefaults: { pathBoost: 1, silkWidth: 1, silkGain: 1, silkMode: 'silk' },
     // r49：模拟编排 / 时间区间。rangeEnd=null 表示「还没定」，此时跟随建议值；一旦填写或点采用就锁定
-    timeline: { mode: 'all', interval: 2, speed: 0.4, rangeStart: 0, rangeEnd: null, tail: 3 },
+    timeline: { mode: 'all', interval: 2, speed: 0.2, rangeStart: 0, rangeEnd: null, tail: 3 },
     // r49：成品预览。为真时只画会出现在导出里的东西
     finalPreview: false,
   };
@@ -6227,13 +6227,39 @@ showSplitPreview();
   ],
   ];
 
+  /* 手描丝迹模板的自动光滑化：
+     模板是描线器里手画出来的折线，放大到单元格尺寸后每一处手抖都成了"折角"。
+     这里按它自己的点距做切角 + 低通 + 轻抽稀：曲线整体走向不变，只把折角磨圆。
+     结果按数组本体缓存，同一份模板只算一次（来回切换工程也不会重复算）。 */
+  const OUTLINE_SMOOTH_CACHE = new WeakMap();
+  function smoothTemplateStroke(flat) {
+    if (!Array.isArray(flat) || flat.length < 12) return flat;
+    const hit = OUTLINE_SMOOTH_CACHE.get(flat);
+    if (hit) return hit;
+    const pts = [];
+    for (let i = 0; i + 1 < flat.length; i += 2) {
+      if (Number.isFinite(flat[i]) && Number.isFinite(flat[i + 1])) pts.push({ x: flat[i], y: flat[i + 1] });
+    }
+    if (pts.length < 6) return flat;
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    const spacing = len / Math.max(1, pts.length - 1) || 0.01;
+    const lo = weaveGauss(pts, spacing * 1.6);
+    // 平滑后按「原来的点距」重采样：点数和以前一样多（绘制开销不变），但折角已经磨圆
+    const sm = resampleUniform(lo, spacing * 1.05);
+    const out = new Array(sm.length * 2);
+    sm.forEach((q, i) => { out[i * 2] = +q.x.toFixed(6); out[i * 2 + 1] = +q.y.toFixed(6); });
+    OUTLINE_SMOOTH_CACHE.set(flat, out);
+    return out;
+  }
+
   function weaveTemplates(agent) {
     const pt = agent && agent.profile && agent.profile.pathTemplate;
     if (pt && Array.isArray(pt.strokes) && pt.strokes.length &&
         Array.isArray(pt.strokes[0]) && typeof pt.strokes[0][0] === 'number') {
-      return pt.strokes;
+      return pt.strokes.map(smoothTemplateStroke);
     }
-    return WEAVE_MEASURED_PATHS;
+    return WEAVE_MEASURED_PATHS.map(smoothTemplateStroke);
   }
 
   function weaveWallRepel(walls, x, y, r) {
@@ -6765,10 +6791,10 @@ showSplitPreview();
     const width = silkNum(st.silkWidth, 'silkWidth');
     const gain = silkNum(st.silkGain, 'silkGain');
     const mode = silkModeOk(st.silkMode) || 'silk';
-    if (mode === 'matte') return { width, gain, mode, comp: 'source-over', rgb: '206,212,208' };
-    if (mode === 'bright') return { width, gain, mode, comp: 'lighter', rgb: '244,248,244' };
-    if (mode === 'ink') return { width, gain, mode, comp: 'source-over', rgb: '168,182,176' };
-    return { width, gain, mode, comp: 'lighter', rgb: '226,230,228' };
+    if (mode === 'matte') return { width, gain, mode, comp: 'source-over', rgb: '208,205,202' };
+    if (mode === 'bright') return { width, gain, mode, comp: 'lighter', rgb: '246,242,238' };
+    if (mode === 'ink') return { width, gain, mode, comp: 'source-over', rgb: '182,177,172' };
+    return { width, gain, mode, comp: 'lighter', rgb: '234,230,226' };
   }
 
   // alpha = 基准值 × 亮度增益，夹进 [0,1]
@@ -6810,7 +6836,7 @@ showSplitPreview();
   /* ===================== r49：模拟编排与时间轴（唯一时间来源） =====================
      约定：进度只从 unitProgressAt() 求值。播放、拖动、暂停、单帧、视频导出都调这里，
      任何地方都不许再自己写 dt / 22 * speedScale 那套公式，否则拖动与播放会对不上。 */
-  const TL_DEF = { mode: 'all', interval: 2, speed: 0.4, rangeStart: 0, rangeEnd: null, tail: 3, rangeEndMax: 600 };
+  const TL_DEF = { mode: 'all', interval: 2, speed: 0.2, rangeStart: 0, rangeEnd: null, tail: 3, rangeEndMax: 600 };
   const TL_MODES = ['all', 'sequence', 'manual'];
 
   function tl() {
@@ -6818,7 +6844,7 @@ showSplitPreview();
     const t = habitat.timeline;
     if (TL_MODES.indexOf(t.mode) < 0) t.mode = TL_DEF.mode;
     t.interval = Math.max(0, Math.min(30, Number.isFinite(t.interval) ? t.interval : TL_DEF.interval));
-    t.speed = Math.max(0.25, Math.min(2, Number.isFinite(t.speed) ? t.speed : TL_DEF.speed));
+    t.speed = Math.max(0.1, Math.min(2, Number.isFinite(t.speed) ? t.speed : TL_DEF.speed));
     t.rangeStart = Math.max(0, Math.min(TL_DEF.rangeEndMax, Number.isFinite(t.rangeStart) ? t.rangeStart : 0));
     t.tail = Math.max(0, Math.min(10, Number.isFinite(t.tail) ? t.tail : TL_DEF.tail));
     if (!Number.isFinite(t.rangeEnd)) t.rangeEnd = null;
@@ -7351,7 +7377,8 @@ showSplitPreview();
         });
       }
       // 吐丝头：沿已织出的丝往前跑，让"蚕正在爬"看得见
-      if (headPt) {
+      // 成品（导出 / 预览）里只有丝线：吐丝头那个白点只是编辑时的手感提示，不能进片
+      if (headPt && !habitat.composing && !habitat.finalPreview) {
         const sx = v.px(ox + headPt.x), sy = v.py(oy + headPt.y);
         ctx.globalCompositeOperation = 'source-over';
         ctx.fillStyle = 'rgba(240,245,242,0.9)';
@@ -7662,6 +7689,114 @@ showSplitPreview();
     });
   }
 
+  /* 手描点列的自动平滑：弧长重采样 → Chaikin 切角 2 轮 → RDP 轻简化。
+     手描有抖动、点距不均，直接用会像锯齿；这里在"只改形状不改骨架"的前提下抹掉高频抖动，
+     端点保持不动（蚕的起点落点还是你画的地方）。 */
+  /* 平滑工具箱：切角 / 低通 / 抽稀，三个都可以单独拿来量 */
+  function weaveChaikin(pts, rounds) {
+    let cur = pts;
+    for (let r = 0; r < rounds; r++) {
+      if (cur.length < 3) return cur;
+      const out = [cur[0]];
+      for (let i = 0; i < cur.length - 1; i++) {
+        const a = cur[i], b = cur[i + 1];
+        out.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 });
+        out.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
+      }
+      out.push(cur[cur.length - 1]);
+      cur = out;
+    }
+    return cur;
+  }
+
+  /* 高斯平滑：半径按 sigma 给，端点用镜像延拓，所以两端不会被"拉直"。
+     手描线的高频抖动波长通常只有点距的 2–4 倍，1-2-1 低通半径不够，必须用这个才能真正磨圆。 */
+  function weaveGauss(pts, sigma) {
+    if (!Array.isArray(pts) || pts.length < 3 || !(sigma > 0)) return pts;
+    const rad = Math.max(1, Math.min(pts.length - 1, Math.ceil(sigma * 3)));
+    const ker = [];
+    let sum = 0;
+    for (let i = -rad; i <= rad; i++) {
+      const w = Math.exp(-(i * i) / (2 * sigma * sigma));
+      ker.push(w); sum += w;
+    }
+    const at = (i) => {
+      if (i < 0) i = -i;
+      if (i >= pts.length) i = pts.length - 1 - (i - (pts.length - 1));
+      return pts[Math.max(0, Math.min(pts.length - 1, i))];
+    };
+    const out = new Array(pts.length);
+    for (let i = 0; i < pts.length; i++) {
+      let x = 0, y = 0;
+      for (let k = -rad; k <= rad; k++) {
+        const q = at(i + k), w = ker[k + rad] / sum;
+        x += q.x * w; y += q.y * w;
+      }
+      out[i] = { x, y };
+    }
+    return out;
+  }
+
+  function weaveLowpass(pts, passes) {
+    let cur = pts;
+    for (let pass = 0; pass < passes; pass++) {
+      if (cur.length < 3) return cur;
+      const out = [cur[0]];
+      for (let i = 1; i < cur.length - 1; i++) {
+        out.push({
+          x: (cur[i - 1].x + cur[i].x * 2 + cur[i + 1].x) / 4,
+          y: (cur[i - 1].y + cur[i].y * 2 + cur[i + 1].y) / 4,
+        });
+      }
+      out.push(cur[cur.length - 1]);
+      cur = out;
+    }
+    return cur;
+  }
+
+  function weaveRdp(pts, tol) {
+    if (pts.length < 3) return pts;
+    const keep = new Array(pts.length).fill(false);
+    keep[0] = keep[pts.length - 1] = true;
+    const stack = [[0, pts.length - 1]];
+    while (stack.length) {
+      const [i0, i1] = stack.pop();
+      let md = 0, mi = -1;
+      const a = pts[i0], b = pts[i1];
+      const ex = b.x - a.x, ey = b.y - a.y;
+      const L2 = ex * ex + ey * ey || 1e-12;
+      for (let i = i0 + 1; i < i1; i++) {
+        const q = pts[i];
+        let t = ((q.x - a.x) * ex + (q.y - a.y) * ey) / L2;
+        t = Math.max(0, Math.min(1, t));
+        const d = Math.hypot(q.x - (a.x + ex * t), q.y - (a.y + ey * t));
+        if (d > md) { md = d; mi = i; }
+      }
+      if (md > tol && mi > 0) { keep[mi] = true; stack.push([i0, mi], [mi, i1]); }
+    }
+    return pts.filter((_, i) => keep[i]);
+  }
+
+  /* 手描点列的自动平滑：弧长重采样 → Chaikin 切角 → 1-2-1 低通 → 轻抽稀。
+     手描有抖动、点距不均，直接用会像锯齿；这里只抹掉高频抖动，不改"八字"的整体骨架，
+     两个端点保持不动（蚕的起点、落点还是你画的地方）。 */
+  function smoothMeasuredRoute(raw) {
+    if (!raw || raw.length < 3) return raw;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    raw.forEach(p => {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+    });
+    const span = Math.max(maxX - minX, maxY - minY) || 1;
+    const rs = resampleUniform(raw, Math.max(span / 240, 1e-9));
+    if (rs.length < 3) return rs.length ? rs : raw;
+    // 以「点距」为单位给高斯半径：约等于 span/90，正好盖掉手抖、保住八字的整体走向
+    const spacing = Math.max(1e-9, span / 240);
+    const lo = weaveGauss(rs, spacing * 2.4);
+    const sm = weaveRdp(lo, span / 600);
+    return sm.length >= 3 ? sm : lo;
+  }
+
   function normalizeRoute(raw) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     raw.forEach(p => {
@@ -7829,7 +7964,7 @@ showSplitPreview();
     valid.forEach(({ t, i, raw }, order) => {
       const wid = t.wormId != null ? t.wormId : i + 1;
       seen.add(wid);
-      const route = normalizeRoute(raw);
+      const route = normalizeRoute(smoothMeasuredRoute(raw));
       const existing = habitat.agents.find(a => a.kind === 'route' && a.wormId === wid && a.id === 'rt-' + wid);
       if (existing) {
         existing.route = route;
@@ -7910,7 +8045,7 @@ showSplitPreview();
     });
     let added = 0;
     byWorm.forEach((pts, wid) => {
-      const route = normalizeRoute(pts);
+      const route = normalizeRoute(smoothMeasuredRoute(pts));
       const existing = habitat.agents.find(x => x.kind === 'route' && x.wormId === wid);
       if (existing) { existing.route = route; applyRouteTransform(existing); }
       else {
@@ -12074,6 +12209,192 @@ showSplitPreview();
     }, 'image/png');
   }
 
+  /* ===== r49g：确定性出片（WebCodecs 逐帧编码 + 极简 WebM 封装） =====
+     旧路径是 MediaRecorder「实时录屏」：机器一忙就少抓几帧，成片一卡一卡（状态栏的 实际绘制 N/total 就是证据）。
+     新路径逐帧编码：帧号就是时间戳，机器慢只会导出更久，一帧都不会少。容器自己在文件里写，不依赖外部库。 */
+  const WEBM = (() => {
+    const te = new TextEncoder();
+    const ID = {
+      EBML: [0x1A, 0x45, 0xDF, 0xA3],
+      EBMLVersion: [0x42, 0x86],
+      EBMLReadVersion: [0x42, 0xF7],
+      EBMLMaxIDLength: [0x42, 0xF2],
+      EBMLMaxSizeLength: [0x42, 0xF3],
+      DocType: [0x42, 0x82],
+      DocTypeVersion: [0x42, 0x87],
+      DocTypeReadVersion: [0x42, 0x85],
+      Segment: [0x18, 0x53, 0x80, 0x67],
+      Info: [0x15, 0x49, 0xA9, 0x66],
+      TimecodeScale: [0x2A, 0xD7, 0xB1],
+      Duration: [0x44, 0x89],
+      MuxingApp: [0x4D, 0x80],
+      WritingApp: [0x57, 0x41],
+      Tracks: [0x16, 0x54, 0xAE, 0x6B],
+      TrackEntry: [0xAE],
+      TrackNumber: [0xD7],
+      TrackUID: [0x73, 0xC5],
+      TrackType: [0x83],
+      CodecID: [0x86],
+      FlagLacing: [0x9C],
+      DefaultDuration: [0x23, 0xE3, 0x83],
+      Video: [0xE0],
+      PixelWidth: [0xB0],
+      PixelHeight: [0xBA],
+      Cluster: [0x1F, 0x43, 0xB6, 0x75],
+      Timecode: [0xE7],
+      SimpleBlock: [0xA3],
+    };
+    const u8 = a => new Uint8Array(a);
+    function vlen(n) {
+      let L = 1;
+      while (L < 8 && n > Math.pow(2, 7 * L) - 2) L++;
+      return L;
+    }
+    function vint(n, L0) {
+      const L = L0 || vlen(n);
+      const out = new Uint8Array(L);
+      let v = Math.max(0, Math.floor(n));
+      for (let i = L - 1; i >= 0; i--) { out[i] = v % 256; v = Math.floor(v / 256); }
+      out[0] |= 1 << (8 - L);
+      return out;
+    }
+    function cat(list) {
+      let n = 0;
+      list.forEach(p => { n += p.length; });
+      const out = new Uint8Array(n);
+      let o = 0;
+      list.forEach(p => { out.set(p, o); o += p.length; });
+      return out;
+    }
+    function el(id, body) {
+      const b = typeof body === 'string' ? te.encode(body) : body;
+      return cat([u8(id), vint(b.length), b]);
+    }
+    function uint(id, v) {
+      let x = Math.max(0, Math.round(v));
+      const b = [];
+      do { b.unshift(x % 256); x = Math.floor(x / 256); } while (x > 0);
+      return el(id, u8(b));
+    }
+    function f64(id, v) {
+      const b = new Uint8Array(8);
+      new DataView(b.buffer).setFloat64(0, v, false);
+      return el(id, b);
+    }
+    function header(w, h, codecId, fps, durationMs) {
+      const ebml = el(ID.EBML, cat([
+        uint(ID.EBMLVersion, 1), uint(ID.EBMLReadVersion, 1),
+        uint(ID.EBMLMaxIDLength, 4), uint(ID.EBMLMaxSizeLength, 8),
+        el(ID.DocType, 'webm'), uint(ID.DocTypeVersion, 4), uint(ID.DocTypeReadVersion, 2),
+      ]));
+      const info = el(ID.Info, cat([
+        uint(ID.TimecodeScale, 1000000),
+        f64(ID.Duration, durationMs),
+        el(ID.MuxingApp, 'silkworm-studio'), el(ID.WritingApp, 'silkworm-studio'),
+      ]));
+      const video = el(ID.Video, cat([uint(ID.PixelWidth, w), uint(ID.PixelHeight, h)]));
+      const track = el(ID.TrackEntry, cat([
+        uint(ID.TrackNumber, 1), uint(ID.TrackUID, 1), uint(ID.TrackType, 1),
+        el(ID.CodecID, codecId), uint(ID.FlagLacing, 0),
+        uint(ID.DefaultDuration, Math.round(1e9 / Math.max(1, fps))),
+        video,
+      ]));
+      const tracks = el(ID.Tracks, track);
+      // Segment 用「未知长度」：可以一边编码一边往盘里写，不必等整段算完大小
+      const segStart = cat([u8(ID.Segment), new Uint8Array([0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])]);
+      return cat([ebml, segStart, info, tracks]);
+    }
+    return { header, cat, u8, vint, el, uint, ID };
+  })();
+
+  function webmBlock(relMs, data, key) {
+    const tc = Math.max(-32768, Math.min(32767, Math.round(relMs)));
+    const head = new Uint8Array(4);
+    head[0] = 0x81;                                   // track 1
+    head[1] = (tc >> 8) & 0xFF;
+    head[2] = tc & 0xFF;
+    head[3] = key ? 0x80 : 0x00;                      // keyframe 标记
+    return WEBM.el(WEBM.ID.SimpleBlock, WEBM.cat([head, data]));
+  }
+
+  /* 逐帧编码一段成品；返回 { frames, bytes, codec }。机器慢只会更久，不会少帧。 */
+  async function ledEncodeAllFrames(scene, W, H, fps, total, bit, onProgress) {
+    const cfgList = [
+      { codec: 'vp09.00.10.08', webm: 'V_VP9' },
+      { codec: 'vp8', webm: 'V_VP8' },
+    ];
+    let cfg = null, info = null;
+    for (const c of cfgList) {
+      try {
+        const support = await VideoEncoder.isConfigSupported({
+          codec: c.codec, width: W, height: H, bitrate: bit, framerate: fps,
+        });
+        if (support && support.supported) { cfg = support.config; info = c; break; }
+      } catch (err) { /* 试下一个 */ }
+    }
+    if (!cfg) return null;
+
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d', { alpha: false });
+    const cache = [];
+    ledComposeFrame(g, scene, 0, false, W, H, cache);
+
+    const parts = [];
+    let clusterBuf = null, clusterTc = 0, lastMs = 0;
+    const durationMs = Math.round(total * 1000 / fps);
+    parts.push(WEBM.header(W, H, info.webm, fps, durationMs));
+    const flushCluster = () => {
+      if (!clusterBuf) return;
+      // 注意：clusterBuf 是「若干个 SimpleBlock 的数组」，必须摊平后再拼，否则会被当成一个元素
+      const payload = WEBM.cat([WEBM.uint(WEBM.ID.Timecode, clusterTc)].concat(clusterBuf));
+      parts.push(WEBM.el(WEBM.ID.Cluster, payload));
+      clusterBuf = null;
+    };
+    const pushBlock = (ms, data, key) => {
+      if (!clusterBuf || ms - clusterTc > 30000) {
+        flushCluster();
+        clusterTc = ms;
+        clusterBuf = [];
+      }
+      clusterBuf.push(webmBlock(ms - clusterTc, data, key));
+    };
+
+    const chunks = [];
+    const encoder = new VideoEncoder({
+      output: (chunk) => {
+        const buf = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(buf);
+        chunks.push({ ms: Math.round(chunk.timestamp / 1000), data: buf, key: chunk.type === 'key' });
+      },
+      error: (e) => { throw e; },
+    });
+    encoder.configure(cfg);
+    const keyEvery = Math.max(1, Math.round(fps));
+
+    for (let i = 0; i < total; i++) {
+      const T = total <= 1 ? 1 : i / (total - 1);
+      ledComposeFrame(g, scene, T, false, W, H, cache);
+      const frame = new VideoFrame(cv, {
+        timestamp: Math.round(i * 1e6 / fps),
+        duration: Math.round(1e6 / fps),
+      });
+      encoder.encode(frame, { keyFrame: i % keyEvery === 0 });
+      frame.close();
+      // 编码跟不上就等一会儿：宁可导出久一点，也不丢帧
+      while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 0));
+      if (onProgress && (i % 5 === 0 || i === total - 1)) onProgress(i + 1, total);
+    }
+    await encoder.flush();
+    encoder.close();
+    // 编码器可能乱序回调，按时间戳排好再写
+    chunks.sort((a, b) => a.ms - b.ms);
+    chunks.forEach(c => pushBlock(c.ms, c.data, c.key));
+    flushCluster();
+    lastMs = chunks.length ? chunks[chunks.length - 1].ms : 0;
+    return { parts, frames: chunks.length, bytes: parts, lastMs };
+  }
+
   async function ledRecordWebVideo() {
     const btn = document.getElementById('habVidRecord');
     if (!habitat.agents.some(a => a.kind === 'weave')) {
@@ -12109,6 +12430,46 @@ showSplitPreview();
         });
         fileWriter = await handle.createWritable();
       } catch (err) { fileWriter = null; }   // 取消选择 → 退回内存方式
+    }
+
+    // r49g：能 WebCodecs 就逐帧编码（一帧都不会丢），否则退回 MediaRecorder 实时录制
+    if (typeof window.VideoEncoder === 'function' && typeof window.VideoFrame === 'function') {
+      if (btn) { btn.disabled = true; btn.textContent = '编码中…'; }
+      let encErr = null;
+      try {
+        const scene = scene0;
+        scene.loop = false;
+        scene.frames = total;
+        const enc = await ledEncodeAllFrames(scene, W, H, fps, total, bit, (done, all) => {
+          ledVideoStatus('编码中 ' + Math.round(done / all * 100) + '% · 第 ' + done + '/' + all +
+            ' 帧（逐帧编码，不会掉帧）');
+        });
+        if (!enc) throw new Error('浏览器没有可用的 VP9/VP8 编码器');
+        if (fileWriter) {
+          for (const part of enc.parts) await fileWriter.write(part);
+          await fileWriter.close();
+        } else {
+          const blob = new Blob(enc.parts, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = outName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 6000);
+        }
+        ledVideoStatus('已导出 ' + outName + '（' + W + '×' + H + ' / ' + fps + ' fps / ' +
+          enc.frames + '/' + total + ' 帧全部写入 / ' + mbps + ' Mbps）。逐帧编码：不会掉帧。');
+        toast('视频已导出：' + outName + '（逐帧编码，无掉帧）', 'ok');
+        if (btn) { btn.disabled = false; btn.textContent = '导出视频'; }
+        return;
+      } catch (err) {
+        encErr = err;
+        if (fileWriter) { try { await fileWriter.close(); } catch (e2) {} fileWriter = null; }
+        toast('逐帧编码没能完成（' + (err && err.message ? err.message : err) + '），退回实时录制。', 'err');
+        if (btn) { btn.textContent = '录制中…'; }
+      }
     }
 
     if (btn) { btn.disabled = true; btn.textContent = '录制中…'; }
@@ -12240,12 +12601,14 @@ showSplitPreview();
       };
     } else {
       habitat.timeline = { mode: 'all', interval: 2, speed: 1, rangeStart: 0, rangeEnd: null, tail: 3 };
-      hint('这是 r48 或更早的工程：沿用原来的 1.00× 速度。想要新的 0.40× 默认，把「全场速度」改成 0.4 即可。');
+      hint('这是 r48 或更早的工程：沿用原来的 1.00× 速度。想要新的 0.20× 默认，把「全场速度」改成 0.2 即可。');
     }
-    // 上一版默认是 0.80×：如果工程里就停在这个旧默认值，认为没手动调过，跟着新默认 0.40× 一起变慢
-    if (habitat.timeline && habitat.timeline.speed === 0.8) {
+    // 历史上当过默认值的速度（0.80× 是第一版，0.40× 是上一版）：
+    // 停在旧默认上就认为用户没手动调过，跟着新默认 0.20× 一起变慢；显式填过 0.3 / 0.5 等保持不动。
+    if (habitat.timeline && (habitat.timeline.speed === 0.8 || habitat.timeline.speed === 0.4)) {
+      const was = habitat.timeline.speed;
       habitat.timeline.speed = TL_DEF.speed;
-      hint('默认全场速度已改慢到 ' + TL_DEF.speed.toFixed(2) + '×（这份工程原来停在旧默认 0.80×）；要快的可以在左栏改回去。');
+      hint('默认全场速度已改慢到 ' + TL_DEF.speed.toFixed(2) + '×（这份工程原来停在旧默认 ' + was.toFixed(2) + '×）；要快的可以在左栏改回去。');
     }
     timelineDirty();
     syncTimelineUI();
@@ -12392,6 +12755,97 @@ showSplitPreview();
     ledCompose: (g, scene, T, loop, W, H, cache) => ledComposeFrame(g, scene, T, !!loop, W, H, cache || []),
     timelineState: () => timelineSnapshot(),
     suggestedEnd: () => suggestedEnd(),
+    smoothRoute: (pts) => smoothMeasuredRoute(pts),
+    templateInfo: () => {
+      const raw = WEAVE_MEASURED_PATHS[0];
+      const sm = smoothTemplateStroke(raw);
+      return { rawN: raw.length / 2, smN: sm.length / 2, raw, sm };
+    },
+    smoothDebugStages: (pts) => {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      pts.forEach(p => {
+        minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+      });
+      const span = Math.max(maxX - minX, maxY - minY) || 1;
+      const dev = (arr) => {
+        let sum = 0;
+        for (let i = 1; i < arr.length - 1; i++) {
+          const dx = arr[i - 1].x - 2 * arr[i].x + arr[i + 1].x;
+          const dy = arr[i - 1].y - 2 * arr[i].y + arr[i + 1].y;
+          sum += Math.hypot(dx, dy);
+        }
+        return Math.round((sum / Math.max(1, arr.length - 2)) * 1000) / 1000;
+      };
+      const rs = resampleUniform(pts, span / 240);
+      const cut = weaveChaikin(rs, 3);
+      const lo = weaveLowpass(cut, 4);
+      const sm = weaveRdp(lo, span / 900);
+      return { nIn: pts.length, nResample: rs.length, nChaikin: cut.length, nLow: lo.length, nOut: sm.length,
+        devIn: dev(pts), devRs: dev(rs), devCut: dev(cut), devLow: dev(lo), devOut: dev(sm) };
+    },
+    smoothDebug: (pts) => {
+      // 二阶差分的平均模长 ≈ 曲线的"抖动强度"：越小越光滑
+      const dev = (arr) => {
+        let sum = 0;
+        for (let i = 1; i < arr.length - 1; i++) {
+          const dx = arr[i - 1].x - 2 * arr[i].x + arr[i + 1].x;
+          const dy = arr[i - 1].y - 2 * arr[i].y + arr[i + 1].y;
+          sum += Math.hypot(dx, dy);
+        }
+        return Math.round((sum / Math.max(1, arr.length - 2)) * 1000) / 1000;
+      };
+      const sm = smoothMeasuredRoute(pts);
+      return { nIn: pts.length, nOut: sm.length, devIn: dev(pts), devOut: dev(sm),
+        endpoints: [sm[0], sm[sm.length - 1]] };
+    },
+    framePng: (W, H, T) => {
+      const scene = ledScene();
+      scene.loop = false;
+      scene.frames = 2;
+      const cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      const g = cv.getContext('2d', { alpha: false });
+      ledComposeFrame(g, scene, T, false, W, H, []);
+      return cv.toDataURL('image/png');
+    },
+    encodeTest: async (W, H, fps, total, mbps) => {
+      const scene = ledScene();
+      scene.loop = false;
+      scene.frames = total;
+      const t0 = performance.now();
+      const r = await ledEncodeAllFrames(scene, W, H, fps, total, Math.round((mbps || 8) * 1e6), null);
+      if (!r) return { ok: false, reason: 'no encoder' };
+      const blob = new Blob(r.parts, { type: 'video/webm' });
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      let bin = '';
+      const CH = 0x8000;
+      for (let i = 0; i < buf.length; i += CH) {
+        bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
+      }
+      return {
+        ok: true, frames: r.frames, total, bytes: buf.length, lastMs: r.lastMs,
+        ms: Math.round(performance.now() - t0), b64: btoa(bin),
+      };
+    },
+    benchCompose: (W, H) => {
+      const scene = ledScene();
+      scene.loop = false;
+      scene.frames = 2;
+      const cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      const g = cv.getContext('2d', { alpha: false });
+      const cache = [];
+      const t0 = performance.now();
+      ledComposeFrame(g, scene, 0, false, W, H, cache);
+      const t1 = performance.now();
+      const frames = [0.15, 0.3, 0.5, 0.7, 0.9].map(T => {
+        const a = performance.now();
+        ledComposeFrame(g, scene, T, false, W, H, cache);
+        return Math.round((performance.now() - a) * 10) / 10;
+      });
+      return { build: Math.round((t1 - t0) * 10) / 10, frames, units: scene.units.length };
+    },
     repaint: () => { try { paintMist(); paintWorld(); } catch (err) { return String(err); } return 'ok'; },
     state: () => ({
       editing: (habitat.weaveEdit && habitat.weaveEdit.agentId) || null,
