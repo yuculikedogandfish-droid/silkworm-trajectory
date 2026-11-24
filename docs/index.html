@@ -3047,7 +3047,7 @@ if (window.parent !== window) {
         <option value="manual">手动逐块</option>
       </select></div>
       <div class="row"><label>顺序间隔</label><input type="number" id="habTlInterval" min="0" max="30" step="0.5" value="2" style="width:64px"> 秒</div>
-      <div class="row"><label>全场速度</label><input type="number" id="habTlSpeed" min="0.25" max="2" step="0.05" value="0.8" style="width:64px"> ×</div>
+      <div class="row"><label>全场速度</label><input type="number" id="habTlSpeed" min="0.25" max="2" step="0.05" value="0.4" style="width:64px"> ×</div>
       <div class="row"><label>片尾静止</label><input type="number" id="habTlTail" min="0" max="10" step="0.5" value="3" style="width:64px"> 秒</div>
       <div class="row"><label>模拟区间</label><input type="number" id="habTlStart" min="0" max="600" step="0.5" value="0" style="width:60px"> → <input type="number" id="habTlEnd" min="0.5" max="600" step="0.5" style="width:68px"> 秒</div>
       <div class="row"><button type="button" id="habTlAdopt">采用建议终点</button></div>
@@ -6110,7 +6110,7 @@ showSplitPreview();
     // r49：全局丝线默认值。单元未覆盖的项一律继承这一套
     silkDefaults: { pathBoost: 1, silkWidth: 1, silkGain: 1, silkMode: 'silk' },
     // r49：模拟编排 / 时间区间。rangeEnd=null 表示「还没定」，此时跟随建议值；一旦填写或点采用就锁定
-    timeline: { mode: 'all', interval: 2, speed: 0.8, rangeStart: 0, rangeEnd: null, tail: 3 },
+    timeline: { mode: 'all', interval: 2, speed: 0.4, rangeStart: 0, rangeEnd: null, tail: 3 },
     // r49：成品预览。为真时只画会出现在导出里的东西
     finalPreview: false,
   };
@@ -6807,7 +6807,7 @@ showSplitPreview();
   /* ===================== r49：模拟编排与时间轴（唯一时间来源） =====================
      约定：进度只从 unitProgressAt() 求值。播放、拖动、暂停、单帧、视频导出都调这里，
      任何地方都不许再自己写 dt / 22 * speedScale 那套公式，否则拖动与播放会对不上。 */
-  const TL_DEF = { mode: 'all', interval: 2, speed: 0.8, rangeStart: 0, rangeEnd: null, tail: 3, rangeEndMax: 600 };
+  const TL_DEF = { mode: 'all', interval: 2, speed: 0.4, rangeStart: 0, rangeEnd: null, tail: 3, rangeEndMax: 600 };
   const TL_MODES = ['all', 'sequence', 'manual'];
 
   function tl() {
@@ -12200,14 +12200,19 @@ showSplitPreview();
       habitat.timeline = {
         mode: TL_MODES.indexOf(d.mode) >= 0 ? d.mode : 'all',
         interval: Number.isFinite(d.interval) ? d.interval : 2,
-        speed: Number.isFinite(d.speed) ? d.speed : 0.8,
+        speed: Number.isFinite(d.speed) ? d.speed : TL_DEF.speed,
         rangeStart: Number.isFinite(d.rangeStart) ? d.rangeStart : 0,
         rangeEnd: Number.isFinite(d.rangeEnd) ? d.rangeEnd : null,
         tail: Number.isFinite(d.tail) ? d.tail : 3,
       };
     } else {
       habitat.timeline = { mode: 'all', interval: 2, speed: 1, rangeStart: 0, rangeEnd: null, tail: 3 };
-      hint('这是 r48 或更早的工程：沿用原来的 1.00× 速度。想要新的 0.80× 默认，把「全场速度」改成 0.8 即可。');
+      hint('这是 r48 或更早的工程：沿用原来的 1.00× 速度。想要新的 0.40× 默认，把「全场速度」改成 0.4 即可。');
+    }
+    // 上一版默认是 0.80×：如果工程里就停在这个旧默认值，认为没手动调过，跟着新默认 0.40× 一起变慢
+    if (habitat.timeline && habitat.timeline.speed === 0.8) {
+      habitat.timeline.speed = TL_DEF.speed;
+      hint('默认全场速度已改慢到 ' + TL_DEF.speed.toFixed(2) + '×（这份工程原来停在旧默认 0.80×）；要快的可以在左栏改回去。');
     }
     timelineDirty();
     syncTimelineUI();
@@ -12353,6 +12358,7 @@ showSplitPreview();
     refreshTimeline: () => refreshTimeline(),
     ledCompose: (g, scene, T, loop, W, H, cache) => ledComposeFrame(g, scene, T, !!loop, W, H, cache || []),
     timelineState: () => timelineSnapshot(),
+    suggestedEnd: () => suggestedEnd(),
     drawingOutline: () => !!habitat.newOutline,
     // 编辑态自检：当前在改哪一块、用什么工具、已经点了几个顶点
     weaveEditState: () => {
