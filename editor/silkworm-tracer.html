@@ -994,7 +994,37 @@
       <div class=&quot;traj-tabs&quot; id=&quot;trajTabs&quot;></div>
       <div class=&quot;stat&quot; id=&quot;trajStat&quot;>—</div>
     </div>
-  </aside>
+      <div class=&quot;section&quot;>
+      <h2>导出视频</h2>
+      <div class=&quot;hint&quot;>只导出<b>丝路和背景</b>：不画方格、不画活动范围框、不画采样点。先点「导出预览」确认成片长什么样，再导出。</div>
+      <div class=&quot;row&quot;><label>分辨率</label>
+        <select id=&quot;expRes&quot;>
+          <option value=&quot;854x480&quot;>854×480（16:9 快）</option>
+          <option value=&quot;1280x720&quot;>1280×720（16:9）</option>
+          <option value=&quot;1920x1080&quot;>1920×1080（16:9）</option>
+          <option value=&quot;1280x960&quot;>1280×960（4:3 快）</option>
+          <option value=&quot;1920x1440&quot;>1920×1440（4:3）</option>
+          <option value=&quot;2048x1536&quot; selected>2048×1536（4:3 交付）</option>
+          <option value=&quot;2560x1920&quot;>2560×1920（4:3 2K）</option>
+          <option value=&quot;3200x2400&quot;>3200×2400（4:3 3K）</option>
+        </select>
+      </div>
+      <div class=&quot;row&quot;><label>帧率</label>
+        <select id=&quot;expFps&quot;><option value=&quot;24&quot;>24 fps</option><option value=&quot;30&quot; selected>30 fps</option><option value=&quot;60&quot;>60 fps</option></select>
+      </div>
+      <div class=&quot;row&quot;><label>码率</label>
+        <select id=&quot;expBit&quot;><option value=&quot;8&quot;>标准 8 Mbps</option><option value=&quot;16&quot; selected>高 16 Mbps</option><option value=&quot;28&quot;>很高 28 Mbps</option></select>
+      </div>
+      <div class=&quot;row&quot;><label>圈数</label><input type=&quot;number&quot; id=&quot;expLoops&quot; value=&quot;1&quot; min=&quot;1&quot; max=&quot;20&quot;></div>
+      <div class=&quot;row&quot;><label>背景色</label>
+        <input type=&quot;color&quot; id=&quot;expBg&quot; value=&quot;#000000&quot; style=&quot;flex:1;min-width:0;height:24px;padding:0;border:1px solid var(--border);background:#0e1114&quot;>
+      </div>
+      <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;expAlpha&quot;> 透明背景（导出 PNG 序列）</label>
+      <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;expWorm&quot;> 画面里保留正在爬的蚕</label>
+      <div class=&quot;row&quot;><button type=&quot;button&quot; id=&quot;expPrevBtn&quot;>导出预览</button><button type=&quot;button&quot; class=&quot;primary&quot; id=&quot;expGo&quot;>导出视频</button></div>
+      <div class=&quot;stat&quot; id=&quot;expStat&quot;>还没导出。</div>
+    </div>
+</aside>
 </main>
 </div>
 
@@ -2960,6 +2990,143 @@ if (window.parent !== window) {
 </script>
 
 
+<script>
+(function () {
+  if (typeof draw !== 'function') return;
+  var origDraw = draw;
+  var EXP = { on: false };
+  function num(id, fb) { var el = document.getElementById(id); return el ? parseFloat(el.value) : fb; }
+  function dims() {
+    var v = (document.getElementById('expRes') || {}).value || '2048x1536';
+    var a = v.split('x');
+    return { W: parseInt(a[0], 10), H: parseInt(a[1], 10) };
+  }
+  function routeNow() { return state.route.length ? state.route : state.points; }
+  function bgColor() { var el = document.getElementById('expBg'); return el ? el.value : '#000000'; }
+  function alphaOn() { var el = document.getElementById('expAlpha'); return !!(el && el.checked); }
+
+  /* 成片一帧：只有背景 + 丝 +（可选）蚕。宽高换成目标分辨率，丝宽按 q.scale 自动跟着放大 */
+  function exportFrame(g, W, H, upto, opt) {
+    if (opt.alpha) g.clearRect(0, 0, W, H);
+    else { g.fillStyle = opt.bg; g.fillRect(0, 0, W, H); }
+    var route = routeNow();
+    var end = Math.max(1, Math.min(route.length, upto));
+    var slice = route.slice(0, end);
+    g.save();
+    // 预览画布上的平移量按比例换算到目标分辨率，构图不跑偏
+    var baseW = (document.getElementById('cvs') || {}).width || 900;
+    var k = W / baseW;
+    var px = state.panX, py = state.panY;
+    state.panX = px * k; state.panY = py * k;
+    if (slice.length >= 2) drawRibbon(g, slice, state.style, state.color, state.style.opacity);
+    if (opt.worm && slice.length) {
+      var head = slice[slice.length - 1];
+      var ang = slice.length > 1 ? screenHeading(slice[slice.length - 2], head, W, H) : 0;
+      drawWormHead(g, head, state.style);
+    }
+    state.panX = px; state.panY = py;
+    g.restore();
+  }
+
+  /* 预览即导出：直接把 #cvs 换成成片画法（同一套取景/背景），随时可切回 */
+  draw = function () {
+    if (!EXP.on) { origDraw(); return; }
+    var cvs = document.getElementById('cvs');
+    var g = cvs.getContext('2d');
+    var W = cvs.width, H = cvs.height;
+    exportFrame(g, W, H, Math.max(1, state.frame + 1), { bg: bgColor(), alpha: alphaOn(), worm: !!(document.getElementById('expWorm') || {}).checked });
+    document.getElementById('uSlider').value = Math.round((Math.max(1, state.frame + 1) / Math.max(1, routeNow().length)) * 1000);
+  };
+
+  function framesTotal(fps) {
+    var route = routeNow();
+    var pps = num('pps', 4);
+    var loops = Math.max(1, Math.min(20, parseInt((document.getElementById('expLoops') || {}).value, 10) || 1));
+    var span = Math.max(1, route.length - 1) * loops;
+    return { total: Math.max(2, Math.round(span / Math.max(0.2, pps) * fps)), loops: loops, span: span, pps: pps };
+  }
+
+  function uptoFor(frac, total, loops, span) {
+    var travelled = frac * span;
+    var per = Math.max(1, span / loops);
+    var inLoop = travelled - Math.floor(travelled / per) * per;
+    return 1 + Math.min(per - 0.01, inLoop);
+  }
+
+  document.getElementById('expPrevBtn').onclick = function () {
+    EXP.on = !EXP.on;
+    this.textContent = EXP.on ? '退出导出预览' : '导出预览';
+    this.classList.toggle('primary', EXP.on);
+    draw();
+  };
+
+  document.getElementById('expGo').onclick = async function () {
+    var btn = this;
+    var fps = num('expFps', 30), mbps = num('expBit', 16);
+    var d = dims(), W = d.W, H = d.H;
+    var meta = framesTotal(fps);
+    var stat = document.getElementById('expStat');
+    var opt = { bg: bgColor(), alpha: alphaOn(), worm: !!(document.getElementById('expWorm') || {}).checked };
+    if (!routeNow().length) { stat.textContent = '没有轨迹数据，先载入或合成一轮。'; return; }
+    btn.disabled = true;
+    var label = btn.textContent;
+    btn.textContent = '导出中…';
+    try {
+      if (opt.alpha) {
+        stat.textContent = '透明底：逐帧 PNG（' + W + '×' + H + '，' + meta.total + ' 帧）…';
+        var cvx = document.createElement('canvas');
+        cvx.width = W; cvx.height = H;
+        var g = cvx.getContext('2d', { alpha: true });
+        var dir = null;
+        if (typeof window.showDirectoryPicker === 'function') {
+          try { dir = await window.showDirectoryPicker({ mode: 'readwrite' }); } catch (e) { dir = null; }
+        }
+        for (var f = 0; f < meta.total; f++) {
+          exportFrame(g, W, H, uptoFor(meta.total <= 1 ? 1 : f / (meta.total - 1), meta.total, meta.loops, meta.span), opt);
+          var blob = await new Promise(function (r) { cvx.toBlob(r, 'image/png'); });
+          var nm = 'silk_' + W + 'x' + H + '_f' + String(f).padStart(4, '0') + '.png';
+          if (dir) {
+            var fh = await dir.getFileHandle(nm, { create: true });
+            var wr = await fh.createWritable(); await wr.write(blob); await wr.close();
+          } else {
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob); a.download = nm;
+            document.body.appendChild(a); a.click(); a.remove();
+            await new Promise(function (r) { setTimeout(r, 40); });
+          }
+          if (f % 6 === 0) stat.textContent = 'PNG ' + (f + 1) + '/' + meta.total + ' 帧…';
+        }
+        stat.textContent = '已导出 ' + meta.total + ' 帧 PNG（' + W + '×' + H + '，透明底）。';
+      } else {
+        if (!window.parent || typeof window.parent.__exportCanvasFrames !== 'function') {
+          throw new Error('当前页面不支持逐帧编码（请在蚕室里用这个预览）');
+        }
+        stat.textContent = '编码中 0% · 逐帧编码（画面速度与预览一致，不掉帧）';
+        var en = await window.parent.__exportCanvasFrames(function (g2, frac, w2, h2) {
+          exportFrame(g2, w2, h2, uptoFor(frac, meta.total, meta.loops, meta.span), opt);
+        }, W, H, fps, meta.total, Math.round(mbps * 1e6), function (k2, n2) {
+          stat.textContent = '编码中 ' + Math.round(k2 / n2 * 100) + '% · ' + k2 + '/' + n2 + ' 帧';
+        });
+        var out = new Blob(en.parts, { type: 'video/webm' });
+        var name = 'silk_' + W + 'x' + H + '_' + fps + 'fps_' + meta.loops + 'loop.webm';
+        var aa = document.createElement('a');
+        aa.href = URL.createObjectURL(out); aa.download = name;
+        document.body.appendChild(aa); aa.click(); aa.remove();
+        setTimeout(function () { URL.revokeObjectURL(aa.href); }, 8000);
+        stat.textContent = '已导出 ' + name + '（' + en.frames + '/' + meta.total + ' 帧全部写入）。';
+      }
+    } catch (err) {
+      stat.textContent = '导出失败：' + (err && err.message ? err.message : err);
+    }
+    btn.disabled = false; btn.textContent = label;
+  };
+  window.__motionExport = { framePng: function (W, H, upto) {
+    var c = document.createElement('canvas'); c.width = W; c.height = H;
+    exportFrame(c.getContext('2d'), W, H, upto, { bg: bgColor(), alpha: false, worm: false });
+    return c.toDataURL('image/png');
+  }, setOn: function (v) { EXP.on = v; draw(); } };
+})();
+</script>
 </body>
 </html>
 "></iframe>
@@ -3015,6 +3182,9 @@ if (window.parent !== window) {
   </div>
   <div class="hab-stage">
     <aside class="hab-side left" id="habLeft">
+      <h3>路线织造（新）</h3>
+      <p class="hab-note">不想再用方格？换成手动画路线：正圆 / 直线 / 封闭曲线 / 开放曲线，蚕沿路线爬行吐丝，可循环，可导出透明底。</p>
+      <button type="button" id="habOpenRoute" style="width:100%">打开「路线织造」</button>
       <h3>气候 · 演示</h3>
       <div class="row"><label>温度</label><input type="range" id="habTemp" min="16" max="34" step="0.5" value="25"><span id="habTempVal">25</span></div>
       <div class="row"><label>湿度</label><input type="range" id="habHum" min="35" max="90" step="1" value="65"><span id="habHumVal">65</span></div>
@@ -3097,6 +3267,7 @@ if (window.parent !== window) {
           <option value="2048x1536" selected>2048×1536（4:3 交付）</option>
           <option value="2093x1573">2093×1573（4:3 屏体理论）</option>
           <option value="2560x1920">2560×1920（4:3 2K）</option>
+          <option value="3200x2400">3200×2400（4:3 3K）</option>
           <option value="3840x2880">3840×2880（4:3 4K）</option>
           <option value="2419x1360">2419×1360（旧母版 16:9）</option>
           <option value="custom">自定义…</option>
@@ -11479,6 +11650,12 @@ showSplitPreview();
     }));
     toast('已铺入蚕 ' + (t0.wormId != null ? t0.wormId : 1) + ' 的只读底图。', 'ok');
   });
+  const habOpenRouteBtn = document.getElementById('habOpenRoute');
+  if (habOpenRouteBtn) {
+    habOpenRouteBtn.addEventListener('click', () => {
+      window.open('路线织造.html', '_blank');
+    });
+  }
   document.getElementById('habClearRef').addEventListener('click', () => { habitat.reference = null; toast('已去掉底图。', 'ok'); });
   const stage = document.querySelector('.hab-stage');
   const narrow = () => window.matchMedia('(max-width: 860px)').matches;
@@ -12319,10 +12496,20 @@ showSplitPreview();
 
   /* 逐帧编码一段成品；返回 { frames, bytes, codec }。机器慢只会更久，不会少帧。 */
   async function ledEncodeAllFrames(scene, W, H, fps, total, bit, onProgress) {
-    const cfgList = [
-      { codec: 'vp09.00.10.08', webm: 'V_VP9' },
-      { codec: 'vp8', webm: 'V_VP8' },
-    ];
+    // VP9 的 level 必须跟分辨率匹配：1080p 以下用 3.0/4.0，2K/3K 用 5.0/5.1，4K 用 6.0，
+    // 否则 isConfigSupported 可能直接拒，或者编码到一半报错，只能退回 VP8（更慢更糊）
+    const vp9Levels = (function (w, h) {
+      const px = w * h;
+      if (px <= 640 * 480) return ['10', '20'];
+      if (px <= 1280 * 720) return ['30', '31', '40'];
+      if (px <= 1920 * 1080) return ['40', '41', '50'];
+      if (px <= 2560 * 1440) return ['50', '51'];
+      if (px <= 3200 * 2400) return ['51', '50'];
+      if (px <= 3840 * 2160) return ['51', '60'];
+      return ['60', '61', '62', '51'];
+    })(W, H);
+    const cfgList = vp9Levels.map(function (lv) { return { codec: 'vp09.00.' + lv + '.08', webm: 'V_VP9' }; });
+    cfgList.push({ codec: 'vp8', webm: 'V_VP8' });
     let cfg = null, info = null;
     for (const c of cfgList) {
       try {
@@ -12395,6 +12582,78 @@ showSplitPreview();
     return { parts, frames: chunks.length, bytes: parts, lastMs };
   }
 
+  /* 通用「逐帧编码」入口：给运动预览等子窗口用。
+     子窗口（srcdoc iframe）把 drawFrame 回调递进来，这里负责建画布、编码、封装 WebM。
+     与蚕室导出同一套编码选择，所以画质/帧数口径一致。 */
+  async function encodeCanvasFrames(drawFn, W, H, fps, total, bit, onProgress) {
+    const vp9Levels = (function (w, h) {
+      const px = w * h;
+      if (px <= 640 * 480) return ['10', '20'];
+      if (px <= 1280 * 720) return ['30', '31', '40'];
+      if (px <= 1920 * 1080) return ['40', '41', '50'];
+      if (px <= 2560 * 1440) return ['50', '51'];
+      if (px <= 3200 * 2400) return ['51', '50'];
+      if (px <= 3840 * 2160) return ['51', '60'];
+      return ['60', '61', '62', '51'];
+    })(W, H);
+    const cfgList = vp9Levels.map(function (lv) { return { codec: 'vp09.00.' + lv + '.08', webm: 'V_VP9' }; });
+    cfgList.push({ codec: 'vp8', webm: 'V_VP8' });
+    let cfg = null, info = null;
+    for (const c of cfgList) {
+      try {
+        const sup = await VideoEncoder.isConfigSupported({ codec: c.codec, width: W, height: H, bitrate: bit, framerate: fps });
+        if (sup && sup.supported) { cfg = sup.config; info = c; break; }
+      } catch (e) { /* 下一个 */ }
+    }
+    if (!cfg) throw new Error('浏览器没有可用的 VP9/VP8 编码器');
+
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d', { alpha: false });
+    const parts = [];
+    parts.push(WEBM.header(W, H, info.webm, fps, Math.round(total * 1000 / fps)));
+    const chunks = [];
+    const encoder = new VideoEncoder({
+      output: (chunk) => {
+        const buf = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(buf);
+        chunks.push({ ms: Math.round(chunk.timestamp / 1000), data: buf, key: chunk.type === 'key' });
+      },
+      error: (e) => { throw e; },
+    });
+    encoder.configure(cfg);
+    const keyEvery = Math.max(1, Math.round(fps));
+    for (let i = 0; i < total; i++) {
+      drawFn(g, total <= 1 ? 1 : i / (total - 1), W, H);
+      const frame = new VideoFrame(cv, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
+      encoder.encode(frame, { keyFrame: i % keyEvery === 0 });
+      frame.close();
+      while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 0));
+      if (onProgress && (i % 5 === 0 || i === total - 1)) onProgress(i + 1, total);
+    }
+    await encoder.flush();
+    encoder.close();
+    chunks.sort((a, b) => a.ms - b.ms);
+    let clusterBuf = null, clusterTc = 0;
+    const flushCluster = () => {
+      if (!clusterBuf) return;
+      const payload = WEBM.cat([WEBM.uint(WEBM.ID.Timecode, clusterTc)].concat(clusterBuf));
+      parts.push(WEBM.el(WEBM.ID.Cluster, payload));
+      clusterBuf = null;
+    };
+    chunks.forEach((c) => {
+      if (!clusterBuf || c.ms - clusterTc > 30000) {
+        flushCluster();
+        clusterTc = c.ms;
+        clusterBuf = [];
+      }
+      clusterBuf.push(webmBlock(c.ms - clusterTc, c.data, c.key));
+    });
+    flushCluster();
+    return { parts, frames: chunks.length };
+  }
+  window.__exportCanvasFrames = encodeCanvasFrames;
+
   async function ledRecordWebVideo() {
     const btn = document.getElementById('habVidRecord');
     if (!habitat.agents.some(a => a.kind === 'weave')) {
@@ -12440,9 +12699,13 @@ showSplitPreview();
         const scene = scene0;
         scene.loop = false;
         scene.frames = total;
+        const encT0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
         const enc = await ledEncodeAllFrames(scene, W, H, fps, total, bit, (done, all) => {
+          const el = ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - encT0) / 1000;
+          const eta = done > 4 ? (el / done) * (all - done) : 0;
           ledVideoStatus('编码中 ' + Math.round(done / all * 100) + '% · 第 ' + done + '/' + all +
-            ' 帧（逐帧编码，不会掉帧）');
+            ' 帧 · 已用 ' + el.toFixed(0) + ' s' + (eta > 1 ? '，约剩 ' + eta.toFixed(0) + ' s' : '') +
+            '（逐帧编码，画面速度与预览一致，不会掉帧）');
         });
         if (!enc) throw new Error('浏览器没有可用的 VP9/VP8 编码器');
         if (fileWriter) {
