@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>路线织造 · 蚕吐丝路线编辑器</title>
+<title>路线织造 · 蚕在大路径里织网</title>
 <style>
   :root{
     --bg:#0b0d0f; --panel:#14171b; --panel2:#191d22; --border:#262b32;
@@ -32,7 +32,7 @@
   #hud{position:absolute;left:14px;bottom:12px;color:var(--muted);font-size:11.5px;pointer-events:none;line-height:1.6}
   #hud b{color:var(--text)}
   #tip{position:absolute;left:14px;top:12px;font-size:11.5px;color:var(--muted);pointer-events:none;max-width:62%;line-height:1.6}
-  aside{width:330px;background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;padding:12px 14px 40px}
+  aside{width:338px;background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;padding:12px 14px 40px}
   aside h3{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:14px 0 8px;border-bottom:1px solid var(--border);padding-bottom:4px}
   aside h3:first-child{margin-top:0}
   .row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
@@ -60,7 +60,7 @@
 <body>
 <header>
   <h1>路线织造</h1>
-  <span class="sub">手动画路线 · 蚕沿路线爬行吐丝 · 导出即所见</span>
+  <span class="sub">路径是场地：蚕在大路径里按吐丝行为爬行织网</span>
   <span class="spacer"></span>
   <button type="button" id="btnPlay" class="primary">▶ 播放 / 暂停</button>
   <button type="button" id="btnReset">回到起点</button>
@@ -70,20 +70,21 @@
 <main>
   <section id="stage">
     <canvas id="cvs"></canvas>
-    <div id="tip">左键点线选中；拖白点改形状；曲线上双击加一个点；右键点删掉那个点。</div>
+    <div id="tip">左键点边界选中场地；拖白点改形状；曲线上双击加一个点；右键点删掉那个点。</div>
     <div id="hud"></div>
   </section>
   <aside>
-    <h3>路线</h3>
+    <h3>路径＝场地</h3>
     <div class="btnrow">
-      <button type="button" data-add="circle">＋ 正圆路径</button>
-      <button type="button" data-add="line">＋ 直线路径</button>
+      <button type="button" data-add="circle">＋ 正圆场地</button>
+      <button type="button" data-add="line">＋ 直线场地</button>
     </div>
     <div class="btnrow">
-      <button type="button" data-add="closed">＋ 封闭曲线</button>
-      <button type="button" data-add="open">＋ 开放曲线</button>
+      <button type="button" data-add="closed">＋ 封闭曲线场地</button>
+      <button type="button" data-add="open">＋ 开放曲线场地</button>
     </div>
     <div class="paths" id="pathList"></div>
+    <div class="note">每个路径都是一个“方格”那样的场地，各自有一只蚕在里面来回爬、边爬边吐丝；块与块之间互不干扰。</div>
     <div class="row" id="circleLoopRow" style="display:none">
       <label>正圆</label>
       <label class="chk" style="flex:1 1 auto;margin:0"><input type="checkbox" id="chkCircleLoop"> 头尾相接循环爬行</label>
@@ -93,11 +94,26 @@
       <input type="number" id="numLaps" min="1" max="40" step="1" value="3">
       <span class="note" style="margin:0">圈</span>
     </div>
-    <div class="note">蚕按列表顺序一条条走。正圆不勾循环＝只爬一圈停在起点；勾上就一圈接一圈，圈数在这里给。</div>
+    <div class="row" id="bandRow" style="display:none">
+      <label>带宽</label>
+      <input type="range" id="rngBand" min="40" max="300" step="5" value="120"><span class="val" id="vBand">120</span>
+    </div>
 
     <h3>织造</h3>
-    <div class="row"><label>爬行速度</label><input type="range" id="rngSpeed" min="10" max="400" step="5" value="80"><span class="val" id="vSpeed">80</span></div>
-    <div class="note">世界单位/秒（场地按 1000×750 算）。它决定片子里的运动快慢，导出时长跟着它走。</div>
+    <div class="row"><label>行为</label>
+      <select id="selMode">
+        <option value="weave" selected>在场地内织网（像方格）</option>
+        <option value="trace">沿路径爬一根丝</option>
+      </select>
+    </div>
+    <div class="row"><label>织造时长</label>
+      <select id="selDur"><option value="10">10 秒</option><option value="20" selected>20 秒</option><option value="30">30 秒</option><option value="45">45 秒</option><option value="60">60 秒</option></select>
+    </div>
+    <div class="row"><label>爬行速度</label><input type="range" id="rngSpeed" min="40" max="900" step="10" value="480"><span class="val" id="vSpeed">480</span></div>
+    <div class="note">世界单位/秒。速度决定丝的密度：同样时长里爬得越多、织得越密；导出时长由「织造时长」定。</div>
+    <div class="row" id="swingRow"><label>摆动幅度</label><input type="range" id="rngSwing" min="0" max="80" step="1" value="42"><span class="val" id="vSwing">42</span></div>
+    <div class="row" id="hzRow"><label>摆动频率</label><input type="range" id="rngHz" min="0.10" max="6" step="0.05" value="1.6"><span class="val" id="vHz">1.60</span></div>
+    <div class="note" id="swingNote">摆动＝蚕左右摆头（摆头波长要比场地小，才会来回叠成网）。幅度大、频率高＝更密更绕；碰边界时按法线反弹。</div>
     <div class="row"><label>丝线宽度</label><input type="range" id="rngW" min="0.3" max="4" step="0.05" value="1.8"><span class="val" id="vW">1.80</span></div>
     <div class="row"><label>丝线亮度</label><input type="range" id="rngGain" min="0.2" max="1.6" step="0.02" value="1"><span class="val" id="vGain">1.00</span></div>
     <div class="row"><label>材质</label>
@@ -108,8 +124,9 @@
         <option value="bright">亮丝</option>
       </select>
     </div>
-    <div class="row"><label>晃动幅度</label><input type="range" id="rngWob" min="0" max="3" step="0.05" value="1"><span class="val" id="vWob">1.00</span></div>
+    <div class="row"><label>丝线抖动</label><input type="range" id="rngWob" min="0" max="2" step="0.02" value="0.5"><span class="val" id="vWob">0.50</span></div>
     <label class="chk"><input type="checkbox" id="chkWorm" checked> 画面里显示正在爬的蚕</label>
+    <button type="button" id="btnReseed" style="width:100%">换一次爬行（重新织）</button>
 
     <h3>导出</h3>
     <div class="row"><label>分辨率</label>
@@ -142,9 +159,6 @@
         <option value="40">母版 40 Mbps</option>
       </select>
     </div>
-    <div class="row"><label>时长</label>
-      <select id="selDur"><option value="auto" selected>自动（路线总长 / 速度）</option><option value="5">5 秒</option><option value="10">10 秒</option><option value="20">20 秒</option><option value="30">30 秒</option><option value="60">60 秒</option></select>
-    </div>
     <div class="row"><label>背景色</label>
       <input type="color" id="colBg" class="swatch" value="#000000">
       <label class="chk" style="margin:0;flex:1"><input type="checkbox" id="chkAlpha"> 透明背景</label>
@@ -162,28 +176,44 @@
 var WORLD = { w: 1000, h: 750 };
 var S = {
   paths: [], sel: -1,
-  speed: 80, silkW: 1.8, gain: 1, mat: 'silk', wob: 1, showWorm: true,
+  mode: 'weave',            // weave = 在场地内织网；trace = 沿路径一根丝
+  durSec: 20,
+  weaveDur: 20,      // 记着“织网”档的片长，切回织网时还原
+  speed: 480,                // 世界单位/秒
+  swing: 42,                // 摆头幅度（度）
+  hz: 1.6,                  // 摆头频率（Hz）
+  band: 120,                // 直线场地的带宽
+  silkW: 1.8, gain: 1, mat: 'silk', wob: 0.5, showWorm: true,
   bg: '#000000', alpha: false,
-  fps: 30, mbps: 16, durSel: 'auto', res: '2048x1536',
+  fps: 30, mbps: 16, res: '2048x1536',
   W: 1200, H: 900,
-  t: 0, playing: false, exportView: false
+  t: 0, playing: false, exportView: false,
+  seed: 20261125
 };
 var cv = document.getElementById('cvs');
 var ctx = cv.getContext('2d');
-var seedCounter = 1;
+var seedCounter = 0;
 
-/* ===== 几何 ===== */
+/* ===== 随机（可复现，导出和预览同一条轨迹） ===== */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* ===== 基础几何 ===== */
 function circlePts(cx, cy, r, n) {
-  var out = [], N = n || 360;
-  for (var i = 0; i <= N; i++) {
+  var out = [], N = n || 160;
+  for (var i = 0; i < N; i++) {
     var a = i / N * Math.PI * 2;
     out.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
   }
   return out;
 }
 function linePts(a, b) { return [{ x: a.x, y: a.y }, { x: b.x, y: b.y }]; }
-
-/* Catmull-Rom：封闭首尾相接，开放则端点固定（切线做镜像延拓） */
 function splinePts(ctrl, closed, per) {
   var n = ctrl.length;
   if (n < 2) return ctrl.slice();
@@ -192,11 +222,11 @@ function splinePts(ctrl, closed, per) {
     if (closed) return ctrl[((i % n) + n) % n];
     return ctrl[Math.max(0, Math.min(n - 1, i))];
   };
-  var segs = closed ? n : n - 1, out = [], per = per || 32;
+  var segs = closed ? n : n - 1, out = [], per2 = per || 26;
   for (var s = 0; s < segs; s++) {
     var p0 = P(s - 1), p1 = P(s), p2 = P(s + 1), p3 = P(s + 2);
-    for (var k = 0; k < per; k++) {
-      var t = k / per, t2 = t * t, t3 = t2 * t;
+    for (var k = 0; k < per2; k++) {
+      var t = k / per2, t2 = t * t, t3 = t2 * t;
       out.push({
         x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
         y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
@@ -231,71 +261,345 @@ function pathTypeName(t) {
   return { circle: '正圆', line: '直线', closed: '封闭曲线', open: '开放曲线' }[t] || t;
 }
 
-/* 采样 + 弧长 + 丝线折线（丝线带横向晃动，手织感） */
-function buildPath(p) {
+/* ===== 路径 → 场地轮廓（闭合多边形） ===== */
+function regionOf(p) {
   var raw;
-  if (p.type === 'circle') raw = circlePts(p.ctrl[0].x, p.ctrl[0].y, p.r || 160, 480);
-  else if (p.type === 'line') raw = linePts(p.ctrl[0], p.ctrl[1]);
-  else if (p.type === 'closed') {
-    raw = splinePts(p.ctrl, true, 32);
-    raw.push({ x: raw[0].x, y: raw[0].y });
-  } else raw = splinePts(p.ctrl, false, 32);
-
-  var pts = resample(raw, 2.2), s = 0;
-  pts[0].s = 0;
-  for (var i = 1; i < pts.length; i++) {
-    s += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-    pts[i].s = s;
+  if (p.type === 'circle') {
+    raw = circlePts(p.ctrl[0].x, p.ctrl[0].y, p.r || 160, 120);
+  } else if (p.type === 'closed') {
+    raw = splinePts(p.ctrl, true, 26);
+  } else if (p.type === 'open') {
+    // 开放曲线本身不围合，所以沿曲线两侧各展开半个带宽，成为一条弯走廊
+    raw = ribbonPoly(splinePts(p.ctrl, false, 26), p.band || S.band);
+  } else {
+    // 直线：同样向两侧展开半个带宽，是一条直走廊
+    raw = ribbonPoly([p.ctrl[0], p.ctrl[1]], p.band || S.band);
   }
-  p.samples = pts;
-  p.len = s;
-  p.silk = silkOf(pts, p.seed);
-  return p;
+  return raw;
 }
-function silkOf(pts, seed) {
-  var out = [], amp = S.wob;
+/* 沿一条线（直线或曲线）向两侧各展开 h，围出一条走廊 */
+function ribbonPoly(pts, band) {
+  var h = Math.max(8, band) / 2;
+  if (pts.length < 2) return pts.slice();
+  var left = [], right = [];
   for (var i = 0; i < pts.length; i++) {
     var a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
     var dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1;
-    var s = pts[i].s || 0;
-    var off = (Math.sin(s * 0.030 + seed) * 1.5 + Math.sin(s * 0.150 + seed * 2.1) * 0.6) * amp;
-    out.push({ x: pts[i].x - dy / l * off, y: pts[i].y + dx / l * off, s: s });
+    var nx = -dy / l, ny = dx / l;
+    left.push({ x: pts[i].x + nx * h, y: pts[i].y + ny * h });
+    right.push({ x: pts[i].x - nx * h, y: pts[i].y - ny * h });
   }
+  var out = left.slice();
+  for (var j = right.length - 1; j >= 0; j--) out.push(right[j]);
   return out;
 }
-function refreshSilk() {
-  for (var i = 0; i < S.paths.length; i++) S.paths[i].silk = silkOf(S.paths[i].samples, S.paths[i].seed);
+
+function insidePoly(poly, x, y) {
+  var c = false;
+  for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    var pi = poly[i], pj = poly[j];
+    if (((pi.y > y) !== (pj.y > y)) && (x < (pj.x - pi.x) * (y - pi.y) / (pj.y - pi.y) + pi.x)) c = !c;
+  }
+  return c;
+}
+/* 最近的边界点 + 指向内部（-外法线）的法线 */
+function nearestOnPoly(poly, x, y) {
+  var best = null;
+  for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    var ax = poly[j].x, ay = poly[j].y, bx = poly[i].x, by = poly[i].y;
+    var dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    var t = L2 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L2)) : 0;
+    var qx = ax + dx * t, qy = ay + dy * t;
+    var d = Math.hypot(x - qx, y - qy);
+    if (!best || d < best.d) {
+      var nx = -dy, ny = dx, nl = Math.hypot(nx, ny) || 1;
+      nx /= nl; ny /= nl;
+      best = { x: qx, y: qy, nx: nx, ny: ny, d: d };
+    }
+  }
+  return best;
+}
+function polygonAreaCentroid(poly) {
+  var a = 0, cx = 0, cy = 0;
+  for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    var f = poly[j].x * poly[i].y - poly[i].x * poly[j].y;
+    a += f; cx += (poly[j].x + poly[i].x) * f; cy += (poly[j].y + poly[i].y) * f;
+  }
+  a *= 0.5;
+  if (Math.abs(a) < 1e-9) {
+    var sx = 0, sy = 0;
+    poly.forEach(function (q) { sx += q.x; sy += q.y; });
+    return { x: sx / poly.length, y: sy / poly.length, area: 0 };
+  }
+  return { x: cx / (6 * a), y: cy / (6 * a), area: Math.abs(a) };
 }
 
+/* ===== 路径（场地）对象 ===== */
 function addPath(type) {
-  var cx = WORLD.w / 2, cy = WORLD.h / 2, k = 160, p;
-  seedCounter += 1.7;
+  var idx = S.paths.length;
+  var col = idx % 2, row = Math.floor(idx / 2) % 2;
+  var cx = 250 + col * 500, cy = 190 + row * 370;
+  var k = 118, p, half = 178;
+  seedCounter += 1;
+  var seed = ((S.seed + seedCounter * 977) >>> 0);
   if (type === 'circle') {
-    p = { type: 'circle', ctrl: [{ x: cx, y: cy }], r: 170, loop: true, laps: 3, seed: seedCounter };
+    p = { type: 'circle', ctrl: [{ x: cx, y: cy }], r: 145, loop: true, laps: 3, seed: seed };
   } else if (type === 'line') {
-    p = { type: 'line', ctrl: [{ x: cx - 240, y: cy }, { x: cx + 240, y: cy }], seed: seedCounter };
+    p = { type: 'line', ctrl: [{ x: cx - half, y: cy }, { x: cx + half, y: cy }], band: Math.min(S.band, 96), seed: seed };
   } else if (type === 'closed') {
-    p = { type: 'closed', ctrl: [{ x: cx - k, y: cy - k }, { x: cx + k, y: cy - k }, { x: cx + k, y: cy + k }, { x: cx - k, y: cy + k }], seed: seedCounter };
+    p = { type: 'closed', ctrl: [{ x: cx - k, y: cy - k }, { x: cx + k, y: cy - k }, { x: cx + k, y: cy + k }, { x: cx - k, y: cy + k }], seed: seed };
   } else {
-    p = { type: 'open', ctrl: [{ x: cx - 280, y: cy + 110 }, { x: cx - 90, y: cy - 130 }, { x: cx + 100, y: cy + 110 }, { x: cx + 280, y: cy - 60 }], seed: seedCounter };
+    p = { type: 'open', ctrl: [{ x: cx - half, y: cy + 105 }, { x: cx - 58, y: cy - 118 }, { x: cx + 58, y: cy + 105 }, { x: cx + half, y: cy - 55 }], band: Math.min(S.band, 96), seed: seed };
   }
   buildPath(p);
   S.paths.push(p);
   S.sel = S.paths.length - 1;
   S.t = 0; S.playing = false;
-  renderList(); fitWorld(); draw();
+  rebuildAll(); fitWorld(); renderList(); draw();
   return p;
 }
 
-function passCount(p) {
-  if (p.type === 'circle' && p.loop) return Math.max(1, Math.round(p.laps || 1));
-  return 1;
+/* ===== 生成：区域织网 / 沿路径爬 ===== */
+function buildPath(p) {
+  p.poly = regionOf(p);
+  p.center = polygonAreaCentroid(p.poly);
+  p.samples = resample(p.poly.concat([p.poly[0]]), 4);
+  p.len = 0;
+  for (var i = 1; i < p.samples.length; i++) {
+    p.len += Math.hypot(p.samples[i].x - p.samples[i - 1].x, p.samples[i].y - p.samples[i - 1].y);
+    p.samples[i].s = p.len;
+  }
+  if (p.samples[0]) p.samples[0].s = 0;
+  p.stamp = Date.now() + Math.random();
 }
-function pathRunLen(p) { return p.len * passCount(p); }
-function routeLen() {
-  var L = 0;
-  for (var i = 0; i < S.paths.length; i++) L += pathRunLen(S.paths[i]);
-  return L;
+
+/* 描线器里提出来的一笔真实蚕丝（归一化坐标，原始 300 点，取自已上线的 index.html） */
+var MOTIF_FLAT = [-0.2858,0.3183,-0.2858,0.3003,-0.2858,0.2823,-0.2858,0.2643,-0.2855,0.2463,-0.2849,0.2283,-0.2841,0.2104,-0.2832,0.1924,-0.2823,0.1744,-0.2814,0.1565,-0.2805,0.1385,-0.2796,0.1205,-0.2787,0.1025,-0.2779,0.0846,-0.277,0.0666,-0.2765,0.0486,-0.2764,0.0306,-0.2764,0.0126,-0.2764,-0.0054,-0.2764,-0.0234,-0.2764,-0.0413,-0.2764,-0.0593,-0.2764,-0.0773,-0.2764,-0.0953,-0.2764,-0.1133,-0.2764,-0.1313,-0.2777,-0.1492,-0.2808,-0.1669,-0.2842,-0.1846,-0.2863,-0.2024,-0.2906,-0.2191,-0.305,-0.2298,-0.3199,-0.2399,-0.3375,-0.2431,-0.3555,-0.2425,-0.3603,-0.2278,-0.3607,-0.2098,-0.3607,-0.1918,-0.3607,-0.1738,-0.3605,-0.1558,-0.3595,-0.1379,-0.3572,-0.12,-0.3541,-0.1023,-0.3493,-0.085,-0.3409,-0.069,-0.3332,-0.0528,-0.3275,-0.0358,-0.3176,-0.0213,-0.3045,-0.009,-0.2908,0.0026,-0.2767,0.0139,-0.2627,0.0251,-0.2492,0.037,-0.2362,0.0494,-0.2229,0.0616,-0.208,0.0716,-0.1939,0.0829,-0.181,0.0953,-0.1683,0.1081,-0.1555,0.1208,-0.1428,0.1335,-0.1301,0.1462,-0.1173,0.1589,-0.1046,0.1716,-0.092,0.1844,-0.0803,0.1981,-0.07,0.2129,-0.0605,0.2282,-0.0508,0.2433,-0.0407,0.2582,-0.0304,0.2729,-0.0202,0.2878,-0.0108,0.3031,-0.0031,0.3193,0.0023,0.3365,0.0073,0.3538,0.0131,0.3708,0.0202,0.3873,0.0229,0.405,0.0226,0.4229,0.0128,0.4359,-0.0039,0.44,-0.0219,0.44,-0.0399,0.44,-0.0578,0.4393,-0.0751,0.4353,-0.09,0.4252,-0.1047,0.4149,-0.1168,0.4016,-0.1273,0.387,-0.1346,0.3706,-0.1409,0.3538,-0.1444,0.3363,-0.1452,0.3183,-0.1452,0.3003,-0.1453,0.2824,-0.1456,0.2644,-0.1468,0.2464,-0.1487,0.2285,-0.1511,0.2107,-0.1529,0.1928,-0.1541,0.1748,-0.1545,0.1569,-0.1546,0.1389,-0.1546,0.1209,-0.1546,0.1029,-0.1546,0.0849,-0.1546,0.0669,-0.1546,0.0489,-0.1546,0.0309,-0.1546,0.0129,-0.1546,-0.0051,-0.1546,-0.0231,-0.1546,-0.0411,-0.1546,-0.0591,-0.1546,-0.077,-0.1546,-0.095,-0.1546,-0.113,-0.1546,-0.131,-0.1546,-0.149,-0.1546,-0.167,-0.1546,-0.185,-0.1546,-0.203,-0.1546,-0.221,-0.1638,-0.2317,-0.1687,-0.2408,-0.1586,-0.2557,-0.1484,-0.2705,-0.144,-0.2875,-0.1391,-0.3046,-0.1301,-0.32,-0.1185,-0.3338,-0.1064,-0.347,-0.094,-0.36,-0.0813,-0.3728,-0.0686,-0.3855,-0.0555,-0.3978,-0.042,-0.4098,-0.028,-0.421,-0.0118,-0.4282,0.0038,-0.4241,0.0178,-0.4128,0.0306,-0.4003,0.0409,-0.3857,0.048,-0.3692,0.0549,-0.3526,0.0626,-0.3363,0.0715,-0.3207,0.0765,-0.3034,0.0833,-0.2868,0.0917,-0.2708,0.0969,-0.2539,0.0987,-0.236,0.0997,-0.218,0.1012,-0.2001,0.1031,-0.1822,0.1053,-0.1644,0.1077,-0.1465,0.1108,-0.1288,0.115,-0.1113,0.1194,-0.0939,0.1236,-0.0764,0.1273,-0.0588,0.1305,-0.0411,0.1337,-0.0234,0.1372,-0.0057,0.1412,0.0118,0.1455,0.0293,0.1499,0.0467,0.1533,0.0644,0.1547,0.0823,0.1576,0.1001,0.1615,0.1176,0.1637,0.1354,0.164,0.1534,0.1646,0.1713,0.167,0.1891,0.1708,0.2067,0.1733,0.2245,0.1733,0.2425,0.1733,0.2605,0.1602,0.2703,0.1425,0.2715,0.1268,0.264,0.1197,0.2484,0.1175,0.2306,0.1171,0.2126,0.1171,0.1946,0.1171,0.1766,0.1165,0.1587,0.1139,0.1409,0.1091,0.1235,0.1078,0.1056,0.1078,0.0876,0.1078,0.0696,0.1083,0.0516,0.1116,0.0341,0.118,0.0173,0.1259,0.0012,0.134,-0.0149,0.1423,-0.0309,0.1513,-0.0464,0.1611,-0.0615,0.1698,-0.0773,0.1791,-0.0927,0.1879,-0.1084,0.1915,-0.1256,0.1951,-0.1432,0.2032,-0.1589,0.2136,-0.1736,0.2201,-0.1898,0.2209,-0.2077,0.2251,-0.2251,0.2332,-0.2412,0.2384,-0.2584,0.2389,-0.2764,0.2389,-0.2944,0.2389,-0.3123,0.2389,-0.3303,0.2389,-0.3483,0.2389,-0.3529,0.2389,-0.3349,0.239,-0.3169,0.2392,-0.2989,0.2407,-0.2811,0.2456,-0.2638,0.2527,-0.2472,0.2593,-0.2305,0.266,-0.2138,0.2724,-0.197,0.2789,-0.1802,0.2853,-0.1634,0.2917,-0.1466,0.298,-0.1297,0.3043,-0.1129,0.3107,-0.096,0.317,-0.0792,0.3232,-0.0623,0.3295,-0.0454,0.3358,-0.0286,0.342,-0.0117,0.3482,0.0052,0.3542,0.0222,0.3589,0.0395,0.3607,0.0573,0.3607,0.0753,0.3607,0.0933,0.3607,0.1113,0.3607,0.1293,0.3606,0.1473,0.3567,0.1648,0.3478,0.18,0.3369,0.1943,0.3278,0.2097,0.3206,0.2262,0.313,0.2425,0.304,0.2581,0.2932,0.2723,0.2776,0.2805,0.2657,0.2674,0.2626,0.2497,0.2602,0.2318,0.2584,0.2139,0.2586,0.196,0.2615,0.1783,0.2658,0.1608,0.2708,0.1435,0.2759,0.1263,0.2809,0.109,0.2858,0.0917,0.2905,0.0743,0.295,0.0569,0.2992,0.0394,0.3032,0.0218,0.3067,0.0042,0.31,-0.0135,0.3133,-0.0312,0.3171,-0.0488,0.3212,-0.0663,0.3254,-0.0838,0.3293,-0.1013,0.3322,-0.1191,0.3334,-0.137,0.3376,-0.1545,0.3425,-0.1718,0.347,-0.1892,0.3502,-0.2069,0.3514,-0.2248,0.3514,-0.2428,0.3514,-0.2608,0.3514,-0.2788,0.3514,-0.2968,0.3514,-0.3148,0.3514,-0.3328,0.3514,-0.3508,0.3513,-0.3688,0.3505,-0.3867,0.3485,-0.4046,0.3455,-0.4224,0.342,-0.44];
+var MOTIF_CACHE = null;
+
+/* 行为母题：把抽出来的那一笔做高斯平滑，再去掉重复点 */
+function motifPts() {
+  if (MOTIF_CACHE) return MOTIF_CACHE;
+  var out = [];
+  for (var i = 0; i < MOTIF_FLAT.length; i += 2) out.push({ x: MOTIF_FLAT[i], y: MOTIF_FLAT[i + 1] });
+  out = gaussSmooth(out, 2, 1.4);
+  MOTIF_CACHE = out;
+  return out;
+}
+function gaussSmooth(pts, passes, sigma) {
+  var k = [], r = Math.ceil(sigma * 2.2), sum = 0, i;
+  for (i = -r; i <= r; i++) { var w = Math.exp(-(i * i) / (2 * sigma * sigma)); k.push(w); sum += w; }
+  for (i = 0; i < k.length; i++) k[i] /= sum;
+  var cur = pts;
+  for (var pss = 0; pss < passes; pss++) {
+    var nx = [];
+    for (i = 0; i < cur.length; i++) {
+      var sx = 0, sy = 0;
+      for (var j = -r; j <= r; j++) {
+        var q = cur[Math.max(0, Math.min(cur.length - 1, i + j))];
+        var kk = k[j + r]; sx += q.x * kk; sy += q.y * kk;
+      }
+      nx.push({ x: sx, y: sy });
+    }
+    cur = nx;
+  }
+  return cur;
+}
+
+/* 区域织网：蚕在场地里爬，摆头 + 碰边反弹，边走边吐丝 */
+function simulateWeave(p) {
+  var poly = p.poly, c = p.center, seed = p.seed || 1;
+  var rnd = mulberry32(seed);
+  var M = motifPts();
+  var tMax = S.durSec, speed = Math.max(5, S.speed);
+  var t = 0, pts = [], last = null;
+
+  // 场地尺度：重心到轮廓的最远距离
+  var maxR = 0;
+  for (var i = 0; i < poly.length; i++) {
+    var d0 = Math.hypot(poly[i].x - c.x, poly[i].y - c.y);
+    if (d0 > maxR) maxR = d0;
+  }
+  if (maxR < 5) maxR = 5;
+
+  // 母题自身的“半径”（母题是归一化坐标）
+  var mr = 0;
+  for (i = 0; i < M.length; i++) { var dm = Math.hypot(M[i].x, M[i].y); if (dm > mr) mr = dm; }
+  if (mr < 0.01) mr = 0.44;
+
+  // 走廊型场地（直线 / 开放曲线）：笔幅受带宽限制，沿轴线一笔一笔落
+  var corridor = (p.type === 'line' || p.type === 'open');
+  var bandHalf = Math.max(12, (p.band || S.band) / 2);
+  var axis = corridor ? resample(p.type === 'line' ? [p.ctrl[0], p.ctrl[1]] : splinePts(p.ctrl, false, 26), 6) : (p.samples || []);
+  var baseAng = (p.type === 'line')
+    ? Math.atan2(p.ctrl[1].y - p.ctrl[0].y, p.ctrl[1].x - p.ctrl[0].x) : null;
+
+  var axisProg = rnd() * 0.3;      // 走廊里当前织到哪一段（0..1）
+  var axisDir = 1;                 // 走到头就掉头，别横穿回起点
+  var guard = 0;
+  while (t < tMax - 0.02 && guard++ < 900) {
+    var place = null, ang = 0, sc = 1, ca = 1, sa = 0;
+
+    for (var att = 0; att < 30 && !place; att++) {
+      var cx, cy;
+      if (corridor) {
+        // 沿轴线随机取一点，笔幅按带宽收缩，整笔必须落在走廊里
+        var kk = Math.round(axisProg * (axis.length - 1));
+        var q = axis[kk], q2 = axis[Math.min(axis.length - 1, kk + 2)];
+        ang = Math.atan2(q2.y - q.y, q2.x - q.x) + (rnd() - 0.5) * 1.0;
+        sc = bandHalf * (0.72 + rnd() * 0.30) / mr;
+        cx = q.x; cy = q.y;
+      } else {
+        // 闭合场地：笔幅可放到场地半径量级，超出边界的那部分会被“挡”回去
+        ang = rnd() * Math.PI * 2;
+        sc = maxR * (0.62 + rnd() * 0.42) / mr;
+        var rr = maxR * 0.66 * Math.sqrt(rnd()), aa = rnd() * Math.PI * 2;
+        cx = c.x + Math.cos(aa) * rr;
+        cy = c.y + Math.sin(aa) * rr;
+      }
+      ca = Math.cos(ang); sa = Math.sin(ang);
+
+      var outCount = 0;
+      for (i = 0; i < M.length; i += 2) {
+        var wx = cx + (M[i].x * ca - M[i].y * sa) * sc;
+        var wy = cy + (M[i].x * sa + M[i].y * ca) * sc;
+        if (!insidePoly(poly, wx, wy)) outCount++;
+      }
+      var limit = corridor ? 0 : M.length / 12;   // 走廊必须整笔在里面；闭合场地允许一点点出界
+      if (outCount <= limit) place = { x: cx, y: cy };
+      else sc *= 0.87;
+    }
+    if (!place) break;
+    if (corridor) {
+      axisProg += axisDir * (0.07 + rnd() * 0.07);
+      if (axisProg > 1) { axisProg = 2 - axisProg; axisDir = -1; }
+      else if (axisProg < 0) { axisProg = -axisProg; axisDir = 1; }
+    }
+
+    for (i = 0; i < M.length; i++) {
+      var X = place.x + (M[i].x * ca - M[i].y * sa) * sc;
+      var Y = place.y + (M[i].x * sa + M[i].y * ca) * sc;
+      // 闭合场地的边角：越界点被场地挡回来，贴着边界走
+      if (!corridor && !insidePoly(poly, X, Y)) {
+        var nb = nearestOnPoly(poly, X, Y);
+        X = nb.x + nb.nx * 1.4; Y = nb.y + nb.ny * 1.4;
+        p.blocked = (p.blocked || 0) + 1;
+      }
+      // 点太密就不落笔（省点数，形状不变）
+      if (last && Math.hypot(X - last.x, Y - last.y) < 1.2) continue;
+      if (last) {
+        var segLen = Math.hypot(X - last.x, Y - last.y);
+        if (segLen > 0.5) {
+          var cross = false;
+          for (var sk = 1; sk <= 7; sk++) {
+            var fx = last.x + (X - last.x) * sk / 8, fy = last.y + (Y - last.y) * sk / 8;
+            if (!insidePoly(poly, fx, fy)) { cross = true; break; }
+          }
+          if (cross) {
+            // 直爬会出场地：从场地中心绕一下
+            t += (Math.hypot(c.x - last.x, c.y - last.y) + Math.hypot(X - c.x, Y - c.y)) / speed;
+            pts.push({ t: t, x: c.x, y: c.y });
+            last = { x: c.x, y: c.y };
+          }
+          t += Math.hypot(X - last.x, Y - last.y) / speed;
+        }
+      }
+      pts.push({ t: t, x: X, y: Y });
+      last = { x: X, y: Y };
+      if (t >= tMax) break;
+    }
+  }
+  if (!pts.length) {
+    pts.push({ t: 0, x: c.x, y: c.y });
+    pts.push({ t: tMax, x: c.x, y: c.y });
+  }
+  p.silk = silkOf(pts, seed);
+  p.dur = tMax;
+  p.ptsCount = pts.length;
+  p.strokes = guard;
+  p.corridor = corridor;
+}
+/* 沿路径爬一根丝（旧行为，可切换） */
+function simulateTrace(p) {
+  var passes = (p.type === 'circle' && p.loop) ? Math.max(1, Math.round(p.laps || 1)) : 1;
+  var raw = [];
+  for (var k = 0; k < passes; k++) {
+    for (var i = 0; i < p.samples.length; i++) raw.push(p.samples[i]);
+  }
+  var totalLen = p.len * passes;
+  var speed = Math.max(1, S.speed);
+  var dt = 1 / 60, t = 0, s = 0, out = [];
+  while (s <= totalLen) {
+    out.push({ t: t, s: s, x: pointOnByS(p, s).x, y: pointOnByS(p, s).y });
+    s += speed * dt; t += dt;
+  }
+  p.silk = silkOf(out, p.seed);
+  p.dur = Math.max(0.5, totalLen / speed);
+  p.ptsCount = out.length;
+  p.traceLen = totalLen;
+}
+function pointOnByS(p, s) {
+  var pts = p.samples;
+  if (!pts.length) return { x: 0, y: 0 };
+  var s2 = s % Math.max(1e-6, p.len);
+  var lo = 0, hi = pts.length - 1;
+  while (lo < hi - 1) {
+    var mid = (lo + hi) >> 1;
+    if (pts[mid].s <= s2) lo = mid; else hi = mid;
+  }
+  var a = pts[lo], b = pts[hi], seg = Math.max(1e-9, b.s - a.s);
+  var f = Math.min(1, Math.max(0, (s2 - a.s) / seg));
+  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+}
+
+/* 丝的横向抖动：沿法线做一点偏移，免得像打印出来的矢量线 */
+function silkOf(pts, seed) {
+  var out = [], amp = S.wob, rnd = mulberry32((seed || 1) + 33);
+  for (var i = 0; i < pts.length; i++) {
+    var a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    var dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1;
+    var off = amp * (Math.sin((pts[i].t || 0) * 6.1 + seed) * 0.5 + (rnd() - 0.5) * 0.6);
+    out.push({ t: pts[i].t, x: pts[i].x - dy / l * off, y: pts[i].y + dx / l * off });
+  }
+  return out;
+}
+
+function rebuildAll() {
+  for (var i = 0; i < S.paths.length; i++) {
+    var p = S.paths[i];
+    p.poly = regionOf(p);
+    p.center = polygonAreaCentroid(p.poly);
+    p.samples = resample(p.poly.concat([p.poly[0]]), 4);
+    p.len = 0;
+    for (var j = 1; j < p.samples.length; j++) {
+      p.len += Math.hypot(p.samples[j].x - p.samples[j - 1].x, p.samples[j].y - p.samples[j - 1].y);
+      p.samples[j].s = p.len;
+    }
+    if (p.samples[0]) p.samples[0].s = 0;
+    if (S.mode === 'trace') simulateTrace(p); else simulateWeave(p);
+  }
+  // 沿路径爬的时候，片子长度跟着“路线总长 ÷ 速度”走（否则后面十几秒是空场）
+  if (S.mode === 'trace' && S.paths.length) {
+    var dmax = 0;
+    for (var k = 0; k < S.paths.length; k++) dmax = Math.max(dmax, S.paths[k].dur || 0);
+    var want = Math.max(3, Math.round(dmax));
+    if (Math.abs(want - S.durSec) > 0.5) {
+      S.durSec = want;
+      var sel = document.getElementById('selDur');
+      if (!Array.prototype.some.call(sel.options, function (o) { return o.value === String(want); })) {
+        var op = document.createElement('option');
+        op.value = String(want); op.textContent = want + ' 秒';
+        sel.appendChild(op);
+      }
+      sel.value = String(want);
+      if (S.t > S.durSec) S.t = S.durSec;
+    }
+  }
+}
+function reseedAll() {
+  S.seed = (S.seed + 987643) % 100000000;
+  for (var i = 0; i < S.paths.length; i++) S.paths[i].seed = ((S.seed + i * 977 + 13) >>> 0);
+  rebuildAll(); draw();
 }
 
 /* ===== 视图 ===== */
@@ -304,15 +608,15 @@ var FRAME_BOX = null;
 function worldBox() {
   var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
   for (var i = 0; i < S.paths.length; i++) {
-    var p = S.paths[i];
-    for (var j = 0; j < p.samples.length; j++) {
-      var q = p.samples[j]; any = true;
+    var poly = S.paths[i].poly || [];
+    for (var j = 0; j < poly.length; j++) {
+      var q = poly[j]; any = true;
       if (q.x < x0) x0 = q.x; if (q.y < y0) y0 = q.y;
       if (q.x > x1) x1 = q.x; if (q.y > y1) y1 = q.y;
     }
   }
   if (!any) return { x: 0, y: 0, w: WORLD.w, h: WORLD.h };
-  var pw = Math.max(70, (x1 - x0) * 0.16), ph = Math.max(70, (y1 - y0) * 0.16);
+  var pw = Math.max(60, (x1 - x0) * 0.12), ph = Math.max(60, (y1 - y0) * 0.12);
   return { x: x0 - pw, y: y0 - ph, w: Math.max(1, x1 - x0 + pw * 2), h: Math.max(1, y1 - y0 + ph * 2) };
 }
 function fitWorld() {
@@ -334,31 +638,7 @@ function silkColors() {
 }
 function rgba(c, a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + Math.max(0, Math.min(1, a)).toFixed(3) + ')'; }
 
-/* ===== 取点 ===== */
-function pickOn(arr, s, len, fallback) {
-  if (!arr.length) return fallback;
-  if (s <= 0) s = 0;
-  if (s >= len) s = len;
-  var lo = 0, hi = arr.length - 1;
-  while (lo < hi - 1) {
-    var mid = (lo + hi) >> 1;
-    if (arr[mid].s <= s) lo = mid; else hi = mid;
-  }
-  var a = arr[lo], b = arr[hi], seg = Math.max(1e-9, b.s - a.s);
-  var f = Math.min(1, Math.max(0, (s - a.s) / seg));
-  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
-}
-function pointAt(p, s) {
-  var r = pickOn(p.samples, s, p.len, { x: 0, y: 0 });
-  var a = pickOn(p.samples, Math.max(0, s - 1), p.len, r);
-  var b = pickOn(p.samples, Math.min(p.len, s + 1), p.len, r);
-  var dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1;
-  return { x: r.x, y: r.y, tx: dx / l, ty: dy / l };
-}
-function silkAt(p, s) { return pickOn(p.silk, s, p.len, { x: 0, y: 0 }); }
-
-/* ===== 渲染一帧 =====
-   frac 0..1 全局进度；opt.worm/opt.overlay/opt.alpha */
+/* ===== 渲染 ===== */
 function renderFrame(g, W, H, frac, opt) {
   opt = opt || {};
   if (opt.alpha) g.clearRect(0, 0, W, H);
@@ -368,64 +648,40 @@ function renderFrame(g, W, H, frac, opt) {
   var scale = Math.min(W * (1 - pad * 2) / box.w, H * (1 - pad * 2) / box.h);
   var ox = W / 2 - (box.x + box.w / 2) * scale;
   var oy = H / 2 - (box.y + box.h / 2) * scale;
-
-  var total = routeLen();
-  var remain = frac * total;
   var col = silkColors();
-  var headPath = null, headS = 0;
+  var wCore = Math.max(1.0, S.silkW * W / 720);
+  var tNow = frac * S.durSec;
 
   for (var i = 0; i < S.paths.length; i++) {
-    var p = S.paths[i], full = pathRunLen(p);
-    if (remain <= 0) break;
-    var use = Math.min(remain, full);
-    drawSilkRun(g, p, use, scale, ox, oy, col, W);
-    remain -= use;
-    headPath = p; headS = use;
+    var p = S.paths[i];
+    if (!p.silk || !p.silk.length) continue;
+    drawSilk(g, p, tNow, scale, ox, oy, col, wCore);
+    if (opt.worm) drawWorm(g, p, tNow, scale, ox, oy, W);
+    if (opt.overlay) drawGuide(g, p, scale, ox, oy, i === S.sel);
   }
-  if (opt.worm && headPath) {
-    var head = pointAt(headPath, headS % Math.max(1e-6, headPath.len));
-    drawWorm(g, head, headPath, headS, scale, ox, oy, W);
-  }
-  if (opt.overlay) drawOverlay(g, scale, ox, oy);
-  return { scale: scale, ox: ox, oy: oy };
 }
 
-/* 一条路线在已织长度 use 内的丝（正圆循环时一圈圈往外挪一点，看得见圈） */
-function drawSilkRun(g, p, used, scale, ox, oy, col, Wpx) {
-  var passes = passCount(p);
-  if (used <= 0.01) return;
-  // 丝线粗细按「画面宽度」给，不按世界单位：320 宽和 4K 出来的粗细比例一致
-  var wCore = Math.max(1.1, S.silkW * Wpx / 720);
-  var wGlow = wCore * 2.2;
-  var coreA = Math.min(1, 0.90 * S.gain), midA = Math.min(1, 0.34 * S.gain), glowA = Math.min(1, 0.16 * S.gain);
-  g.lineJoin = 'round'; g.lineCap = 'round';
-
-  for (var k = 0; k < passes; k++) {
-    var start = k * p.len;
-    if (used <= start) break;
-    var use = Math.min(p.len, used - start);
-    var lapOff = k === 0 ? 0 : k * (2.2 + S.wob * 1.2);   // 每圈外扩一点，三圈要能看出来
-    var seg = [];
-    for (var i = 0; i < p.silk.length && p.silk[i].s <= use; i++) {
-      var q = p.silk[i];
-      seg.push(lapOff ? { x: q.x + (q.x - p.ctrl[0].x) / Math.max(1, p.r || 1) * lapOff,
-                          y: q.y + (q.y - p.ctrl[0].y) / Math.max(1, p.r || 1) * lapOff } : q);
+function drawSilk(g, p, tNow, scale, ox, oy, col, wCore) {
+  var s = p.silk, n = 0;
+  while (n < s.length && (s[n].t || 0) <= tNow) n++;
+  if (n < 2) return;
+  // 抽掉画面上过密的点（每段至少 1.2 px），4K 也画得动
+  var seg = [s[0]], lastX = s[0].x * scale + ox, lastY = s[0].y * scale + oy;
+  for (var i = 1; i < n; i++) {
+    var X = s[i].x * scale + ox, Y = s[i].y * scale + oy;
+    if (i === n - 1 || Math.hypot(X - lastX, Y - lastY) >= 1.2) {
+      seg.push(s[i]); lastX = X; lastY = Y;
     }
-    var tip = silkAt(p, use);
-    if (lapOff) {
-      seg.push({ x: tip.x + (tip.x - p.ctrl[0].x) / Math.max(1, p.r || 1) * lapOff,
-                 y: tip.y + (tip.y - p.ctrl[0].y) / Math.max(1, p.r || 1) * lapOff });
-    } else seg.push({ x: tip.x, y: tip.y });
-    if (seg.length < 2) continue;
-
-    g.strokeStyle = rgba(col.glow, glowA); g.lineWidth = wGlow; strokePoly(g, seg, scale, ox, oy);
-    g.strokeStyle = rgba(col.glow, midA); g.lineWidth = wCore * 1.5; strokePoly(g, seg, scale, ox, oy);
-    g.strokeStyle = rgba(col.core, coreA); g.lineWidth = wCore; strokePoly(g, seg, scale, ox, oy);
-    // 中央高光：让丝看起来有光泽，而不是一根平涂的线
-    g.strokeStyle = rgba([252, 250, 246], Math.min(1, 0.95 * S.gain));
-    g.lineWidth = Math.max(0.8, wCore * 0.42);
-    strokePoly(g, seg, scale, ox, oy);
   }
+  if (seg.length < 2) return;
+
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  var coreA = Math.min(1, 0.90 * S.gain), midA = Math.min(1, 0.34 * S.gain), glowA = Math.min(1, 0.16 * S.gain);
+  g.strokeStyle = rgba(col.glow, glowA); g.lineWidth = wCore * 2.2; strokePoly(g, seg, scale, ox, oy);
+  g.strokeStyle = rgba(col.glow, midA); g.lineWidth = wCore * 1.5; strokePoly(g, seg, scale, ox, oy);
+  g.strokeStyle = rgba(col.core, coreA); g.lineWidth = wCore; strokePoly(g, seg, scale, ox, oy);
+  g.strokeStyle = rgba([252, 250, 246], Math.min(1, 0.95 * S.gain));
+  g.lineWidth = Math.max(0.8, wCore * 0.42); strokePoly(g, seg, scale, ox, oy);
 }
 function strokePoly(g, pts, scale, ox, oy) {
   g.beginPath();
@@ -436,19 +692,30 @@ function strokePoly(g, pts, scale, ox, oy) {
   g.stroke();
 }
 
-function drawWorm(g, head, p, used, scale, ox, oy, Wpx) {
-  if (!head) return;
-  var sp = silkAt(p, used % Math.max(1e-6, p.len));
-  var HX = sp.x * scale + ox, HY = sp.y * scale + oy;
-  var ang = Math.atan2(head.ty, head.tx);
+/* 蚕：走到哪画到哪（每条场地各一只） */
+function wormPos(p, tNow) {
+  var s = p.silk || [];
+  if (!s.length) return null;
+  var n = 0;
+  while (n < s.length && (s[n].t || 0) <= tNow) n++;
+  if (!n) return null;
+  var cur = s[n - 1], prev = s[Math.max(0, n - 2)];
+  return { x: cur.x, y: cur.y, tx: cur.x - prev.x, ty: cur.y - prev.y };
+}
+function drawWorm(g, p, tNow, scale, ox, oy, Wpx) {
+  var w = wormPos(p, tNow);
+  if (!w) return;
+  var HX = w.x * scale + ox, HY = w.y * scale + oy;
+  var ang = Math.atan2(w.ty, w.tx) || 0;
   var bodyLen = Math.max(16, (Wpx || 1200) / 34);
   var half = bodyLen * 0.15;
   g.save();
   g.translate(HX, HY); g.rotate(ang);
   var grd = g.createLinearGradient(-bodyLen, 0, bodyLen * 0.5, 0);
-  grd.addColorStop(0, 'rgba(30,22,14,0)');
-  grd.addColorStop(0.42, 'rgba(58,42,26,0.85)');
-  grd.addColorStop(1, 'rgba(126,100,66,0.95)');
+  grd.addColorStop(0, 'rgba(120,104,80,0)');
+  grd.addColorStop(0.40, 'rgba(168,146,110,0.72)');
+  grd.addColorStop(0.92, 'rgba(226,208,172,0.95)');
+  grd.addColorStop(1, 'rgba(246,232,204,0.98)');
   g.fillStyle = grd;
   g.beginPath();
   g.moveTo(-bodyLen, 0);
@@ -456,60 +723,60 @@ function drawWorm(g, head, p, used, scale, ox, oy, Wpx) {
   g.quadraticCurveTo(bodyLen * 0.95, 0, bodyLen * 0.55, half * 0.8);
   g.quadraticCurveTo(-bodyLen * 0.3, half, -bodyLen, 0);
   g.fill();
-  g.strokeStyle = 'rgba(240,226,202,0.30)';
+  g.strokeStyle = 'rgba(252,244,226,0.55)';
   g.lineWidth = Math.max(1, bodyLen / 26);
   g.stroke();
-  g.fillStyle = 'rgba(236,220,190,0.55)';
-  g.beginPath(); g.arc(bodyLen * 0.42, -half * 0.18, Math.max(1.5, half * 0.22), 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(255,250,236,0.85)';
+  g.beginPath(); g.arc(bodyLen * 0.46, -half * 0.16, Math.max(1.6, half * 0.20), 0, Math.PI * 2); g.fill();
   g.restore();
 }
 
-function drawOverlay(g, scale, ox, oy) {
-  for (var i = 0; i < S.paths.length; i++) {
-    var p = S.paths[i], on = i === S.sel;
-    g.strokeStyle = on ? 'rgba(232,160,76,0.85)' : 'rgba(150,156,164,0.30)';
-    g.lineWidth = on ? 1.6 : 1;
-    g.setLineDash(on ? [] : [5, 6]);
-    strokePoly(g, p.samples, scale, ox, oy);
-    g.setLineDash([]);
-    var pts = (p.type === 'circle')
-      ? [p.ctrl[0], { x: p.ctrl[0].x + (p.r || 160), y: p.ctrl[0].y }]
-      : p.ctrl;
-    for (var j = 0; j < pts.length; j++) {
-      var X = pts[j].x * scale + ox, Y = pts[j].y * scale + oy;
-      var big = (p.type === 'circle' && j === 1) ? 5 : (on ? 6 : 4);
-      if (p.type === 'circle' && j === 1) {
-        g.fillStyle = 'rgba(232,160,76,0.95)'; g.strokeStyle = 'rgba(232,160,76,0.95)';
-      } else {
-        g.fillStyle = on ? 'rgba(240,246,242,0.92)' : 'rgba(200,206,212,0.55)';
-        g.strokeStyle = 'rgba(16,18,22,0.9)';
-      }
-      g.lineWidth = 1;
-      g.beginPath(); g.rect(X - big, Y - big, big * 2, big * 2); g.fill(); g.stroke();
-    }
+/* 编辑态：场地轮廓 + 控制点 */
+function drawGuide(g, p, scale, ox, oy, on) {
+  var poly = p.poly || [];
+  g.strokeStyle = on ? 'rgba(232,160,76,0.8)' : 'rgba(150,156,164,0.28)';
+  g.lineWidth = on ? 1.5 : 1;
+  g.setLineDash(on ? [] : [5, 6]);
+  g.beginPath();
+  for (var i = 0; i < poly.length; i++) {
+    var X = poly[i].x * scale + ox, Y = poly[i].y * scale + oy;
+    if (i === 0) g.moveTo(X, Y); else g.lineTo(X, Y);
+  }
+  g.closePath(); g.stroke();
+  g.setLineDash([]);
+
+  var pts = (p.type === 'circle')
+    ? [p.ctrl[0], { x: p.ctrl[0].x + (p.r || 160), y: p.ctrl[0].y }]
+    : p.ctrl;
+  for (var j = 0; j < pts.length; j++) {
+    var X2 = pts[j].x * scale + ox, Y2 = pts[j].y * scale + oy;
+    var big = (p.type === 'circle' && j === 1) ? 5 : (on ? 6 : 4);
+    if (p.type === 'circle' && j === 1) { g.fillStyle = 'rgba(232,160,76,0.95)'; g.strokeStyle = 'rgba(232,160,76,0.95)'; }
+    else { g.fillStyle = on ? 'rgba(240,246,242,0.92)' : 'rgba(200,206,212,0.55)'; g.strokeStyle = 'rgba(16,18,22,0.9)'; }
+    g.lineWidth = 1;
+    g.beginPath(); g.rect(X2 - big, Y2 - big, big * 2, big * 2); g.fill(); g.stroke();
   }
 }
 
 /* ===== 预览 ===== */
-function durSecs() {
-  if (S.durSel === 'auto') return Math.max(0.5, routeLen() / Math.max(1, S.speed));
-  return Math.max(2, parseFloat(S.durSel) || 10);
-}
 function draw() {
-  var d = durSecs();
-  var frac = d > 0 ? Math.min(1, S.t / d) : 0;
+  var d = Math.max(0.2, S.durSec);
+  var frac = Math.min(1, S.t / d);
   renderFrame(ctx, S.W, S.H, frac, {
     worm: S.showWorm && !S.exportView,
     overlay: !S.exportView,
     alpha: S.alpha
   });
+  var total = 0;
+  S.paths.forEach(function (p) { total += (p.ptsCount || 0); });
   document.getElementById('hud').innerHTML =
-    '路线 <b>' + S.paths.length + '</b> 条 · 总长 <b>' + Math.round(routeLen()) +
-    '</b> 世界单位 · 时长 <b>' + d.toFixed(1) + '</b> 秒 · 进度 <b>' + Math.round(frac * 100) + '%</b>';
+    '场地 <b>' + S.paths.length + '</b> 个 · 行为 <b>' + (S.mode === 'weave' ? '场地内织网' : '沿路径爬') +
+    '</b> · 时长 <b>' + d.toFixed(0) + '</b> 秒 · 进度 <b>' + Math.round(frac * 100) +
+    '%</b> · 丝点 <b>' + total + '</b>';
   document.getElementById('btnPlay').textContent = S.playing ? '⏸ 暂停' : '▶ 播放 / 暂停';
 }
 
-/* ===== 交互 ===== */
+/* ===== 交互：改形状 ===== */
 var drag = null;
 function canvasPos(e) {
   var r = cv.getBoundingClientRect();
@@ -538,16 +805,15 @@ function distToSeg(px, py, ax, ay, bx, by) {
 function hitPath(x, y) {
   var best = null, bestD = 12;
   for (var i = S.paths.length - 1; i >= 0; i--) {
-    var p = S.paths[i];
-    for (var j = 1; j < p.samples.length; j++) {
-      var a = w2s(p.samples[j - 1]), b = w2s(p.samples[j]);
+    var poly = S.paths[i].poly;
+    for (var j = 0; j < poly.length; j++) {
+      var a = w2s(poly[j]), b = w2s(poly[(j + 1) % poly.length]);
       var d = distToSeg(x, y, a.x, a.y, b.x, b.y);
       if (d < bestD) { bestD = d; best = { path: i }; }
     }
   }
   return best;
 }
-
 cv.addEventListener('pointerdown', function (e) {
   if (S.exportView) return;
   var pos = canvasPos(e);
@@ -555,11 +821,9 @@ cv.addEventListener('pointerdown', function (e) {
     var hh = hitHandle(pos.x, pos.y);
     if (hh) {
       var p = S.paths[hh.path];
-      if (p.type === 'open' || p.type === 'closed') {
-        if (p.ctrl.length > (p.type === 'closed' ? 3 : 2)) {
-          p.ctrl.splice(hh.idx, 1);
-          buildPath(p); renderList(); draw();
-        }
+      if ((p.type === 'open' && p.ctrl.length > 2) || (p.type === 'closed' && p.ctrl.length > 3)) {
+        p.ctrl.splice(hh.idx, 1);
+        rebuildAll(); renderList(); draw();
       }
     }
     e.preventDefault();
@@ -586,7 +850,8 @@ cv.addEventListener('pointermove', function (e) {
   } else {
     p.ctrl[drag.idx] = { x: w.x, y: w.y };
   }
-  buildPath(p); draw();
+  p.poly = regionOf(p);
+  rebuildAll(); draw();
 });
 cv.addEventListener('pointerup', function () { drag = null; });
 cv.addEventListener('dblclick', function (e) {
@@ -601,7 +866,7 @@ cv.addEventListener('dblclick', function (e) {
     if (d < bestD) { bestD = d; best = i; }
   }
   p.ctrl.splice(best, 0, w);
-  buildPath(p); renderList(); draw();
+  rebuildAll(); renderList(); draw();
 });
 cv.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
@@ -612,14 +877,13 @@ function loop(ts) {
   if (!lastT) lastT = ts;
   var dt = Math.min(0.12, (ts - lastT) / 1000);
   lastT = ts;
-  var d = durSecs();
   S.t += dt;
-  if (S.t >= d) { S.t = d; S.playing = false; }
+  if (S.t >= S.durSec) { S.t = S.durSec; S.playing = false; }
   draw();
   if (S.playing) requestAnimationFrame(loop);
 }
 document.getElementById('btnPlay').onclick = function () {
-  if (S.t >= durSecs() - 1e-6) S.t = 0;
+  if (S.t >= S.durSec - 1e-6) S.t = 0;
   S.playing = !S.playing;
   lastT = 0;
   if (S.playing) requestAnimationFrame(loop);
@@ -633,21 +897,29 @@ document.getElementById('btnExportView').onclick = function () {
   document.getElementById('stage').classList.toggle('checker', S.exportView && S.alpha);
   draw();
 };
+document.getElementById('btnReseed').onclick = function () { S.t = 0; reseedAll(); };
 
 /* ===== 控件 ===== */
-function bindRange(id, key, outId, fmt) {
+function bindRange(id, key, outId, fmt, after) {
   var el = document.getElementById(id);
   el.oninput = function () {
     S[key] = parseFloat(el.value);
     document.getElementById(outId).textContent = fmt ? fmt(S[key]) : String(S[key]);
-    if (key === 'wob') refreshSilk();
+    if (after) after();
     draw();
   };
 }
-bindRange('rngSpeed', 'speed', 'vSpeed');
+bindRange('rngSpeed', 'speed', 'vSpeed', null, function () { rebuildAll(); });
+bindRange('rngSwing', 'swing', 'vSwing', null, function () { rebuildAll(); });
+bindRange('rngHz', 'hz', 'vHz', function (v) { return v.toFixed(2); }, function () { rebuildAll(); });
+bindRange('rngBand', 'band', 'vBand', null, function () {
+  var p = S.sel >= 0 ? S.paths[S.sel] : null;
+  if (p && p.type === 'line') { p.band = S.band; rebuildAll(); }
+});
 bindRange('rngW', 'silkW', 'vW', function (v) { return v.toFixed(2); });
 bindRange('rngGain', 'gain', 'vGain', function (v) { return v.toFixed(2); });
-bindRange('rngWob', 'wob', 'vWob', function (v) { return v.toFixed(2); });
+bindRange('rngWob', 'wob', 'vWob', function (v) { return v.toFixed(2); }, function () { rebuildAll(); });
+
 document.getElementById('selMat').onchange = function () { S.mat = this.value; draw(); };
 document.getElementById('chkWorm').onchange = function () { S.showWorm = this.checked; draw(); };
 document.getElementById('colBg').oninput = function () { S.bg = this.value; draw(); };
@@ -660,9 +932,29 @@ document.getElementById('chkAlpha').onchange = function () {
 document.getElementById('selFps').onchange = function () { S.fps = parseInt(this.value, 10); };
 document.getElementById('selBit').onchange = function () { S.mbps = parseFloat(this.value); };
 document.getElementById('selDur').onchange = function () {
-  S.durSel = this.value;
-  if (S.t > durSecs()) S.t = durSecs();
-  draw();
+  S.durSec = parseInt(this.value, 10) || 20;
+  if (S.mode === 'weave') S.weaveDur = S.durSec;
+  if (S.t > S.durSec) S.t = S.durSec;
+  rebuildAll(); draw();
+};
+document.getElementById('selMode').onchange = function () {
+  if (S.mode === 'weave') S.weaveDur = S.durSec;
+  S.mode = this.value;
+  var weaving = S.mode === 'weave';
+  if (weaving) {
+    S.durSec = S.weaveDur || 20;
+    document.getElementById('selDur').value = String(S.durSec);
+    if (!document.getElementById('selDur').value) {
+      var op0 = document.createElement('option');
+      op0.value = String(S.durSec); op0.textContent = S.durSec + ' 秒';
+      document.getElementById('selDur').appendChild(op0);
+      document.getElementById('selDur').value = String(S.durSec);
+    }
+  }
+  document.getElementById('swingRow').style.display = weaving ? 'flex' : 'none';
+  document.getElementById('hzRow').style.display = weaving ? 'flex' : 'none';
+  document.getElementById('swingNote').style.display = weaving ? 'block' : 'none';
+  rebuildAll(); renderList(); draw();
 };
 document.getElementById('selRes').onchange = function () {
   S.res = this.value;
@@ -675,13 +967,13 @@ document.getElementById('chkCircleLoop').onchange = function () {
   if (!p || p.type !== 'circle') return;
   p.loop = this.checked;
   document.getElementById('circleLapsRow').style.display = this.checked ? 'flex' : 'none';
-  draw(); renderList();
+  rebuildAll(); renderList(); draw();
 };
 document.getElementById('numLaps').oninput = function () {
   var p = S.sel >= 0 ? S.paths[S.sel] : null;
   if (!p || p.type !== 'circle') return;
   p.laps = Math.max(1, Math.min(40, parseInt(this.value, 10) || 1));
-  draw(); renderList();
+  rebuildAll(); renderList(); draw();
 };
 
 function resDims() {
@@ -711,36 +1003,40 @@ function renderList() {
     var el = document.createElement('div');
     el.className = 'pitem' + (i === S.sel ? ' sel' : '');
     var sub = p.type === 'circle'
-      ? ('r ' + Math.round(p.r || 0) + (p.loop ? ' · 循环 ' + passCount(p) + ' 圈' : ' · 一圈'))
-      : (p.ctrl.length + ' 控制点');
+      ? ('r ' + Math.round(p.r || 0) + (S.mode === 'trace' ? (p.loop ? ' · 循环 ' + (p.laps || 1) + ' 圈' : ' · 一圈') : ' · 场地'))
+      : (p.type === 'line' ? ('带宽 ' + Math.round(p.band || S.band)) : (p.ctrl.length + ' 控制点'));
     el.innerHTML = '<span class="nm">' + (i + 1) + '. ' + pathTypeName(p.type) + '</span>' +
-      '<small>' + sub + ' · ' + Math.round(pathRunLen(p)) + '</small>';
+      '<small>' + sub + ' · 丝 ' + (p.ptsCount || 0) + '</small>';
     var del = document.createElement('button');
     del.type = 'button'; del.textContent = '删';
     del.onclick = function (ev) {
       ev.stopPropagation();
       S.paths.splice(i, 1);
       if (S.sel >= S.paths.length) S.sel = S.paths.length - 1;
-      S.t = Math.min(S.t, durSecs());
-      renderList(); fitWorld(); draw();
+      S.t = Math.min(S.t, S.durSec);
+      rebuildAll(); renderList(); fitWorld(); draw();
     };
     el.appendChild(del);
-    el.onclick = function () { S.sel = i; renderList(); draw(); };
+    el.onclick = function () { S.sel = i; renderList(); syncSelUI(); draw(); };
     box.appendChild(el);
   });
-  if (!S.paths.length) box.innerHTML = '<div class="note">还没有路线。点上面的按钮加一条正圆或一条曲线。</div>';
+  if (!S.paths.length) box.innerHTML = '<div class="note">还没有场地。点上面的按钮加一个正圆或一条曲线。</div>';
   syncSelUI();
 }
 function syncSelUI() {
   var p = S.sel >= 0 ? S.paths[S.sel] : null;
-  var loopRow = document.getElementById('circleLoopRow');
-  var lapsRow = document.getElementById('circleLapsRow');
   var isCircle = p && p.type === 'circle';
-  loopRow.style.display = isCircle ? 'flex' : 'none';
-  lapsRow.style.display = (isCircle && p.loop) ? 'flex' : 'none';
-  if (isCircle) {
+  var showLoop = isCircle && S.mode === 'trace';
+  document.getElementById('circleLoopRow').style.display = showLoop ? 'flex' : 'none';
+  document.getElementById('circleLapsRow').style.display = (showLoop && p.loop) ? 'flex' : 'none';
+  document.getElementById('bandRow').style.display = (p && p.type === 'line') ? 'flex' : 'none';
+  if (p && p.type === 'line') {
+    document.getElementById('rngBand').value = String(p.band || S.band);
+    document.getElementById('vBand').textContent = String(Math.round(p.band || S.band));
+  }
+  if (isCircle && showLoop) {
     document.getElementById('chkCircleLoop').checked = !!p.loop;
-    document.getElementById('numLaps').value = String(passCount(p));
+    document.getElementById('numLaps').value = String(p.laps || 1);
   }
 }
 Array.prototype.forEach.call(document.querySelectorAll('[data-add]'), function (b) {
@@ -781,19 +1077,19 @@ var EBML = (function () {
     }
     return [0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
   }
-  function uintEl(id, v) {
-    var b = lenBytes(v);
-    return cat([idBytes(id), vint(b.length), b]);
-  }
   function lenBytes(v) {
     var bytes = [v & 0xFF], m = Math.floor(v / 256);
     while (m > 0) { bytes.unshift(m & 0xFF); m = Math.floor(m / 256); }
     return bytes;
   }
+  function uintEl(id, v) {
+    var b = lenBytes(v);
+    return cat([idBytes(id), vint(b.length), b]);
+  }
   function f64(id, v) {
     var b = new Uint8Array(8);
     new DataView(b.buffer).setFloat64(0, v, false);
-    return cat([idBytes(id), vint(8), b]);     // 8 字节浮点：ID + 长度(8) + 数据
+    return cat([idBytes(id), vint(8), b]);
   }
   function el(id, payload) {
     var body = cat(payload);
@@ -832,7 +1128,6 @@ var EBML = (function () {
 function simpleBlock(relMs, data, key) {
   var rel = relMs & 0xFFFF;
   var head = Uint8Array.from([0x81, (rel >> 8) & 0xFF, rel & 0xFF, key ? 0x80 : 0x00]);
-  // 长度必须算上「轨道号 + 时间码 + 标志」这 4 字节 + 帧数据本身
   var body = EBML.cat([head, data]);
   return EBML.cat([[EBML.ID.SimpleBlock], EBML.vint(body.length), body]);
 }
@@ -894,7 +1189,7 @@ async function encodeAll(drawFn, W, H, fps, total, bit, onProgress) {
 
 function frameDrawer(W, H) {
   return function (g, frac) {
-    renderFrame(g, W, H, frac, { worm: false, overlay: false, alpha: false });
+    renderFrame(g, W, H, frac, { worm: S.showWorm, overlay: false, alpha: false });
   };
 }
 
@@ -906,11 +1201,10 @@ async function exportPngSeq(total, W, H, onProgress) {
   var cvx = document.createElement('canvas');
   cvx.width = W; cvx.height = H;
   var g = cvx.getContext('2d', { alpha: true });
-  var drawFn = function (gg, frac) { renderFrame(gg, W, H, frac, { worm: false, overlay: false, alpha: true }); };
   for (var f = 0; f < total; f++) {
-    drawFn(g, total <= 1 ? 1 : f / (total - 1));
+    renderFrame(g, W, H, total <= 1 ? 1 : f / (total - 1), { worm: false, overlay: false, alpha: true });
     var blob = await new Promise(function (r) { cvx.toBlob(r, 'image/png'); });
-    var name = 'route_' + W + 'x' + H + '_f' + String(f).padStart(4, '0') + '.png';
+    var name = 'weave_' + W + 'x' + H + '_f' + String(f).padStart(4, '0') + '.png';
     if (dir) {
       var fh = await dir.getFileHandle(name, { create: true });
       var w = await fh.createWritable();
@@ -930,9 +1224,9 @@ function setStatus(html) { document.getElementById('expStatus').innerHTML = html
 
 document.getElementById('btnExport').onclick = async function () {
   var btn = this;
-  if (!S.paths.length) { setStatus('还没有路线，先加一条再导出。'); return; }
+  if (!S.paths.length) { setStatus('还没有场地，先加一个再导出。'); return; }
   var d = resDims(), W = d.W, H = d.H;
-  var dur = durSecs();
+  var dur = Math.max(1, S.durSec);
   var total = Math.max(2, Math.round(dur * S.fps));
   var bit = Math.round(S.mbps * 1e6);
   var t0 = performance.now();
@@ -950,13 +1244,13 @@ document.getElementById('btnExport').onclick = async function () {
         setStatus('编码中 ' + Math.round(k / n * 100) + '% · ' + k + '/' + n + ' 帧 · 逐帧编码');
       });
       var blob = new Blob(enc.parts, { type: 'video/webm' });
-      var name = 'route_' + W + 'x' + H + '_' + S.fps + 'fps_' + dur.toFixed(1) + 's.webm';
+      var name = 'weave_' + W + 'x' + H + '_' + S.fps + 'fps_' + dur.toFixed(0) + 's.webm';
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = name;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 8000);
       msg = '已导出 <b>' + name + '</b>：' + enc.frames + '/' + total + ' 帧全部写入（' + S.fps +
-        ' fps · ' + S.mbps + ' Mbps · ' + dur.toFixed(1) + ' 秒）。';
+        ' fps · ' + S.mbps + ' Mbps · ' + dur.toFixed(0) + ' 秒）。';
     }
   } catch (err) {
     msg = '导出失败：' + (err && err.message ? err.message : err);
@@ -970,6 +1264,7 @@ document.getElementById('btnExport').onclick = async function () {
 addPath('circle');
 S.sel = 0;
 applyAspect();
+rebuildAll();
 renderList();
 fitWorld();
 draw();
@@ -978,13 +1273,22 @@ window.__routeWeave = {
   S: S,
   paths: function () { return S.paths; },
   addPath: addPath,
-  dur: durSecs,
-  routeLen: routeLen,
+  rebuild: rebuildAll,
   draw: draw,
+  reseed: reseedAll,
+  setDur: function (v) { S.durSec = v; document.getElementById('selDur').value = String(v); rebuildAll(); draw(); },
+  setMode: function (m) { S.mode = m; document.getElementById('selMode').value = m; rebuildAll(); renderList(); draw(); },
   framePng: function (W, H, frac) {
     var c = document.createElement('canvas'); c.width = W; c.height = H;
     renderFrame(c.getContext('2d'), W, H, frac, { worm: false, overlay: false, alpha: false });
     return c.toDataURL('image/png');
+  },
+  stats: function () {
+    return S.paths.map(function (p) {
+      return { type: p.type, poly: (p.poly || []).length, silk: (p.silk || []).length, dur: p.dur,
+               len: p.len, area: Math.round((p.center || {}).area || 0),
+               insideStart: p.silk && p.silk.length ? insidePoly(p.poly, p.silk[0].x, p.silk[0].y) : null };
+    });
   },
   encodeTest: async function (W, H, fps, total) {
     var t0 = performance.now();
