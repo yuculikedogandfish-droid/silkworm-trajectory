@@ -3835,7 +3835,12 @@ if (window.parent !== window) {
         <option value="bright">亮银</option>
         <option value="ink">淡墨</option>
       </select></div>
-      <div class="row"><label>丝线平滑</label><input type="range" id="habSilkSmooth" min="0" max="5" step="1" value="3"><span class="hab-note" id="habSilkSmoothVal" style="margin:0">3</span></div>
+      <div class="row"><label>丝线平滑</label><input type="range" id="habSilkSmooth" min="0" max="8" step="1" value="3"><span class="hab-note" id="habSilkSmoothVal" style="margin:0">3</span></div>
+      <div class="row"><label>丝线绘制</label><select id="habSilkCurve">
+        <option value="bez" selected>贝塞尔曲线（默认）</option>
+        <option value="line">折线（原样）</option>
+      </select></div>
+      <div class="row"><label>丝线柔度</label><input type="range" id="habSilkSoft" min="0" max="3" step="1" value="1"><span class="hab-note" id="habSilkSoftVal" style="margin:0">1</span></div>
       <p class="hab-note">和描线器里的「平滑强度」是同一个数：上面改，这里跟着改；这里改，上面也回写。</p>
       <label class="row"><input type="checkbox" id="habHeadDot"> 显示吐丝头白点（只是编辑提示，不进成品）</label>
       <h3>模拟编排</h3>
@@ -6925,6 +6930,10 @@ showSplitPreview();
     silkDefaults: { pathBoost: 1, silkWidth: 1, silkGain: 1, silkMode: 'silk', silkSmooth: 3 },
     // 吐丝头那个白点：只是编辑时的进度提示，默认关（成品里只有丝）
     showHeadDot: false,
+    // 丝线绘制方式：true = 中点二次贝塞尔（曲线），false = 折线（原样）
+    silkBezier: true,
+    // 柔度：丝外围那层柔雾的宽度/浓度。0 = 干净硬线，1 = 现状，3 = 毛茸茸的柔丝
+    silkSoft: 1,
     // r49：模拟编排 / 时间区间。rangeEnd=null 表示「还没定」，此时跟随建议值；一旦填写或点采用就锁定
     timeline: { mode: 'all', interval: 2, speed: 0.2, rangeStart: 0, rangeEnd: null, tail: 3 },
     // r49：成品预览。为真时只画会出现在导出里的东西
@@ -7047,7 +7056,7 @@ showSplitPreview();
   const OUTLINE_SMOOTH_CACHE = new WeakMap();
   function silkSmoothLevel() {
     const v = silkDefaults().silkSmooth;
-    return Math.max(0, Math.min(5, Math.round(Number.isFinite(v) ? v : 3)));
+    return Math.max(0, Math.min(8, Math.round(Number.isFinite(v) ? v : 3)));
   }
   function smoothTemplateStroke(flat) {
     if (!Array.isArray(flat) || flat.length < 12) return flat;
@@ -7069,7 +7078,8 @@ showSplitPreview();
     // 档位越高：高斯半径越大，4 档起再补一轮切角，把折角彻底磨圆
     const lo = weaveGauss(pts, spacing * (0.7 + 0.42 * lv));
     let sm = resampleUniform(lo, spacing * 1.05);
-    if (lv >= 4 && sm.length > 6) {
+    const passes = lv >= 7 ? 2 : (lv >= 4 ? 1 : 0);
+    for (let pass = 0; pass < passes && sm.length > 6; pass++) {
       const cc = [sm[0]];
       for (let k = 0; k < sm.length - 1; k++) {
         const a = sm[k], b = sm[k + 1];
@@ -7442,6 +7452,34 @@ showSplitPreview();
 
   // 一条丝 = 这条实测丝路在块内连续走 2–3 圈（不是把短笔缩成小圈铺 4×4）。
   // 撞壁的走法：不断线、不镜面折射，而是**贴着壁滑**——只保留切向分量，丝就顺着壁过去。
+  // 一条丝 = 一串点。折线原样连；贝塞尔把每个顶点当控制点，曲线穿过相邻中点，
+  // 所以折角被抹平、整体走向不变（不碰数据，只改绘制）。
+  function weaveStrokePts(g, pts, toXY, bez, count) {
+    if (!pts || pts.length < 2) return false;
+    const len = count ? Math.max(2, Math.min(count, pts.length)) : pts.length;
+    const P = new Array(len);
+    for (let i = 0; i < len; i++) P[i] = toXY(pts[i], i);
+    g.moveTo(P[0].x, P[0].y);
+    if (!bez || P.length < 3) {
+      for (let i = 1; i < P.length; i++) g.lineTo(P[i].x, P[i].y);
+      return true;
+    }
+    for (let i = 1; i < P.length - 1; i++) {
+      g.quadraticCurveTo(P[i].x, P[i].y, (P[i].x + P[i + 1].x) / 2, (P[i].y + P[i + 1].y) / 2);
+    }
+    g.lineTo(P[P.length - 1].x, P[P.length - 1].y);
+    return true;
+  }
+
+  function silkBezierOn() {
+    return habitat.silkBezier !== false;
+  }
+
+  function silkSoftLevel() {
+    const v = habitat.silkSoft;
+    return Math.max(0, Math.min(3, Number.isFinite(v) ? Math.round(v) : 1));
+  }
+
   function weaveThread(cell, agent, seed, customWalls, bandIndex, bandCount) {
     const rng = mulberry32(seed >>> 0);
     const W = cell.w, H = cell.h;
@@ -7553,7 +7591,7 @@ showSplitPreview();
     pathBoost: { min: 0.5, max: 3.0, def: 1 },
     silkWidth: { min: 0.3, max: 2.2, def: 1 },
     silkGain: { min: 0.3, max: 2.5, def: 1 },
-    silkSmooth: { min: 0, max: 5, def: 3 },
+    silkSmooth: { min: 0, max: 8, def: 3 },
   };
   const SILK_MODES = ['silk', 'matte', 'bright', 'ink'];
 
@@ -7668,6 +7706,7 @@ showSplitPreview();
     const m = document.getElementById('habSilkMode');
     if (m) m.value = d.silkMode;
     setR('habSilkSmooth', d.silkSmooth, 'habSilkSmoothVal', String(d.silkSmooth));
+    setR('habSilkSoft', silkSoftLevel(), 'habSilkSoftVal', String(silkSoftLevel()));
   }
 
   /* ===================== r49：模拟编排与时间轴（唯一时间来源） =====================
@@ -8177,17 +8216,15 @@ showSplitPreview();
       const cum = weavePathCum(content);
       const target = lu * cum.total;
       let headPt = null;
-      // 柔雾只铺一遍（全量，不做位移），负责丝层的空气感
-      ctx.lineWidth = baseW * 3.2;
+      // 柔雾只铺一遍（全量，不做位移），负责丝层的空气感；柔度越高越宽越厚
+      const softK = silkSoftLevel();
+      ctx.lineWidth = baseW * (1.6 + 1.9 * softK);
       content.paths.forEach((p, idx) => {
         const start = cum.acc[idx];
         if (start >= target) return;
-        ctx.strokeStyle = 'rgba(' + look.rgb + ',' + silkAlpha(light * 0.07, 0.03, 0.09, look.gain).toFixed(2) + ')';
+        ctx.strokeStyle = 'rgba(' + look.rgb + ',' + silkAlpha(light * (0.03 + 0.035 * softK), 0.02, 0.16, look.gain).toFixed(2) + ')';
         ctx.beginPath();
-        for (let k = 0; k < p.pts.length; k++) {
-          const px = v.px(ox + p.pts[k].x), py = v.py(oy + p.pts[k].y);
-          if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-        }
+        weaveStrokePts(ctx, p.pts, q => ({ x: v.px(ox + q.x), y: v.py(oy + q.y) }), silkBezierOn());
         ctx.stroke();
       });
       // 分层：按带序号分给不同层，每层丝线集合不同、只有亚像素级错位
@@ -8205,10 +8242,7 @@ showSplitPreview();
           const alpha = silkAlpha((p.a != null ? p.a : 0.4) * (light / 0.42) * lTone * 0.82, 0.12, 1, look.gain);
           ctx.strokeStyle = 'rgba(' + look.rgb + ',' + alpha.toFixed(2) + ')';
           ctx.beginPath();
-          for (let k = 0; k < n; k++) {
-            const px = v.px(ox + p.pts[k].x + off), py = v.py(oy + p.pts[k].y + off);
-            if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-          }
+          weaveStrokePts(ctx, p.pts, q => ({ x: v.px(ox + q.x + off), y: v.py(oy + q.y + off) }), silkBezierOn(), n);
           ctx.stroke();
           if (L === strata - 1) headPt = p.pts[Math.min(p.pts.length - 1, Math.max(0, n - 1))];
         });
@@ -8353,7 +8387,8 @@ showSplitPreview();
     // r49：位图必须带样式，样式一变 key 就变，不会把旧观感留在画面上
     const look = silkLookOf(resolveUnitStyle(agent));
     const key = (agent.seed >>> 0) + '|' + Math.round(cw) + 'x' + Math.round(ch) + '|' + tone.toFixed(2) + '|' + layers
-      + '|' + look.width.toFixed(2) + '|' + look.gain.toFixed(2) + '|' + look.mode;
+      + '|' + look.width.toFixed(2) + '|' + look.gain.toFixed(2) + '|' + look.mode
+      + '|' + (silkBezierOn() ? 'bez' : 'line') + '|s' + silkSoftLevel();
     if (content.raster && content.rasterKey === key) return content.raster;
     const W = 512;
     const H = Math.max(64, Math.round(512 * ch / cw));
@@ -8369,16 +8404,14 @@ showSplitPreview();
     const kx = W / cw, ky = H / ch;
     // 与 drawWeave 同一口径：世界单位线宽 × 该分辨率下每世界单位像素数
     const baseW = Math.max(0.35, 1.15 * look.width * kx);
-    // 柔雾一遍（全量，不位移）
-    g.lineWidth = baseW * 3.2;
+    // 柔雾一遍（全量，不位移）：柔度越高，雾越宽越厚
+    const softK = silkSoftLevel();
+    g.lineWidth = baseW * (1.6 + 1.9 * softK);
+    const mistA = 0.03 + 0.035 * softK;
     content.paths.forEach(p => {
-      g.strokeStyle = 'rgba(' + look.rgb + ',' + silkAlpha(light * 0.07, 0.03, 0.09, look.gain).toFixed(2) + ')';
+      g.strokeStyle = 'rgba(' + look.rgb + ',' + silkAlpha(light * mistA, 0.02, 0.16, look.gain).toFixed(2) + ')';
       g.beginPath();
-      for (let k = 0; k < p.pts.length; k++) {
-        const q = p.pts[k];
-        const X = (q.x + cw / 2) * kx, Y = (q.y + ch / 2) * ky;
-        if (k === 0) g.moveTo(X, Y); else g.lineTo(X, Y);
-      }
+      weaveStrokePts(g, p.pts, q => ({ x: (q.x + cw / 2) * kx, y: (q.y + ch / 2) * ky }), silkBezierOn());
       g.stroke();
     });
     // 分层按带序号分集合，亚像素错位（不做整层复制）
@@ -8391,11 +8424,7 @@ showSplitPreview();
         const alpha = silkAlpha((p.a != null ? p.a : 0.4) * (light / 0.42) * lTone * 0.82, 0.12, 1, look.gain);
         g.strokeStyle = 'rgba(' + look.rgb + ',' + alpha.toFixed(2) + ')';
         g.beginPath();
-        for (let k = 0; k < p.pts.length; k++) {
-          const q = p.pts[k];
-          const X = (q.x + off + cw / 2) * kx, Y = (q.y + off + ch / 2) * ky;
-          if (k === 0) g.moveTo(X, Y); else g.lineTo(X, Y);
-        }
+        weaveStrokePts(g, p.pts, q => ({ x: (q.x + off + cw / 2) * kx, y: (q.y + off + ch / 2) * ky }), silkBezierOn());
         g.stroke();
       });
     }
@@ -10242,6 +10271,24 @@ showSplitPreview();
     if (silkSmoothEl) silkSmoothEl.addEventListener('input', () => {
       applySmooth(parseInt(silkSmoothEl.value, 10) || 0, false);
     });
+    const silkSoftEl = document.getElementById('habSilkSoft');
+    if (silkSoftEl) {
+      silkSoftEl.value = String(silkSoftLevel());
+      silkSoftEl.addEventListener('input', () => {
+        habitat.silkSoft = parseInt(silkSoftEl.value, 10);
+        const lab = document.getElementById('habSilkSoftVal');
+        if (lab) lab.textContent = String(silkSoftLevel());
+        invalidateWeaveSilk('raster');
+      });
+    }
+    const silkCurveEl = document.getElementById('habSilkCurve');
+    if (silkCurveEl) {
+      silkCurveEl.value = silkBezierOn() ? 'bez' : 'line';
+      silkCurveEl.addEventListener('change', () => {
+        habitat.silkBezier = silkCurveEl.value !== 'line';
+        invalidateWeaveSilk('raster');
+      });
+    }
     const headDotEl = document.getElementById('habHeadDot');
     if (headDotEl) {
       headDotEl.checked = !!habitat.showHeadDot;
@@ -12204,6 +12251,8 @@ showSplitPreview();
       // r49：全局丝线默认值随工程走；单元未覆盖的项由它兜底
       silkDefaults: silkDefaults(),
       showHeadDot: !!habitat.showHeadDot,
+      silkBezier: silkBezierOn(),
+      silkSoft: silkSoftLevel(),
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
@@ -12532,6 +12581,8 @@ showSplitPreview();
       // r49：全局丝线默认值随工程走；单元未覆盖的项由它兜底
       silkDefaults: silkDefaults(),
       showHeadDot: !!habitat.showHeadDot,
+      silkBezier: silkBezierOn(),
+      silkSoft: silkSoftLevel(),
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
@@ -13545,6 +13596,14 @@ showSplitPreview();
     habitat.showHeadDot = !!data.showHeadDot;
     const headDotBox = document.getElementById('habHeadDot');
     if (headDotBox) headDotBox.checked = !!habitat.showHeadDot;
+    habitat.silkBezier = data.silkBezier !== false;
+    const curveSel = document.getElementById('habSilkCurve');
+    if (curveSel) curveSel.value = silkBezierOn() ? 'bez' : 'line';
+    habitat.silkSoft = Number.isFinite(data.silkSoft) ? data.silkSoft : 1;
+    const softEl = document.getElementById('habSilkSoft');
+    if (softEl) softEl.value = String(silkSoftLevel());
+    const softLab = document.getElementById('habSilkSoftVal');
+    if (softLab) softLab.textContent = String(silkSoftLevel());
     // r49：编排与时间区间。旧工程（没有 timeline）保持 r48 的 1.00×，不静默改慢
     if (data.timeline && typeof data.timeline === 'object') {
       const d = data.timeline;
