@@ -3835,6 +3835,9 @@ if (window.parent !== window) {
         <option value="bright">亮银</option>
         <option value="ink">淡墨</option>
       </select></div>
+      <div class="row"><label>丝线平滑</label><input type="range" id="habSilkSmooth" min="0" max="5" step="1" value="3"><span class="hab-note" id="habSilkSmoothVal" style="margin:0">3</span></div>
+      <p class="hab-note">和描线器里的「平滑强度」是同一个数：上面改，这里跟着改；这里改，上面也回写。</p>
+      <label class="row"><input type="checkbox" id="habHeadDot"> 显示吐丝头白点（只是编辑提示，不进成品）</label>
       <h3>模拟编排</h3>
       <p class="hab-note">整场怎么开始：同时起织 / 按顺序每隔 N 秒起一块 / 逐块手填开始秒。</p>
       <div class="row"><label>出场方式</label><select id="habTlMode">
@@ -4147,10 +4150,22 @@ function getUniformSpacing() {
   }
   return s;
 }
+function setTracerSmoothValue(v) {
+  const el = document.getElementById('strokeSmooth');
+  if (!el) return;
+  const n = Math.max(0, Math.min(5, parseInt(v, 10) || 0));
+  el.value = String(n);
+  const lab = document.getElementById('vSmooth');
+  if (lab) lab.textContent = String(n);
+  if (typeof updateStyle === 'function') { try { updateStyle(); } catch (e) {} }
+}
+window.__tracerSetSmooth = setTracerSmoothValue;
+
 function updateStrokeUI() {
   const o = getStrokeOpts();
   document.getElementById('vUniform').textContent = o.uniformSpacing.toFixed(0) + 'px';
   document.getElementById('vSmooth').textContent = String(o.smoothPass);
+  if (typeof window.__habApplySmooth === 'function') window.__habApplySmooth(o.smoothPass);
   document.getElementById('vJitter').textContent = String(o.jitter);
 }
 
@@ -6907,7 +6922,9 @@ showSplitPreview();
     dimOthersWhileEdit: false,
     weaveEdit: null,
     // r49：全局丝线默认值。单元未覆盖的项一律继承这一套
-    silkDefaults: { pathBoost: 1, silkWidth: 1, silkGain: 1, silkMode: 'silk' },
+    silkDefaults: { pathBoost: 1, silkWidth: 1, silkGain: 1, silkMode: 'silk', silkSmooth: 3 },
+    // 吐丝头那个白点：只是编辑时的进度提示，默认关（成品里只有丝）
+    showHeadDot: false,
     // r49：模拟编排 / 时间区间。rangeEnd=null 表示「还没定」，此时跟随建议值；一旦填写或点采用就锁定
     timeline: { mode: 'all', interval: 2, speed: 0.2, rangeStart: 0, rangeEnd: null, tail: 3 },
     // r49：成品预览。为真时只画会出现在导出里的东西
@@ -7028,24 +7045,43 @@ showSplitPreview();
      这里按它自己的点距做切角 + 低通 + 轻抽稀：曲线整体走向不变，只把折角磨圆。
      结果按数组本体缓存，同一份模板只算一次（来回切换工程也不会重复算）。 */
   const OUTLINE_SMOOTH_CACHE = new WeakMap();
+  function silkSmoothLevel() {
+    const v = silkDefaults().silkSmooth;
+    return Math.max(0, Math.min(5, Math.round(Number.isFinite(v) ? v : 3)));
+  }
   function smoothTemplateStroke(flat) {
     if (!Array.isArray(flat) || flat.length < 12) return flat;
+    const lv = silkSmoothLevel();
     const hit = OUTLINE_SMOOTH_CACHE.get(flat);
-    if (hit) return hit;
+    if (hit && hit.lv === lv) return hit.out;
     const pts = [];
     for (let i = 0; i + 1 < flat.length; i += 2) {
       if (Number.isFinite(flat[i]) && Number.isFinite(flat[i + 1])) pts.push({ x: flat[i], y: flat[i + 1] });
     }
-    if (pts.length < 6) return flat;
+    if (lv === 0 || pts.length < 6) {
+      const raw = flat.slice();
+      OUTLINE_SMOOTH_CACHE.set(flat, { lv: lv, out: raw });
+      return raw;
+    }
     let len = 0;
     for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
     const spacing = len / Math.max(1, pts.length - 1) || 0.01;
-    const lo = weaveGauss(pts, spacing * 1.6);
-    // 平滑后按「原来的点距」重采样：点数和以前一样多（绘制开销不变），但折角已经磨圆
-    const sm = resampleUniform(lo, spacing * 1.05);
+    // 档位越高：高斯半径越大，4 档起再补一轮切角，把折角彻底磨圆
+    const lo = weaveGauss(pts, spacing * (0.7 + 0.42 * lv));
+    let sm = resampleUniform(lo, spacing * 1.05);
+    if (lv >= 4 && sm.length > 6) {
+      const cc = [sm[0]];
+      for (let k = 0; k < sm.length - 1; k++) {
+        const a = sm[k], b = sm[k + 1];
+        cc.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 });
+        cc.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
+      }
+      cc.push(sm[sm.length - 1]);
+      sm = resampleUniform(cc, spacing * 1.05);
+    }
     const out = new Array(sm.length * 2);
     sm.forEach((q, i) => { out[i * 2] = +q.x.toFixed(6); out[i * 2 + 1] = +q.y.toFixed(6); });
-    OUTLINE_SMOOTH_CACHE.set(flat, out);
+    OUTLINE_SMOOTH_CACHE.set(flat, { lv: lv, out: out });
     return out;
   }
 
@@ -7517,6 +7553,7 @@ showSplitPreview();
     pathBoost: { min: 0.5, max: 3.0, def: 1 },
     silkWidth: { min: 0.3, max: 2.2, def: 1 },
     silkGain: { min: 0.3, max: 2.5, def: 1 },
+    silkSmooth: { min: 0, max: 5, def: 3 },
   };
   const SILK_MODES = ['silk', 'matte', 'bright', 'ink'];
 
@@ -7538,6 +7575,7 @@ showSplitPreview();
       silkWidth: silkNum(d.silkWidth != null ? d.silkWidth : habitat.silkWidth, 'silkWidth'),
       silkGain: silkNum(d.silkGain != null ? d.silkGain : habitat.silkGain, 'silkGain'),
       silkMode: silkModeOk(d.silkMode) || silkModeOk(habitat.silkMode) || 'silk',
+      silkSmooth: silkNum(d.silkSmooth != null ? d.silkSmooth : 3, 'silkSmooth'),
     };
   }
 
@@ -7545,7 +7583,8 @@ showSplitPreview();
   function setSilkDefaults(patch) {
     const d = silkDefaults();
     const p = patch || {};
-    const hard = Object.prototype.hasOwnProperty.call(p, 'pathBoost');
+    const hard = Object.prototype.hasOwnProperty.call(p, 'pathBoost') ||
+      Object.prototype.hasOwnProperty.call(p, 'silkSmooth');
     Object.keys(p).forEach(k => {
       if (k === 'silkMode') {
         const m = silkModeOk(p.silkMode);
@@ -7559,7 +7598,8 @@ showSplitPreview();
     habitat.silkWidth = d.silkWidth;
     habitat.silkGain = d.silkGain;
     habitat.silkMode = d.silkMode;
-    // 密度改变要重织（content 变了）；粗细 / 亮度 / 观感只作废位图
+    habitat.silkSmooth = d.silkSmooth;
+    // 密度 / 平滑改变要重织（content 变了）；粗细 / 亮度 / 观感只作废位图
     invalidateWeaveSilk(hard ? 'content' : 'raster');
     return d;
   }
@@ -7627,6 +7667,7 @@ showSplitPreview();
     setR('habSilkGain', d.silkGain, 'habSilkGainVal', d.silkGain.toFixed(1) + '×');
     const m = document.getElementById('habSilkMode');
     if (m) m.value = d.silkMode;
+    setR('habSilkSmooth', d.silkSmooth, 'habSilkSmoothVal', String(d.silkSmooth));
   }
 
   /* ===================== r49：模拟编排与时间轴（唯一时间来源） =====================
@@ -8174,7 +8215,7 @@ showSplitPreview();
       }
       // 吐丝头：沿已织出的丝往前跑，让"蚕正在爬"看得见
       // 成品（导出 / 预览）里只有丝线：吐丝头那个白点只是编辑时的手感提示，不能进片
-      if (headPt && !habitat.composing && !habitat.finalPreview) {
+      if (headPt && habitat.showHeadDot && !habitat.composing && !habitat.finalPreview) {
         const sx = v.px(ox + headPt.x), sy = v.py(oy + headPt.y);
         ctx.globalCompositeOperation = 'source-over';
         ctx.fillStyle = 'rgba(240,245,242,0.9)';
@@ -10187,6 +10228,33 @@ showSplitPreview();
     if (silkModeEl) silkModeEl.addEventListener('change', () => {
       setSilkDefaults({ silkMode: silkModeEl.value || 'silk' });
     });
+    // 丝线平滑：与描线器的「平滑强度」共用一个数，两边都能改
+    const applySmooth = (v, fromTracer) => {
+      const st = setSilkDefaults({ silkSmooth: v });
+      const el = document.getElementById('habSilkSmooth');
+      if (el) el.value = String(st.silkSmooth);
+      const lab = document.getElementById('habSilkSmoothVal');
+      if (lab) lab.textContent = String(st.silkSmooth);
+      if (!fromTracer && typeof window.__tracerSetSmooth === 'function') window.__tracerSetSmooth(st.silkSmooth);
+    };
+    window.__habApplySmooth = (v) => applySmooth(v, true);
+    const silkSmoothEl = document.getElementById('habSilkSmooth');
+    if (silkSmoothEl) silkSmoothEl.addEventListener('input', () => {
+      applySmooth(parseInt(silkSmoothEl.value, 10) || 0, false);
+    });
+    const headDotEl = document.getElementById('habHeadDot');
+    if (headDotEl) {
+      headDotEl.checked = !!habitat.showHeadDot;
+      headDotEl.addEventListener('change', () => { habitat.showHeadDot = !!headDotEl.checked; });
+    }
+    // 两边共用一个数：页面起来后把蚕室的档位写回描线器，避免「上面 2、下面 3」两套值
+    var seedSmooth = () => {
+      var lv = silkDefaults().silkSmooth;
+      applySmooth(lv, true);   // 下面（蚕室）滑条与读数对齐
+      if (typeof window.__tracerSetSmooth === 'function') window.__tracerSetSmooth(lv);
+    };
+    setTimeout(seedSmooth, 0);
+    setTimeout(seedSmooth, 500);
     // r49：单元级丝线外观。第一次动任一滑条时，先把全局四项整体复制成自己的值再改，
     // 避免「半继承」——出现滑条显示一个值、渲染用另一个值的错位。
     const unitStylePrep = (a) => {
@@ -12135,6 +12203,7 @@ showSplitPreview();
       seed: habitat.seed,
       // r49：全局丝线默认值随工程走；单元未覆盖的项由它兜底
       silkDefaults: silkDefaults(),
+      showHeadDot: !!habitat.showHeadDot,
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
@@ -12462,6 +12531,7 @@ showSplitPreview();
       seed: habitat.seed,
       // r49：全局丝线默认值随工程走；单元未覆盖的项由它兜底
       silkDefaults: silkDefaults(),
+      showHeadDot: !!habitat.showHeadDot,
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
@@ -13467,9 +13537,14 @@ showSplitPreview();
         silkWidth: sd.silkWidth,
         silkGain: sd.silkGain,
         silkMode: sd.silkMode,
+        silkSmooth: sd.silkSmooth,
       });
       syncSilkControls();
     }
+    // 吐丝头白点：跟着工程走；旧工程没有这个字段 → 保持当前（默认关）
+    habitat.showHeadDot = !!data.showHeadDot;
+    const headDotBox = document.getElementById('habHeadDot');
+    if (headDotBox) headDotBox.checked = !!habitat.showHeadDot;
     // r49：编排与时间区间。旧工程（没有 timeline）保持 r48 的 1.00×，不静默改慢
     if (data.timeline && typeof data.timeline === 'object') {
       const d = data.timeline;
