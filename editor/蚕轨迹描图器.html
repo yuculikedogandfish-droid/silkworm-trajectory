@@ -957,7 +957,7 @@
       </div>
       <div class=&quot;row&quot; id=&quot;preSoftRow&quot;>
         <label>丝线柔度</label>
-        <input type=&quot;range&quot; id=&quot;preSoft&quot; min=&quot;0&quot; max=&quot;3&quot; step=&quot;1&quot; value=&quot;1&quot; oninput=&quot;onPreviewSilkFx()&quot;>
+        <input type=&quot;range&quot; id=&quot;preSoft&quot; min=&quot;0&quot; max=&quot;3&quot; step=&quot;1&quot; value=&quot;1&quot0&quot; oninput=&quot;onPreviewSilkFx()&quot;>
         <span id=&quot;preSoftVal&quot;>1</span>
       </div>
       <div class=&quot;row&quot; id=&quot;preSheenRow&quot;>
@@ -3158,7 +3158,7 @@ function studioPreviewSlice() {
   return {
     dur: (typeof rtDur === 'function') ? rtDur() : 120,
     smooth: (typeof silkSmoothLv === 'function') ? silkSmoothLv() : 3,
-    soft: (typeof silkSoftLv === 'function') ? silkSoftLv() : 1,
+    soft: (typeof silkSoftLv === 'function') ? silkSoftLv() : 0,
     sheen: (typeof silkSheenLv === 'function') ? silkSheenLv() : 2,
     gauge: (typeof silkGauge === 'function') ? silkGauge() : 1,
     loopOn: document.getElementById('loopOn').checked,
@@ -3946,7 +3946,7 @@ if (window.parent !== window) {
     var mat = sel ? String(sel.value || 'silk') : 'silk';
     var isPreview = (ctx.canvas && ctx.canvas.id === 'cvs');
     if (!isPreview) { if (mat === 'silk3d') mat = 'truesilk'; }
-    var softK = (typeof silkSoftLv === 'function') ? silkSoftLv() : 1;
+    var softK = (typeof silkSoftLv === 'function') ? silkSoftLv() : 0;
     var sheenK = (typeof silkSheenLv === 'function') ? silkSheenLv() : 2;
     if (mat === 'silk3d' && isPreview) {
       // 2D 这层只留一丝极淡的绒光（掠射处的柔光），管子本体交给 WebGL。
@@ -4509,7 +4509,7 @@ if (window.parent !== window) {
         <option value="bez" selected>贝塞尔曲线（默认）</option>
         <option value="line">折线（原样）</option>
       </select></div>
-      <div class="row"><label>丝线柔度</label><input type="range" id="habSilkSoft" min="0" max="3" step="1" value="1"><span class="hab-note" id="habSilkSoftVal" style="margin:0">1</span></div>
+      <div class="row"><label>丝线柔度</label><input type="range" id="habSilkSoft" min="0" max="3" step="1" value="0"><span class="hab-note" id="habSilkSoftVal" style="margin:0">0</span></div>
       <div class="row" id="habSilkCrossRow"><label>交叉处亮度</label><input type="range" id="habSilkCross" min="0" max="1" step="0.05" value="1"><span class="hab-note" id="habSilkCrossVal" style="margin:0">1.00</span></div>
       <p class="hab-note"><b>1.00 = 不干预</b>（丝照原来那样叠）。往左拉＝把「几根丝叠在一起才亮出来的白斑」压下去：<b>0.50</b> 只削最亮的那四分之一，<b>0.00</b> 压到中灰（交叉不再比丝亮）。只压亮点、不动一根根的丝，所以丝亮度滑条怎么调它都有效。</p>
       <p class="hab-note">和描线器里的「平滑强度」是同一个数：上面改，这里跟着改；这里改，上面也回写。</p>
@@ -7619,7 +7619,7 @@ showSplitPreview();
     // 丝线绘制方式：true = 中点二次贝塞尔（曲线），false = 折线（原样）
     silkBezier: true,
     // 柔度：丝外围那层柔雾的宽度/浓度。0 = 干净硬线，1 = 现状，3 = 毛茸茸的柔丝
-    silkSoft: 1,
+    silkSoft: 0,
     silkCross: 1,
     // r49：模拟编排 / 时间区间。rangeEnd=null 表示「还没定」，此时跟随建议值；一旦填写或点采用就锁定
     timeline: { mode: 'all', interval: 2, speed: 0.2, rangeStart: 0, rangeEnd: null, tail: 3 },
@@ -9039,6 +9039,32 @@ showSplitPreview();
     const hw = (a.w * cs + a.h * sn) / 2, hh = (a.w * sn + a.h * cs) / 2;
     return { l: a.x - hw, r: a.x + hw, t: a.y - hh, b: a.y + hh };
   }
+  // 只去缝：这一块的哪几条边上有同组的邻居贴着（1=有，可以放行光晕；0=组的外边界，硬收）
+  function edgeHaloSides(a, src) {
+    const out = { l: 0, r: 0, t: 0, b: 0 };
+    if (!a || !a.seam) return out;
+    const mates = habitat.agents.filter(x => x && x !== a && x.kind === 'weave' && x.seam === a.seam);
+    const tol = Math.max(2, Math.min(a.w, a.h) * 0.02);
+    mates.forEach(m => {
+      const mw = Number.isFinite(m.w) ? m.w : a.w, mh = Number.isFinite(m.h) ? m.h : a.h;
+      const mL = m.x - mw / 2, mR = m.x + mw / 2, mT = m.y - mh / 2, mB = m.y + mh / 2;
+      const aL = a.x - a.w / 2, aR = a.x + a.w / 2, aT = a.y - a.h / 2, aB = a.y + a.h / 2;
+      const yOverlap = Math.min(aB, mB) - Math.max(aT, mT) > -tol;
+      const xOverlap = Math.min(aR, mR) - Math.max(aL, mL) > -tol;
+      if (yOverlap && Math.abs(mR - aL) <= tol) out.l = 1;
+      if (yOverlap && Math.abs(mL - aR) <= tol) out.r = 1;
+      if (xOverlap && Math.abs(mB - aT) <= tol) out.t = 1;
+      if (xOverlap && Math.abs(mT - aB) <= tol) out.b = 1;
+    });
+    return out;
+  }
+
+  // 只去缝用：柔雾在世界单位里有多宽（用来决定光晕可以越过格边多少）
+  function edgeHaloPad(look) {
+    const sk = silkSoftLevel();
+    return Math.max(0.8, 0.62 * (look && look.width ? look.width : 1) * (1.6 + 1.9 * sk));
+  }
+
   // 只去缝用：花纹尺寸不变，只是丝不再被这一格的矩形收口（贴边那圈亮边就是它撞出来的）
   function edgeFreeSrc(agent) {
     const sig = [agent.w, agent.h, agent.seed, agent.worms, agent.coverage, agent.strata,
@@ -9109,7 +9135,9 @@ showSplitPreview();
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    let edgeClipBox = null;
     cells.forEach(([i, j]) => {
+      edgeClipBox = null;
       const content = seam ? seam.content : weaveCellContent(edgeSrc || agent, i, j);
       if (!agent.tileField) content.blank = false;   // 手放的单元一定织满，不留空格
       const ox = seam ? seam.cx : agent.x + i * cw;
@@ -9127,11 +9155,17 @@ showSplitPreview();
         ctx.rect(v.px(agent.x - agent.w / 2), v.py(agent.y - agent.h / 2),
           Math.max(1, agent.w * v.s), Math.max(1, agent.h * v.s));
       } else if (edgeMode) {
-        // 只去缝：硬边。裁切框就是这一块自己的矩形，边界对齐整数像素，
-        // 相邻两块的边落在同一个像素上，不羽化也不留缝。
+        // 只去缝：丝是硬边（裁回自己的矩形），柔雾则允许越过格边一两个像素——
+        // 不然光晕会在缝上被切断，出现一条"有光晕 / 没光晕"的界线。
         const ex0 = Math.round(v.px(agent.x - agent.w / 2)), ex1 = Math.round(v.px(agent.x + agent.w / 2));
         const ey0 = Math.round(v.py(agent.y - agent.h / 2)), ey1 = Math.round(v.py(agent.y + agent.h / 2));
-        ctx.rect(ex0, ey0, Math.max(1, ex1 - ex0), Math.max(1, ey1 - ey0));
+        // 光晕只在「有邻居贴着的边」上放行；组的外边界仍然按格子边硬收，
+        // 这样缝里看不到光晕的分界线，最外面也不会飘出一条没有丝的光晕带
+        const hp = edgeHaloPad(look) * v.s;
+        const pds = edgeHaloSides(agent, edgeSrc || agent);
+        ctx.rect(ex0 - pds.l * hp, ey0 - pds.t * hp,
+          Math.max(1, ex1 - ex0) + (pds.l + pds.r) * hp, Math.max(1, ey1 - ey0) + (pds.t + pds.b) * hp);
+        edgeClipBox = { x0: ex0, y0: ey0, x1: ex1, y1: ey1 };
       } else {
         ctx.rect(v.px(ox - cw / 2 + gap / 2), v.py(oy - ch / 2 + gap / 2),
           Math.max(1, (cw - gap) * v.s), Math.max(1, (ch - gap) * v.s));
@@ -9214,7 +9248,22 @@ showSplitPreview();
           const exX = cw + eo * 2, exY = ch + eo * 2;
           const bx = v.px(ox - exX / 2), by = v.py(oy - exY / 2), bw = exX * v.s, bh = exY * v.s;
           if (edgeMode) {
-            ctx.drawImage(img, bx, by, bw, bh);
+            const softK = silkSoftLevel();
+            let strandImg = img;
+            if (softK > 0) {
+              // 柔雾可以先铺（允许越过格边），丝本身仍然硬裁回自己的矩形
+              ctx.drawImage(weaveRasterFor(edgeSrc || src, content, cw, ch, light, tone, strata, pxW, eo, 'mist'), bx, by, bw, bh);
+              strandImg = weaveRasterFor(edgeSrc || src, content, cw, ch, light, tone, strata, pxW, eo, 'strand');
+            }
+            if (edgeClipBox) {
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(edgeClipBox.x0, edgeClipBox.y0,
+                Math.max(1, edgeClipBox.x1 - edgeClipBox.x0), Math.max(1, edgeClipBox.y1 - edgeClipBox.y0));
+              ctx.clip();
+            }
+            ctx.drawImage(strandImg, bx, by, bw, bh);
+            if (edgeClipBox) ctx.restore();
           } else {
             const crossK = silkCrossLevel();
             if (crossK < 0.995) {
@@ -9415,8 +9464,11 @@ showSplitPreview();
   }
 
   // 已织满的块缓存成离屏位图；tone / 分层 / 样式变了就重画
-  function weaveRasterFor(agent, content, cw, ch, light, tone, strata, pxW, out) {
+  function weaveRasterFor(agent, content, cw, ch, light, tone, strata, pxW, out, part) {
     const layers = Math.max(1, Math.min(3, Math.round(strata || 1)));
+    // part：all=整张；mist=只有柔雾；strand=只有一根根的丝。
+    // 只去缝档要分两次贴：柔雾允许越过格边（这样不会出现"有光晕/没光晕"的分界线），丝本身仍硬裁。
+    const pt = part || 'all';
     // out > 0：位图把格子外面也画一圈（只去缝档用），这样贴边不会有被裁断的稀疏带
     const eo = Math.max(0, out || 0);
     const cwX = cw + eo * 2, chX = ch + eo * 2;
@@ -9425,8 +9477,9 @@ showSplitPreview();
     const W0 = Math.max(256, Math.min(2048, Math.round(pxW || 512)));
     const key = (agent.seed >>> 0) + '|' + Math.round(cw) + 'x' + Math.round(ch) + '|o' + eo + '|' + tone.toFixed(2) + '|' + layers
       + '|' + look.width.toFixed(2) + '|' + look.gain.toFixed(2) + '|' + look.mode + '|w' + W0
-      + '|' + (silkBezierOn() ? 'bez' : 'line') + '|s' + silkSoftLevel();
-    if (content.raster && content.rasterKey === key) return content.raster;
+      + '|' + (silkBezierOn() ? 'bez' : 'line') + '|s' + silkSoftLevel() + '|p' + pt;
+    const ckv = 'raster_' + pt, ckk = ckv + 'Key';
+    if (content[ckv] && content[ckk] === key) return content[ckv];
     const W = W0;
     const H = Math.max(64, Math.round(W0 * chX / cwX));
     const cv = document.createElement('canvas');
@@ -9445,14 +9498,14 @@ showSplitPreview();
     const softK = silkSoftLevel();
     g.lineWidth = baseW * (1.6 + 1.9 * softK);
     const mistA = 0.03 + 0.035 * softK;
-    content.paths.forEach(p => {
+    if (pt !== 'strand') content.paths.forEach(p => {
       g.strokeStyle = 'rgba(' + look.rgb + ',' + silkAlpha(light * mistA, 0.02, 0.16, look.gain).toFixed(2) + ')';
       g.beginPath();
       weaveStrokePts(g, p.pts, q => ({ x: (q.x + cwX / 2) * kx, y: (q.y + chX / 2) * ky }), silkBezierOn());
       g.stroke();
     });
     // 分层按带序号分集合，亚像素错位（不做整层复制）
-    for (let L = 0; L < layers; L++) {
+    for (let L = 0; pt !== 'mist' && L < layers; L++) {
       const off = (L - (layers - 1) / 2) * cw * 0.006;
       const lTone = 1 - L * 0.12;
       g.lineWidth = baseW * (1 - L * 0.08);
@@ -9465,8 +9518,9 @@ showSplitPreview();
         g.stroke();
       });
     }
-    content.raster = cv;
-    content.rasterKey = key;
+    content[ckv] = cv;
+    content[ckk] = key;
+    if (pt === 'all') { content.raster = cv; content.rasterKey = key; }
     return cv;
   }
 
@@ -14724,7 +14778,7 @@ showSplitPreview();
     habitat.silkBezier = data.silkBezier !== false;
     const curveSel = document.getElementById('habSilkCurve');
     if (curveSel) curveSel.value = silkBezierOn() ? 'bez' : 'line';
-    habitat.silkSoft = Number.isFinite(data.silkSoft) ? data.silkSoft : 1;
+    habitat.silkSoft = Number.isFinite(data.silkSoft) ? data.silkSoft : 0;
     habitat.silkCross = Number.isFinite(data.silkCross) ? Math.max(0, Math.min(1, data.silkCross)) : 1;
     const crossEl2 = document.getElementById('habSilkCross');
     if (crossEl2) crossEl2.value = String(silkCrossLevel());
