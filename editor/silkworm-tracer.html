@@ -879,6 +879,10 @@
     padding: 6px 8px; font-size: 11px; color: var(--muted); margin-bottom: 8px; line-height: 1.5;
   }
   .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: #252830; color: var(--accent); }
+  #preDurRow label { flex: 0 0 60px; }
+  #preDurRow input[type='range'] { flex: 1 1 60px; min-width: 0; }
+  #preDurVal { white-space: nowrap; font-size: 11px; min-width: 34px; text-align: right; }
+
   body.embed header h1 { display: none; }
   body.embed aside { width: 240px; }
 </style>
@@ -938,11 +942,12 @@
     </div>
     <div class=&quot;section&quot;>
       <h2>播放</h2>
-      <div class=&quot;row&quot;>
-        <label>点/秒</label>
-        <input type=&quot;range&quot; id=&quot;pps&quot; min=&quot;0.2&quot; max=&quot;120&quot; step=&quot;0.1&quot; value=&quot;4&quot; oninput=&quot;syncUI()&quot;>
-        <span id=&quot;ppsVal&quot;>4</span>
+      <div class=&quot;row&quot; id=&quot;preDurRow&quot;>
+        <label>整段时长</label>
+        <input type=&quot;range&quot; id=&quot;preDur&quot; min=&quot;15&quot; max=&quot;900&quot; step=&quot;15&quot; value=&quot;120&quot; oninput=&quot;syncUI()&quot;>
+        <span id=&quot;preDurVal&quot;>2:00</span>
       </div>
+      <p class=&quot;hint&quot;>整段时长＝这一遍画完要多久，越长爬得越慢（最长 15 分钟）。蚕按丝线实际长度匀速走，笔画之间直接换手，不再拉直线。</p>
       <div class=&quot;row&quot;>
         <label>统一 u</label>
         <input type=&quot;range&quot; id=&quot;uSlider&quot; min=&quot;0&quot; max=&quot;1000&quot; value=&quot;0&quot; oninput=&quot;scrubU(this.value)&quot;>
@@ -986,12 +991,9 @@
       <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;routeOn&quot;> 沿线爬（替代方格场）</label>
       <div class=&quot;row&quot;><label>一笔大小</label><input type=&quot;range&quot; id=&quot;routeBand&quot; min=&quot;1&quot; max=&quot;26&quot; step=&quot;0.5&quot; value=&quot;5&quot;><span id=&quot;routeBandVal&quot;>5.0%</span></div>
       <div class=&quot;row&quot;><label>密度</label><input type=&quot;range&quot; id=&quot;routeDens&quot; min=&quot;0.4&quot; max=&quot;3&quot; step=&quot;0.1&quot; value=&quot;0.7&quot;><span id=&quot;routeDensVal&quot;>0.7×</span></div>
-      <div class=&quot;row&quot;><label>路线时长</label>
-        <select id=&quot;routeDur&quot;><option value=&quot;10&quot;>10 秒</option><option value=&quot;20&quot; selected>20 秒</option><option value=&quot;30&quot;>30 秒</option><option value=&quot;45&quot;>45 秒</option></select>
-      </div>
       <button type=&quot;button&quot; id=&quot;routeClear&quot; style=&quot;width:100%&quot;>清空路线</button>
       <div class=&quot;stat&quot; id=&quot;routeStat&quot;>还没有路线。</div>
-      <div class=&quot;hint&quot;>一笔大小＝每个小圈的尺度；密度＝同一条线叠几遍（越小越疏、越大越厚）。拖橙点改形状；曲线上双击加点；右键点删点。导出视频／PNG 用同一套，时长由「路线时长」定。</div>
+      <div class=&quot;hint&quot;>一笔大小＝每个小圈的尺度；密度＝同一条线叠几遍（越小越疏、越大越厚）。拖橙点改形状；曲线上双击加点；右键点删点。导出视频／PNG 用同一套，时长由上面「整段时长」定（最长 15 分钟）。</div>
     </div>
     <div class=&quot;section&quot;>
       <h2>向旁边扩散</h2>
@@ -2448,8 +2450,11 @@ function draw() {
   }
 
   const route = state.route.length ? state.route : state.points;
-  const end = Math.min(state.frame + 1, route.length);
+  const frameF = Math.max(0, Math.min(route.length - 1, state.frame));
+  const end = Math.min(Math.floor(frameF) + 1, route.length);
   const slice = route.slice(0, end);
+  const headF = (typeof routeHeadAt === 'function') ? routeHeadAt(route, frameF) : null;
+  if (headF && end < route.length && frameF > Math.floor(frameF)) slice.push(headF);
   if (document.getElementById('showSilk').checked && slice.length >= 2) {
     if (typeof drawRibbonSegs === 'function') drawRibbonSegs(ctx, route, end, state.style, state.color, state.style.opacity);
     else drawRibbon(ctx, slice, state.style, state.color, state.style.opacity);
@@ -2462,7 +2467,7 @@ function draw() {
     }
   }
   if (typeof rtDrawGuides === 'function') rtDrawGuides(ctx, route, end);
-  const head = slice[slice.length - 1];
+  const head = headF || slice[slice.length - 1];
   if (document.getElementById('showResidue') && document.getElementById('showResidue').checked) {
     (state.cellMarks || []).forEach((mark) => {
       if (mark.endIndex < end - 1) {
@@ -2481,26 +2486,100 @@ function draw() {
     (state.statusNote ? `<br>${state.statusNote}` : '');
 }
 
+/* ===== r49w：按丝线弧长匀速走，笔画之间直接换手（不拉直线、不直线滑行） ===== */
+let routeArcCache = { ref: null, cum: null, len: 0, runs: null };
+
+function routeArcOf(route) {
+  if (routeArcCache.ref === route) return routeArcCache;
+  const n = route.length;
+  const cum = new Float64Array(n);
+  const step = new Float64Array(n);
+  for (let i = 1; i < n; i++) {
+    step[i] = Math.hypot(route[i].x - route[i - 1].x, route[i].y - route[i - 1].y);
+  }
+  // 中位步长：正常的一段丝是很短的，出现远超它的空格才算「断口」
+  let med = 1;
+  if (n > 2) {
+    const sample = [];
+    for (let i = 1; i < n; i += Math.max(1, Math.floor(n / 2500))) sample.push(step[i]);
+    sample.sort((a, b) => a - b);
+    med = sample[Math.floor(sample.length / 2)] || 1;
+  }
+  const gapLimit = Math.max(24, med * 8);
+  let len = 0;
+  const runs = [];
+  let runStart = 0;
+  for (let i = 1; i < n; i++) {
+    if (step[i] <= gapLimit) len += step[i];
+    cum[i] = len;
+    if (step[i] > gapLimit) { runs.push({ s: runStart, e: i - 1 }); runStart = i; }
+  }
+  runs.push({ s: runStart, e: Math.max(0, n - 1) });
+  routeArcCache = { ref: route, cum: cum, len: len, runs: runs, gapLimit: gapLimit };
+  return routeArcCache;
+}
+
+function frameOfDist(arc, d) {
+  const n = arc.cum.length;
+  if (!n) return 0;
+  if (d <= 0) return 0;
+  if (d >= arc.len) return n - 1;
+  let lo = 0, hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arc.cum[mid] < d) lo = mid + 1; else hi = mid;
+  }
+  const c1 = arc.cum[lo], c0 = arc.cum[lo - 1];
+  const span = c1 - c0;
+  if (span <= 1e-9) return lo;               // 断口：直接跳到下一笔的起点
+  return (lo - 1) + (d - c0) / span;
+}
+
+function distOfFrame(arc, f) {
+  const n = arc.cum.length;
+  if (!n) return 0;
+  const x = Math.max(0, Math.min(n - 1, f));
+  const i = Math.floor(x), fr = x - i;
+  if (i >= n - 1) return arc.cum[n - 1];
+  return arc.cum[i] + (arc.cum[i + 1] - arc.cum[i]) * fr;
+}
+
+function routeHeadAt(route, f) {
+  const n = route.length;
+  if (!n) return null;
+  const x = Math.max(0, Math.min(n - 1, f));
+  const i = Math.floor(x), fr = x - i;
+  if (i >= n - 1) return route[n - 1];
+  const a = route[i], b = route[i + 1];
+  return {
+    x: a.x + (b.x - a.x) * fr,
+    y: a.y + (b.y - a.y) * fr,
+    u: (a.u || 0) + ((b.u || 0) - (a.u || 0)) * fr,
+    kind: a.kind,
+    st: a.st,
+  };
+}
+
 function tick(ts) {
   if (!state.playing) return;
   if (!state.lastT) state.lastT = ts;
-  const dt = (ts - state.lastT) / 1000;
+  const dt = Math.min(0.25, (ts - state.lastT) / 1000);
   state.lastT = ts;
-  const pps = parseFloat(document.getElementById('pps').value);
-  const rate = (typeof rtRate === 'function') ? rtRate(pps) : (Number.isFinite(pps) ? pps : 4);
-  state.playAcc += dt * rate;
-  const adv = Math.floor(state.playAcc);
-  state.playAcc -= adv;
   const route = state.route.length ? state.route : state.points;
-  state.frame += adv;
-  if (state.frame >= route.length - 1) {
+  if (route.length < 1) { state.playing = false; return; }
+  const arc = routeArcOf(route);
+  const dur = (typeof rtDur === 'function') ? rtDur() : 120;
+  const speed = arc.len / Math.max(1, dur);            // 每秒走多少丝线长度
+  const next = distOfFrame(arc, state.frame) + speed * dt;
+  if (next >= arc.len) {
     if (document.getElementById('loopOn').checked) {
       state.frame = 0;
-      state.playAcc = 0;
     } else {
-      state.frame = Math.max(0, route.length - 1);
+      state.frame = route.length - 1;
       state.playing = false;
     }
+  } else {
+    state.frame = frameOfDist(arc, next);
   }
   draw();
   if (state.playing) requestAnimationFrame(tick);
@@ -2675,8 +2754,17 @@ function scrubU(v) {
   draw();
 }
 
+function fmtDurText(sec) {
+  const t = Math.max(0, Math.round(sec));
+  if (t < 60) return t + ' 秒';
+  const m = Math.floor(t / 60), r = t % 60;
+  return m + ':' + (r < 10 ? '0' : '') + r;
+}
+
 function syncUI() {
-  document.getElementById('ppsVal').textContent = parseFloat(document.getElementById('pps').value).toFixed(1);
+  const de = document.getElementById('preDur');
+  const dv = document.getElementById('preDurVal');
+  if (de && dv) dv.textContent = fmtDurText(parseFloat(de.value) || 120);
   const n = parseFloat(document.getElementById('noise').value) / 100;
   document.getElementById('noiseVal').textContent = n.toFixed(2);
 }
@@ -2886,7 +2974,7 @@ function numInput(id, fallback) {
 
 function studioPreviewSlice() {
   return {
-    pps: numInput('pps', 4),
+    dur: (typeof rtDur === 'function') ? rtDur() : 120,
     loopOn: document.getElementById('loopOn').checked,
     showSilk: document.getElementById('showSilk').checked,
     showWorm: document.getElementById('showWorm').checked,
@@ -2920,8 +3008,8 @@ function studioPreviewSlice() {
 function applyStudioPreview(preview) {
   if (!preview) return;
   const setCheck = (id, val) => { if (typeof val === 'boolean') document.getElementById(id).checked = val; };
-  const setVal = (id, val) => { if (val != null) document.getElementById(id).value = val; };
-  setVal('pps', preview.pps);
+  const setVal = (id, val) => { if (val != null && document.getElementById(id)) document.getElementById(id).value = val; };
+  if (Number.isFinite(preview.dur) && typeof rtSetDur === 'function') rtSetDur(preview.dur);
   setVal('tilt', preview.tilt);
   setVal('yaw', preview.yaw);
   setVal('noise', preview.noise);
@@ -2941,7 +3029,10 @@ function applyStudioPreview(preview) {
       provenance: preview.provenance || 'measured',
     }, preview.activeIdx || 0);
   }
-  if (preview.route && typeof rtRestore === 'function') rtRestore(preview.route);
+  if (preview.route && typeof rtRestore === 'function') {
+    if (Number.isFinite(preview.dur)) preview.route.dur = preview.dur;
+    rtRestore(preview.route);
+  }
   if (Array.isArray(preview.litCells)) {
     state.litCells = preview.litCells.map(c => ({ ix: c.ix, iy: c.iy }));
     rebuildRoute();
@@ -3060,7 +3151,8 @@ if (window.parent !== window) {
     if (opt.alpha) g.clearRect(0, 0, W, H);
     else { g.fillStyle = opt.bg; g.fillRect(0, 0, W, H); }
     var route = routeNow();
-    var end = Math.max(1, Math.min(route.length, upto));
+    var fr = Math.max(0, Math.min(route.length - 1, (upto || 1) - 1));
+    var end = Math.min(Math.floor(fr) + 1, route.length);
     var slice = route.slice(0, end);
     g.save();
     // 预览画布上的平移量按比例换算到目标分辨率，构图不跑偏
@@ -3073,8 +3165,9 @@ if (window.parent !== window) {
       else drawRibbon(g, slice, state.style, state.color, state.style.opacity);
     }
     if (opt.worm && slice.length) {
-      var head = slice[slice.length - 1];
-      var ang = slice.length > 1 ? screenHeading(slice[slice.length - 2], head, W, H) : 0;
+      var head = (typeof routeHeadAt === 'function') ? routeHeadAt(route, fr) : slice[slice.length - 1];
+      var prev = route[Math.max(0, Math.floor(fr) - 1)];
+      var ang = prev ? screenHeading(prev, head, W, H) : 0;
       drawWormHead(g, head, state.style);
     }
     state.panX = px; state.panY = py;
@@ -3093,20 +3186,18 @@ if (window.parent !== window) {
 
   function framesTotal(fps) {
     var route = routeNow();
-    if (typeof rtActive === 'function' && rtActive()) {
-      return { total: Math.max(2, Math.round(rtDur() * fps)), loops: 1, span: Math.max(1, route.length - 1), pps: route.length / rtDur() };
-    }
-    var pps = num('pps', 4);
+    var dur = (typeof rtDur === 'function') ? rtDur() : 120;
     var loops = Math.max(1, Math.min(20, parseInt((document.getElementById('expLoops') || {}).value, 10) || 1));
-    var span = Math.max(1, route.length - 1) * loops;
-    return { total: Math.max(2, Math.round(span / Math.max(0.2, pps) * fps)), loops: loops, span: span, pps: pps };
+    if (typeof rtActive === 'function' && rtActive()) loops = 1;
+    return { total: Math.max(2, Math.round(dur * fps * loops)), loops: loops, span: Math.max(1, route.length - 1), dur: dur };
   }
 
   function uptoFor(frac, total, loops, span) {
-    var travelled = frac * span;
-    var per = Math.max(1, span / loops);
-    var inLoop = travelled - Math.floor(travelled / per) * per;
-    return 1 + Math.min(per - 0.01, inLoop);
+    var route = routeNow();
+    var arc = (typeof routeArcOf === 'function') ? routeArcOf(route) : null;
+    if (!arc || arc.len <= 0) return 1 + frac * Math.max(1, route.length - 1);
+    var t = ((frac * loops) % 1 + 1) % 1;
+    return Math.max(1, Math.min(route.length, (typeof frameOfDist === 'function' ? frameOfDist(arc, t * arc.len) : 1 + t * (route.length - 1)) + 1));
   }
 
   document.getElementById('expPrevBtn').onclick = function () {
@@ -3188,7 +3279,7 @@ if (window.parent !== window) {
 (function () {
   var MOTIF = [-0.2858,0.3183,-0.2858,0.3003,-0.2858,0.2823,-0.2858,0.2643,-0.2855,0.2463,-0.2849,0.2283,-0.2841,0.2104,-0.2832,0.1924,-0.2823,0.1744,-0.2814,0.1565,-0.2805,0.1385,-0.2796,0.1205,-0.2787,0.1025,-0.2779,0.0846,-0.2770,0.0666,-0.2765,0.0486,-0.2764,0.0306,-0.2764,0.0126,-0.2764,-0.0054,-0.2764,-0.0234,-0.2764,-0.0413,-0.2764,-0.0593,-0.2764,-0.0773,-0.2764,-0.0953,-0.2764,-0.1133,-0.2764,-0.1313,-0.2777,-0.1492,-0.2808,-0.1669,-0.2842,-0.1846,-0.2863,-0.2024,-0.2906,-0.2191,-0.3050,-0.2298,-0.3199,-0.2399,-0.3375,-0.2431,-0.3555,-0.2425,-0.3603,-0.2278,-0.3607,-0.2098,-0.3607,-0.1918,-0.3607,-0.1738,-0.3605,-0.1558,-0.3595,-0.1379,-0.3572,-0.1200,-0.3541,-0.1023,-0.3493,-0.0850,-0.3409,-0.0690,-0.3332,-0.0528,-0.3275,-0.0358,-0.3176,-0.0213,-0.3045,-0.0090,-0.2908,0.0026,-0.2767,0.0139,-0.2627,0.0251,-0.2492,0.0370,-0.2362,0.0494,-0.2229,0.0616,-0.2080,0.0716,-0.1939,0.0829,-0.1810,0.0953,-0.1683,0.1081,-0.1555,0.1208,-0.1428,0.1335,-0.1301,0.1462,-0.1173,0.1589,-0.1046,0.1716,-0.0920,0.1844,-0.0803,0.1981,-0.0700,0.2129,-0.0605,0.2282,-0.0508,0.2433,-0.0407,0.2582,-0.0304,0.2729,-0.0202,0.2878,-0.0108,0.3031,-0.0031,0.3193,0.0023,0.3365,0.0073,0.3538,0.0131,0.3708,0.0202,0.3873,0.0229,0.4050,0.0226,0.4229,0.0128,0.4359,-0.0039,0.4400,-0.0219,0.4400,-0.0399,0.4400,-0.0578,0.4393,-0.0751,0.4353,-0.0900,0.4252,-0.1047,0.4149,-0.1168,0.4016,-0.1273,0.3870,-0.1346,0.3706,-0.1409,0.3538,-0.1444,0.3363,-0.1452,0.3183,-0.1452,0.3003,-0.1453,0.2824,-0.1456,0.2644,-0.1468,0.2464,-0.1487,0.2285,-0.1511,0.2107,-0.1529,0.1928,-0.1541,0.1748,-0.1545,0.1569,-0.1546,0.1389,-0.1546,0.1209,-0.1546,0.1029,-0.1546,0.0849,-0.1546,0.0669,-0.1546,0.0489,-0.1546,0.0309,-0.1546,0.0129,-0.1546,-0.0051,-0.1546,-0.0231,-0.1546,-0.0411,-0.1546,-0.0591,-0.1546,-0.0770,-0.1546,-0.0950,-0.1546,-0.1130,-0.1546,-0.1310,-0.1546,-0.1490,-0.1546,-0.1670,-0.1546,-0.1850,-0.1546,-0.2030,-0.1546,-0.2210,-0.1638,-0.2317,-0.1687,-0.2408,-0.1586,-0.2557,-0.1484,-0.2705,-0.1440,-0.2875,-0.1391,-0.3046,-0.1301,-0.3200,-0.1185,-0.3338,-0.1064,-0.3470,-0.0940,-0.3600,-0.0813,-0.3728,-0.0686,-0.3855,-0.0555,-0.3978,-0.0420,-0.4098,-0.0280,-0.4210,-0.0118,-0.4282,0.0038,-0.4241,0.0178,-0.4128,0.0306,-0.4003,0.0409,-0.3857,0.0480,-0.3692,0.0549,-0.3526,0.0626,-0.3363,0.0715,-0.3207,0.0765,-0.3034,0.0833,-0.2868,0.0917,-0.2708,0.0969,-0.2539,0.0987,-0.2360,0.0997,-0.2180,0.1012,-0.2001,0.1031,-0.1822,0.1053,-0.1644,0.1077,-0.1465,0.1108,-0.1288,0.1150,-0.1113,0.1194,-0.0939,0.1236,-0.0764,0.1273,-0.0588,0.1305,-0.0411,0.1337,-0.0234,0.1372,-0.0057,0.1412,0.0118,0.1455,0.0293,0.1499,0.0467,0.1533,0.0644,0.1547,0.0823,0.1576,0.1001,0.1615,0.1176,0.1637,0.1354,0.1640,0.1534,0.1646,0.1713,0.1670,0.1891,0.1708,0.2067,0.1733,0.2245,0.1733,0.2425,0.1733,0.2605,0.1602,0.2703,0.1425,0.2715,0.1268,0.2640,0.1197,0.2484,0.1175,0.2306,0.1171,0.2126,0.1171,0.1946,0.1171,0.1766,0.1165,0.1587,0.1139,0.1409,0.1091,0.1235,0.1078,0.1056,0.1078,0.0876,0.1078,0.0696,0.1083,0.0516,0.1116,0.0341,0.1180,0.0173,0.1259,0.0012,0.1340,-0.0149,0.1423,-0.0309,0.1513,-0.0464,0.1611,-0.0615,0.1698,-0.0773,0.1791,-0.0927,0.1879,-0.1084,0.1915,-0.1256,0.1951,-0.1432,0.2032,-0.1589,0.2136,-0.1736,0.2201,-0.1898,0.2209,-0.2077,0.2251,-0.2251,0.2332,-0.2412,0.2384,-0.2584,0.2389,-0.2764,0.2389,-0.2944,0.2389,-0.3123,0.2389,-0.3303,0.2389,-0.3483,0.2389,-0.3529,0.2389,-0.3349,0.2390,-0.3169,0.2392,-0.2989,0.2407,-0.2811,0.2456,-0.2638,0.2527,-0.2472,0.2593,-0.2305,0.2660,-0.2138,0.2724,-0.1970,0.2789,-0.1802,0.2853,-0.1634,0.2917,-0.1466,0.2980,-0.1297,0.3043,-0.1129,0.3107,-0.0960,0.3170,-0.0792,0.3232,-0.0623,0.3295,-0.0454,0.3358,-0.0286,0.3420,-0.0117,0.3482,0.0052,0.3542,0.0222,0.3589,0.0395,0.3607,0.0573,0.3607,0.0753,0.3607,0.0933,0.3607,0.1113,0.3607,0.1293,0.3606,0.1473,0.3567,0.1648,0.3478,0.1800,0.3369,0.1943,0.3278,0.2097,0.3206,0.2262,0.3130,0.2425,0.3040,0.2581,0.2932,0.2723,0.2776,0.2805,0.2657,0.2674,0.2626,0.2497,0.2602,0.2318,0.2584,0.2139,0.2586,0.1960,0.2615,0.1783,0.2658,0.1608,0.2708,0.1435,0.2759,0.1263,0.2809,0.1090,0.2858,0.0917,0.2905,0.0743,0.2950,0.0569,0.2992,0.0394,0.3032,0.0218,0.3067,0.0042,0.3100,-0.0135,0.3133,-0.0312,0.3171,-0.0488,0.3212,-0.0663,0.3254,-0.0838,0.3293,-0.1013,0.3322,-0.1191,0.3334,-0.1370,0.3376,-0.1545,0.3425,-0.1718,0.3470,-0.1892,0.3502,-0.2069,0.3514,-0.2248,0.3514,-0.2428,0.3514,-0.2608,0.3514,-0.2788,0.3514,-0.2968,0.3514,-0.3148,0.3514,-0.3328,0.3514,-0.3508,0.3513,-0.3688,0.3505,-0.3867,0.3485,-0.4046,0.3455,-0.4224,0.3420,-0.4400];
 
-  var RM = { on: false, band: 5, dens: 0.7, dur: 20, paths: [], active: -1, segs: [], drag: null };
+  var RM = { on: false, band: 5, dens: 0.7, dur: 120, paths: [], active: -1, segs: [], drag: null };
   window.__routeMerge = RM;
 
   var RAW = [], minX = 1e9, maxX = -1e9, maxY = 0.05, i;
@@ -3320,6 +3411,7 @@ if (window.parent !== window) {
   }
 
   /* ------- 铺笔：把描线器那一笔顺着线铺过去 ------- */
+  var strokeSeq = 0;
   function rtSweep(path, band, seed) {
     var line = path.line, L = Math.max(1, line.len);
     var rand = rtRand(seed), sc0 = band / maxY;
@@ -3353,12 +3445,13 @@ if (window.parent !== window) {
           var fk = 0.5 - 0.5 * Math.cos(Math.PI * k / rampN);
           lat = prevLat * (1 - fk) + lat * fk;
         }
-        pts.push({ x: q.x - tg.y * lat, y: q.y + tg.x * lat, kind: 'stroke' });
+        pts.push({ x: q.x - tg.y * lat, y: q.y + tg.x * lat, kind: 'stroke', st: strokeSeq });
       }
       prevLat = M[M.length - 1].y * mir * sc + latC;
       var adv = span * (0.55 + rand() * 0.4);
       sBase += dir * adv;
       travelled += adv;
+      strokeSeq++;
     }
     return pts;
   }
@@ -3380,6 +3473,7 @@ if (window.parent !== window) {
   function rtRebuild() {
     if (!RM.on || !RM.paths.length) { RM.segs = []; return false; }
     var route = [], segs = [], seed = 20261125;
+    strokeSeq = 0;
     for (var k = 0; k < RM.paths.length; k++) {
       var path = RM.paths[k];
       path.line = rtCenter(path);
@@ -3410,7 +3504,15 @@ if (window.parent !== window) {
   }
   window.rtRate = rtRate;
 
-  function rtDur() { return Math.max(2, RM.dur); }
+  function rtDur() { return Math.max(10, Math.min(900, Number.isFinite(RM.dur) ? RM.dur : 120)); }
+  window.rtSetDur = function (v) {
+    RM.dur = Math.max(10, Math.min(900, Number.isFinite(v) ? v : 120));
+    var el = document.getElementById('preDur');
+    if (el) el.value = String(Math.round(RM.dur));
+    if (typeof syncUI === 'function') syncUI();
+    rtSync();
+    draw();
+  };
   window.rtDur = rtDur;
 
   /* 路线丝：按 lineWidth 跟分辨率一起放大的「真丝线」，不是发丝级细线 */
@@ -3435,9 +3537,10 @@ if (window.parent !== window) {
   };
 
   window.drawRibbonSegs = function (ctx, route, end, style, color, alpha) {
-    if (!rtActive()) { drawRibbon(ctx, route.slice(0, end), style, color, alpha); return; }
-    for (var k = 0; k < RM.segs.length; k++) {
-      var sg = RM.segs[k];
+    var runs = (typeof routeArcOf === 'function') ? routeArcOf(route).runs : null;
+    if (!runs || runs.length < 2) { drawRibbon(ctx, route.slice(0, end), style, color, alpha); return; }
+    for (var k = 0; k < runs.length; k++) {
+      var sg = runs[k];
       if (end < sg.s + 2) break;
       var e2 = Math.min(end, sg.e + 1);
       if (e2 - sg.s >= 2) rtDrawSilk(ctx, route.slice(sg.s, e2));
@@ -3716,9 +3819,9 @@ if (window.parent !== window) {
       draw();
       rtSync();
     });
-    var dur = document.getElementById('routeDur');
-    if (dur) dur.addEventListener('change', function () {
-      RM.dur = parseFloat(dur.value) || 20;
+    var dur = document.getElementById('preDur');
+    if (dur) dur.addEventListener('input', function () {
+      RM.dur = Math.max(10, Math.min(900, parseFloat(dur.value) || 120));
       rtSync();
       draw();
     });
@@ -3744,7 +3847,8 @@ if (window.parent !== window) {
     RM.active = RM.paths.length ? 0 : -1;
     var ck = document.getElementById('routeOn'); if (ck) ck.checked = RM.on;
     var bd = document.getElementById('routeBand'); if (bd) bd.value = RM.band;
-    var du = document.getElementById('routeDur'); if (du) du.value = String(RM.dur);
+    var du = document.getElementById('preDur'); if (du) du.value = String(RM.dur);
+    if (typeof syncUI === 'function') syncUI();
     var dn = document.getElementById('routeDens'); if (dn) dn.value = String(RM.dens);
     var dnV = document.getElementById('routeDensVal'); if (dnV) dnV.textContent = RM.dens.toFixed(1) + '×';
     var bdV = document.getElementById('routeBandVal'); if (bdV) bdV.textContent = RM.band + '%';
@@ -7495,7 +7599,7 @@ showSplitPreview();
     return Math.max(0, Math.min(3, Number.isFinite(v) ? Math.round(v) : 1));
   }
 
-  // r49v：交叉处亮度。0 = 交叉点和单根丝一样亮（没有热点）；1 = 原来的叠加亮度；2 = 交叉点更亮
+  // r49v：交叉处亮度。0 = 压到中灰（交叉不再比丝亮）；1 = 不干预（原来的叠加亮度）；值越小越压
   function silkCrossLevel() {
     const v = habitat.silkCross;
     const n = Number.isFinite(v) ? v : 1;
