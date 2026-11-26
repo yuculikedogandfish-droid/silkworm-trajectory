@@ -3841,6 +3841,8 @@ if (window.parent !== window) {
         <option value="line">折线（原样）</option>
       </select></div>
       <div class="row"><label>丝线柔度</label><input type="range" id="habSilkSoft" min="0" max="3" step="1" value="1"><span class="hab-note" id="habSilkSoftVal" style="margin:0">1</span></div>
+      <div class="row"><label>交叉处亮度</label><input type="range" id="habSilkCross" min="0" max="1" step="0.05" value="1"><span class="hab-note" id="habSilkCrossVal" style="margin:0">1.00</span></div>
+      <p class="hab-note"><b>1.00 = 不干预</b>（丝照原来那样叠）。往左拉＝把「几根丝叠在一起才亮出来的白斑」压下去：<b>0.50</b> 只削最亮的那四分之一，<b>0.00</b> 压到中灰（交叉不再比丝亮）。只压亮点、不动一根根的丝，所以丝亮度滑条怎么调它都有效。</p>
       <p class="hab-note">和描线器里的「平滑强度」是同一个数：上面改，这里跟着改；这里改，上面也回写。</p>
       <label class="row"><input type="checkbox" id="habHeadDot"> 显示吐丝头白点（只是编辑提示，不进成品）</label>
       <h3>模拟编排</h3>
@@ -6945,6 +6947,7 @@ showSplitPreview();
     silkBezier: true,
     // 柔度：丝外围那层柔雾的宽度/浓度。0 = 干净硬线，1 = 现状，3 = 毛茸茸的柔丝
     silkSoft: 1,
+    silkCross: 1,
     // r49：模拟编排 / 时间区间。rangeEnd=null 表示「还没定」，此时跟随建议值；一旦填写或点采用就锁定
     timeline: { mode: 'all', interval: 2, speed: 0.2, rangeStart: 0, rangeEnd: null, tail: 3 },
     // r49：成品预览。为真时只画会出现在导出里的东西
@@ -7491,6 +7494,160 @@ showSplitPreview();
     return Math.max(0, Math.min(3, Number.isFinite(v) ? Math.round(v) : 1));
   }
 
+  // r49v：交叉处亮度。0 = 交叉点和单根丝一样亮（没有热点）；1 = 原来的叠加亮度；2 = 交叉点更亮
+  function silkCrossLevel() {
+    const v = habitat.silkCross;
+    const n = Number.isFinite(v) ? v : 1;
+    return Math.max(0, Math.min(1, Math.round(n * 20) / 20));
+  }
+
+  // 交叉处亮度：丝画在黑场地上，一根根的亮度 = 丝色 × 自己的 alpha；几根叠在一起时
+  // alpha 相加 → 交叉点比单根丝亮，而且丝越亮叠得越明显（这就是“有时差大有时差小”的来源）。
+  // 压的办法是只动 alpha、不动颜色：alpha 在「单根丝水平」(knee) 以下原样保留，以上按 k 压。
+  // 曲线用 SVG feComponentTransfer 的查表实现，一次 drawImage 由 GPU 做完，不读像素；
+  // knee 按每块丝自己的亮度算，所以丝亮度滑条怎么调、这个旋钮都还有效。
+  let SILK_FX_HOST = null;
+  let SILK_FX_SEQ = 0;
+  const SILK_FX_CACHE = new Map();
+  function silkFxHost() {
+    if (SILK_FX_HOST) return SILK_FX_HOST;
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '0');
+    svg.setAttribute('height', '0');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.style.position = 'absolute';
+    svg.style.left = '-9999px';
+    svg.style.top = '0';
+    const defs = document.createElementNS(NS, 'defs');
+    svg.appendChild(defs);
+    document.body.appendChild(svg);
+    SILK_FX_HOST = { svg: svg, defs: defs };
+    return SILK_FX_HOST;
+  }
+  // 交叉处亮度的阈值：按「白度」算，不是按 alpha 分位——丝画得稀、画得密都读得懂。
+  //   k=1.00 → 阈值 1.00，等于不干预
+  //   k=0.50 → 阈值 0.75，只压最亮的四分之一
+  //   k=0.00 → 阈值 0.50，比「中灰丝体」更亮的部分全压平（交叉不再比丝亮）
+  // 超过阈值的部分只保留一小截（k=0 时 20%），所以层次还在，不会炸成灰纸。
+  function silkFxFor(k) {
+    const kk = Math.max(0, Math.min(1, Math.round(k * 100) / 100));
+    const key = kk.toFixed(2);
+    const hit = SILK_FX_CACHE.get(key);
+    if (hit) return hit;
+    const host = silkFxHost();
+    const NS = 'http://www.w3.org/2000/svg';
+    SILK_FX_SEQ++;
+    const id = 'silkCrossFx' + SILK_FX_SEQ;
+    const filter = document.createElementNS(NS, 'filter');
+    filter.setAttribute('id', id);
+    filter.setAttribute('color-interpolation-filters', 'sRGB');
+    filter.setAttribute('x', '0%');
+    filter.setAttribute('y', '0%');
+    filter.setAttribute('width', '100%');
+    filter.setAttribute('height', '100%');
+    const ct = document.createElementNS(NS, 'feComponentTransfer');
+    const t = Math.min(1, 0.5 + 0.5 * kk);
+    const keep = 0.2 + 0.8 * kk;
+    const mk = (ch) => {
+      const fn = document.createElementNS(NS, 'feFunc' + ch);
+      fn.setAttribute('type', 'table');
+      const tt = [];
+      if (ch === 'A') {
+        for (let n = 0; n <= 48; n++) {
+          const a = n / 48;
+          const v = a <= t ? a : t + (a - t) * keep;
+          tt.push(Math.max(0, Math.min(1, v)).toFixed(4));
+        }
+      } else {
+        for (let n = 0; n <= 8; n++) tt.push((n / 8).toFixed(4));
+      }
+      fn.setAttribute('tableValues', tt.join(' '));
+      return fn;
+    };
+    ['R', 'G', 'B', 'A'].forEach(ch => ct.appendChild(mk(ch)));
+    filter.appendChild(ct);
+    host.defs.appendChild(filter);
+    if (SILK_FX_CACHE.size >= 40) {
+      const firstKey = SILK_FX_CACHE.keys().next().value;
+      const old = SILK_FX_CACHE.get(firstKey);
+      if (old && old.node && old.node.parentNode) old.node.parentNode.removeChild(old.node);
+      SILK_FX_CACHE.delete(firstKey);
+    }
+    const rec = { url: 'url(#' + id + ')', node: filter };
+    SILK_FX_CACHE.set(key, rec);
+    return rec;
+  }
+  // 复用一张离屏画布，把「已经画好的一格」捞出来再带滤镜贴回去
+  let SILK_CAP = null;
+  function silkCapCanvas(w, h) {
+    if (!SILK_CAP) {
+      const cv = document.createElement('canvas');
+      SILK_CAP = { cv: cv, ctx: cv.getContext('2d') };
+    }
+    const cv = SILK_CAP.cv;
+    if (cv.width < w) cv.width = w;
+    if (cv.height < h) cv.height = h;
+    return SILK_CAP;
+  }
+  // 世界坐标 → 画布像素（画布可能被 DPR 缩放 / 旋转过，所以取包围盒）
+  function silkDeviceRect(ctx, x, y, w, h) {
+    const w2 = Math.max(1, Math.ceil(w)), h2 = Math.max(1, Math.ceil(h));
+    const m = ctx.getTransform ? ctx.getTransform() : null;
+    if (!m) return { x: Math.floor(x), y: Math.floor(y), w: w2, h: h2 };
+    const pts = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+    const mx = pts.map(p => [p[0] * m.a + p[1] * m.c + m.e, p[0] * m.b + p[1] * m.d + m.f]);
+    const x0 = Math.min(mx[0][0], mx[1][0], mx[2][0], mx[3][0]);
+    const y0 = Math.min(mx[0][1], mx[1][1], mx[2][1], mx[3][1]);
+    const x1 = Math.max(mx[0][0], mx[1][0], mx[2][0], mx[3][0]);
+    const y1 = Math.max(mx[0][1], mx[1][1], mx[2][1], mx[3][1]);
+    const sx = Math.floor(x0), sy = Math.floor(y0);
+    return { x: sx, y: sy, w: Math.max(1, Math.ceil(x1) - sx), h: Math.max(1, Math.ceil(y1) - sy) };
+  }
+  // 织的过程中（丝是逐帧直接画在画布上的）：画完把这一格照原样捞一份，带滤镜用 copy+clip 覆盖回原位。
+  // 只降低交叉点的 alpha，丝不重画，空白处照旧透明。
+  function silkCrossCap(ctx, content, light, look, k, x, y, w, h) {
+    if (!(w > 0) || !(h > 0)) return;
+    const src = ctx.canvas;
+    if (!src) return;
+    const r = silkDeviceRect(ctx, x, y, w, h);
+    // 只处理画布可见的那一块：放大到 8 倍时整块有好几千像素宽，全都捞一遍纯属浪费
+    const cx0 = Math.max(r.x, 0), cy0 = Math.max(r.y, 0);
+    const cx1 = Math.min(r.x + r.w, src.width), cy1 = Math.min(r.y + r.h, src.height);
+    if (cx1 - cx0 < 2 || cy1 - cy0 < 2) return;
+    const rr = { x: cx0, y: cy0, w: cx1 - cx0, h: cy1 - cy0 };
+    const cap = silkCapCanvas(rr.w, rr.h);
+    const tg = cap.ctx;
+    tg.setTransform(1, 0, 0, 1, 0, 0);
+    tg.filter = 'none';
+    tg.globalCompositeOperation = 'source-over';
+    tg.clearRect(0, 0, cap.cv.width, cap.cv.height);
+    tg.drawImage(src, rr.x, rr.y, rr.w, rr.h, 0, 0, rr.w, rr.h);
+    const fx = silkFxFor(k);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.beginPath();
+    ctx.rect(rr.x, rr.y, rr.w, rr.h);
+    ctx.clip();
+    ctx.globalCompositeOperation = 'copy';
+    ctx.globalAlpha = 1;
+    ctx.filter = fx.url;
+    ctx.drawImage(cap.cv, 0, 0, rr.w, rr.h, rr.x, rr.y, rr.w, rr.h);
+    ctx.filter = 'none';
+    ctx.restore();
+  }
+  // 已经织满的块：直接拿缓存位图带滤镜贴上去（一次 drawImage，比捞回来更便宜）
+  function silkCrossBlit(ctx, img, content, light, look, k, x, y, w, h) {
+    const fx = silkFxFor(k);
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.filter = fx.url;
+    ctx.drawImage(img, x, y, w, h);
+    ctx.filter = 'none';
+    ctx.restore();
+  }
+
+
   function weaveThread(cell, agent, seed, customWalls, bandIndex, bandCount) {
     const rng = mulberry32(seed >>> 0);
     const W = cell.w, H = cell.h;
@@ -7603,6 +7760,7 @@ showSplitPreview();
     silkWidth: { min: 0.3, max: 2.2, def: 1 },
     silkGain: { min: 0.3, max: 2.5, def: 1 },
     silkSmooth: { min: 0, max: 8, def: 3 },
+    silkCross: { min: 0, max: 1, def: 1 },
   };
   const SILK_MODES = ['silk', 'matte', 'bright', 'ink'];
 
@@ -7625,6 +7783,7 @@ showSplitPreview();
       silkGain: silkNum(d.silkGain != null ? d.silkGain : habitat.silkGain, 'silkGain'),
       silkMode: silkModeOk(d.silkMode) || silkModeOk(habitat.silkMode) || 'silk',
       silkSmooth: silkNum(d.silkSmooth != null ? d.silkSmooth : 3, 'silkSmooth'),
+      silkCross: silkNum(d.silkCross != null ? d.silkCross : 1, 'silkCross'),
     };
   }
 
@@ -7648,7 +7807,9 @@ showSplitPreview();
     habitat.silkGain = d.silkGain;
     habitat.silkMode = d.silkMode;
     habitat.silkSmooth = d.silkSmooth;
-    // 密度 / 平滑改变要重织（content 变了）；粗细 / 亮度 / 观感只作废位图
+    // 注意：silkCross / silkSoft 是「当前生效值」不是「全局默认」，不在这里镜像，
+    // 否则改一下粗细/亮度就会把用户拉的交叉亮度冲回默认
+    // 密度 / 平滑改变要重织（content 变了）；粗细 / 亮度 / 观感 / 交叉亮度只作废位图
     invalidateWeaveSilk(hard ? 'content' : 'raster');
     return d;
   }
@@ -7718,6 +7879,7 @@ showSplitPreview();
     if (m) m.value = d.silkMode;
     setR('habSilkSmooth', d.silkSmooth, 'habSilkSmoothVal', String(d.silkSmooth));
     setR('habSilkSoft', silkSoftLevel(), 'habSilkSoftVal', String(silkSoftLevel()));
+    setR('habSilkCross', silkCrossLevel(), 'habSilkCrossVal', silkCrossLevel().toFixed(2));
   }
 
   /* ===================== r49：模拟编排与时间轴（唯一时间来源） =====================
@@ -8271,7 +8433,13 @@ showSplitPreview();
       if (lu >= 0.995) {
         // 已织满的块用离屏位图（每帧不再重画上万点）
         const img = weaveRasterFor(agent, content, cw, ch, light, tone, strata);
-        ctx.drawImage(img, v.px(ox - cw / 2), v.py(oy - ch / 2), cw * v.s, ch * v.s);
+        const bx = v.px(ox - cw / 2), by = v.py(oy - ch / 2), bw = cw * v.s, bh = ch * v.s;
+        const crossK = silkCrossLevel();
+        if (crossK < 0.995) {
+          silkCrossBlit(ctx, img, content, light, look, crossK, bx, by, bw, bh);
+        } else {
+          ctx.drawImage(img, bx, by, bw, bh);
+        }
         ctx.restore();
         return;
       }
@@ -8281,36 +8449,50 @@ showSplitPreview();
       const cum = weavePathCum(content);
       const target = lu * cum.total;
       let headPt = null;
-      // 柔雾只铺一遍（全量，不做位移），负责丝层的空气感；柔度越高越宽越厚
+      // 柔雾 + 分层丝线：同一段画法既可以直接画在画布上，也可以先画进离屏再压交叉亮度
       const softK = silkSoftLevel();
-      ctx.lineWidth = baseW * (1.6 + 1.9 * softK);
-      content.paths.forEach((p, idx) => {
-        const start = cum.acc[idx];
-        if (start >= target) return;
-        ctx.strokeStyle = 'rgba(' + look.rgb + ',' + silkAlpha(light * (0.03 + 0.035 * softK), 0.02, 0.16, look.gain).toFixed(2) + ')';
-        ctx.beginPath();
-        weaveStrokePts(ctx, p.pts, q => ({ x: v.px(ox + q.x), y: v.py(oy + q.y) }), silkBezierOn());
-        ctx.stroke();
-      });
-      // 分层：按带序号分给不同层，每层丝线集合不同、只有亚像素级错位
-      // （不再把同一套线整层平移复制，避免"两层一样的图叠在一起"的鬼影）
-      for (let L = 0; L < strata; L++) {
-        const off = (L - (strata - 1) / 2) * cw * 0.006;
-        const lTone = 1 - L * 0.12;
-        ctx.lineWidth = baseW * (1 - L * 0.08);
+      const crossK = silkCrossLevel();
+      const paintInto = (g, mapPt, lwK) => {
+        const kLW = Number.isFinite(lwK) ? lwK : 1;
+        let head = null;
+        // 柔雾只铺一遍（全量，不做位移），负责丝层的空气感；柔度越高越宽越厚
+        g.lineWidth = baseW * (1.6 + 1.9 * softK) * kLW;
         content.paths.forEach((p, idx) => {
-          if ((p.b != null ? p.b : idx) % strata !== L) return;
           const start = cum.acc[idx];
           if (start >= target) return;
-          const frac = Math.min(1, (target - start) / (cum.seg[idx] || 1));
-          const n = Math.max(2, Math.floor(p.pts.length * frac));
-          const alpha = silkAlpha((p.a != null ? p.a : 0.4) * (light / 0.42) * lTone * 0.82, 0.12, 1, look.gain);
-          ctx.strokeStyle = 'rgba(' + look.rgb + ',' + alpha.toFixed(2) + ')';
-          ctx.beginPath();
-          weaveStrokePts(ctx, p.pts, q => ({ x: v.px(ox + q.x + off), y: v.py(oy + q.y + off) }), silkBezierOn(), n);
-          ctx.stroke();
-          if (L === strata - 1) headPt = p.pts[Math.min(p.pts.length - 1, Math.max(0, n - 1))];
+          g.strokeStyle = 'rgba(' + look.rgb + ',' + silkAlpha(light * (0.03 + 0.035 * softK), 0.02, 0.16, look.gain).toFixed(2) + ')';
+          g.beginPath();
+          weaveStrokePts(g, p.pts, q => mapPt(q.x, q.y), silkBezierOn());
+          g.stroke();
         });
+        // 分层：按带序号分给不同层，每层丝线集合不同、只有亚像素级错位
+        // （不再把同一套线整层平移复制，避免"两层一样的图叠在一起"的鬼影）
+        for (let L = 0; L < strata; L++) {
+          const off = (L - (strata - 1) / 2) * cw * 0.006;
+          const lTone = 1 - L * 0.12;
+          g.lineWidth = baseW * (1 - L * 0.08) * kLW;
+          content.paths.forEach((p, idx) => {
+            if ((p.b != null ? p.b : idx) % strata !== L) return;
+            const start = cum.acc[idx];
+            if (start >= target) return;
+            const frac = Math.min(1, (target - start) / (cum.seg[idx] || 1));
+            const n = Math.max(2, Math.floor(p.pts.length * frac));
+            const alpha = silkAlpha((p.a != null ? p.a : 0.4) * (light / 0.42) * lTone * 0.82, 0.12, 1, look.gain);
+            g.strokeStyle = 'rgba(' + look.rgb + ',' + alpha.toFixed(2) + ')';
+            g.beginPath();
+            weaveStrokePts(g, p.pts, q => mapPt(q.x + off, q.y + off), silkBezierOn(), n);
+            g.stroke();
+            if (L === strata - 1) head = p.pts[Math.min(p.pts.length - 1, Math.max(0, n - 1))];
+          });
+        }
+        return head;
+      };
+      const mapMain = (x, y) => ({ x: v.px(ox + x), y: v.py(oy + y) });
+      headPt = paintInto(ctx, mapMain, 1);
+      if (crossK < 0.995) {
+        silkCrossCap(ctx, content, light, look, crossK,
+          v.px(ox - cw / 2) + gap / 2 * v.s, v.py(oy - ch / 2) + gap / 2 * v.s,
+          Math.max(1, (cw - gap) * v.s), Math.max(1, (ch - gap) * v.s));
       }
       // 吐丝头：沿已织出的丝往前跑，让"蚕正在爬"看得见
       // 成品（导出 / 预览）里只有丝线：吐丝头那个白点只是编辑时的手感提示，不能进片
@@ -10353,6 +10535,15 @@ showSplitPreview();
         invalidateWeaveSilk('raster');
       });
     }
+    const silkCrossEl = document.getElementById('habSilkCross');
+    if (silkCrossEl) {
+      silkCrossEl.value = String(silkCrossLevel());
+      silkCrossEl.addEventListener('input', () => {
+        habitat.silkCross = parseFloat(silkCrossEl.value);
+        const lab = document.getElementById('habSilkCrossVal');
+        if (lab) lab.textContent = silkCrossLevel().toFixed(2);
+      });
+    }
     const silkCurveEl = document.getElementById('habSilkCurve');
     if (silkCurveEl) {
       silkCurveEl.value = silkBezierOn() ? 'bez' : 'line';
@@ -12377,6 +12568,7 @@ showSplitPreview();
       showHeadDot: !!habitat.showHeadDot,
       silkBezier: silkBezierOn(),
       silkSoft: silkSoftLevel(),
+      silkCross: silkCrossLevel(),
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
@@ -12707,6 +12899,7 @@ showSplitPreview();
       showHeadDot: !!habitat.showHeadDot,
       silkBezier: silkBezierOn(),
       silkSoft: silkSoftLevel(),
+      silkCross: silkCrossLevel(),
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
@@ -13724,6 +13917,11 @@ showSplitPreview();
     const curveSel = document.getElementById('habSilkCurve');
     if (curveSel) curveSel.value = silkBezierOn() ? 'bez' : 'line';
     habitat.silkSoft = Number.isFinite(data.silkSoft) ? data.silkSoft : 1;
+    habitat.silkCross = Number.isFinite(data.silkCross) ? Math.max(0, Math.min(1, data.silkCross)) : 1;
+    const crossEl2 = document.getElementById('habSilkCross');
+    if (crossEl2) crossEl2.value = String(silkCrossLevel());
+    const crossLab = document.getElementById('habSilkCrossVal');
+    if (crossLab) crossLab.textContent = silkCrossLevel().toFixed(2);
     const softEl = document.getElementById('habSilkSoft');
     if (softEl) softEl.value = String(silkSoftLevel());
     const softLab = document.getElementById('habSilkSoftVal');
@@ -13856,6 +14054,7 @@ showSplitPreview();
     export: exportHabitat, import: importHabitat, syncMeasured: syncMeasured,
     pushUndo: () => pushUndo(), undoStep: () => undoStep(),
     weaveRot: (id) => { const a = habitat.agents.find(z => z.id === id); return a ? weaveRotOf(a) : 0; },
+    silkCross: () => silkCrossLevel(),
     rotateUnits: (ids, pivot, deg) => {
       const set = new Set(ids || []);
       const list = habitat.agents.filter(a => a.kind === 'weave' && set.has(a.id));
