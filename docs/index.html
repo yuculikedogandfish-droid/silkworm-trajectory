@@ -957,8 +957,8 @@
       </div>
       <div class=&quot;row&quot; id=&quot;preSoftRow&quot;>
         <label>丝线柔度</label>
-        <input type=&quot;range&quot; id=&quot;preSoft&quot; min=&quot;0&quot; max=&quot;3&quot; step=&quot;1&quot; value=&quot;1&quot0&quot; oninput=&quot;onPreviewSilkFx()&quot;>
-        <span id=&quot;preSoftVal&quot;>1</span>
+        <input type=&quot;range&quot; id=&quot;preSoft&quot; min=&quot;0&quot; max=&quot;3&quot; step=&quot;1&quot; value=&quot;0&quot; oninput=&quot;onPreviewSilkFx()&quot;>
+        <span id=&quot;preSoftVal&quot;>0</span>
       </div>
       <div class=&quot;row&quot; id=&quot;preSheenRow&quot;>
         <label>真丝光泽</label>
@@ -2601,13 +2601,13 @@ function draw() {
 /* ===== r49w/r49x：按丝线弧长匀速走；路线里已经没有断口，整条是连的 ===== */
 let routeArcCache = { ref: null, cum: null, len: 0, runs: null };
 
-const PRE_FX = { smooth: 3, soft: 1, sheen: 2, gauge: 1 };
+const PRE_FX = { smooth: 3, soft: 0, sheen: 2, gauge: 1 };
 
 function silkSmoothLv() {
   return Math.max(0, Math.min(8, Math.round(Number.isFinite(PRE_FX.smooth) ? PRE_FX.smooth : 3)));
 }
 function silkSoftLv() {
-  return Math.max(0, Math.min(3, Math.round(Number.isFinite(PRE_FX.soft) ? PRE_FX.soft : 1)));
+  return Math.max(0, Math.min(3, Math.round(Number.isFinite(PRE_FX.soft) ? PRE_FX.soft : 0)));
 }
 function silkSheenLv() {
   return Math.max(0, Math.min(4, Math.round(Number.isFinite(PRE_FX.sheen) ? PRE_FX.sheen : 2)));
@@ -9040,31 +9040,6 @@ showSplitPreview();
     return { l: a.x - hw, r: a.x + hw, t: a.y - hh, b: a.y + hh };
   }
   // 只去缝：这一块的哪几条边上有同组的邻居贴着（1=有，可以放行光晕；0=组的外边界，硬收）
-  function edgeHaloSides(a, src) {
-    const out = { l: 0, r: 0, t: 0, b: 0 };
-    if (!a || !a.seam) return out;
-    const mates = habitat.agents.filter(x => x && x !== a && x.kind === 'weave' && x.seam === a.seam);
-    const tol = Math.max(2, Math.min(a.w, a.h) * 0.02);
-    mates.forEach(m => {
-      const mw = Number.isFinite(m.w) ? m.w : a.w, mh = Number.isFinite(m.h) ? m.h : a.h;
-      const mL = m.x - mw / 2, mR = m.x + mw / 2, mT = m.y - mh / 2, mB = m.y + mh / 2;
-      const aL = a.x - a.w / 2, aR = a.x + a.w / 2, aT = a.y - a.h / 2, aB = a.y + a.h / 2;
-      const yOverlap = Math.min(aB, mB) - Math.max(aT, mT) > -tol;
-      const xOverlap = Math.min(aR, mR) - Math.max(aL, mL) > -tol;
-      if (yOverlap && Math.abs(mR - aL) <= tol) out.l = 1;
-      if (yOverlap && Math.abs(mL - aR) <= tol) out.r = 1;
-      if (xOverlap && Math.abs(mB - aT) <= tol) out.t = 1;
-      if (xOverlap && Math.abs(mT - aB) <= tol) out.b = 1;
-    });
-    return out;
-  }
-
-  // 只去缝用：柔雾在世界单位里有多宽（用来决定光晕可以越过格边多少）
-  function edgeHaloPad(look) {
-    const sk = silkSoftLevel();
-    return Math.max(0.8, 0.62 * (look && look.width ? look.width : 1) * (1.6 + 1.9 * sk));
-  }
-
   // 只去缝用：花纹尺寸不变，只是丝不再被这一格的矩形收口（贴边那圈亮边就是它撞出来的）
   function edgeFreeSrc(agent) {
     const sig = [agent.w, agent.h, agent.seed, agent.worms, agent.coverage, agent.strata,
@@ -9161,10 +9136,7 @@ showSplitPreview();
         const ey0 = Math.round(v.py(agent.y - agent.h / 2)), ey1 = Math.round(v.py(agent.y + agent.h / 2));
         // 光晕只在「有邻居贴着的边」上放行；组的外边界仍然按格子边硬收，
         // 这样缝里看不到光晕的分界线，最外面也不会飘出一条没有丝的光晕带
-        const hp = edgeHaloPad(look) * v.s;
-        const pds = edgeHaloSides(agent, edgeSrc || agent);
-        ctx.rect(ex0 - pds.l * hp, ey0 - pds.t * hp,
-          Math.max(1, ex1 - ex0) + (pds.l + pds.r) * hp, Math.max(1, ey1 - ey0) + (pds.t + pds.b) * hp);
+        ctx.rect(ex0, ey0, Math.max(1, ex1 - ex0), Math.max(1, ey1 - ey0));
         edgeClipBox = { x0: ex0, y0: ey0, x1: ex1, y1: ey1 };
       } else {
         ctx.rect(v.px(ox - cw / 2 + gap / 2), v.py(oy - ch / 2 + gap / 2),
@@ -9517,6 +9489,38 @@ showSplitPreview();
         weaveStrokePts(g, p.pts, q => ({ x: (q.x + off + cwX / 2) * kx, y: (q.y + off + chX / 2) * ky }), silkBezierOn());
         g.stroke();
       });
+    }
+    // 柔雾的越界部分不能在格边上被硬切（那就是「有光晕/没光晕的分界线」）：
+    // 按「贴邻居的边」给一条很短的渐隐带：格边外 alpha 渐降到 0，格边内回到 1；
+    // 相邻两块各给 0.55，加起来约等于 1，所以缝上既不亮也不断。
+    if (pt === 'mist' && eo > 0) {
+      const wt = a => 'rgba(255,255,255,' + a + ')';
+      const padX = Math.max(1, eo * kx), padY = Math.max(1, eo * ky);
+      const band = (horizontal, fromEdge) => {
+        const L = horizontal ? W : H, pad = horizontal ? padX : padY;
+        const x0 = horizontal ? (fromEdge ? W : 0) : 0;
+        const x1 = horizontal ? (fromEdge ? 0 : W) : 0;
+        const y0 = horizontal ? 0 : (fromEdge ? H : 0);
+        const y1 = horizontal ? 0 : (fromEdge ? 0 : H);
+        const grd = g.createLinearGradient(x0, y0, x1, y1);
+        const at = pad / L;
+        grd.addColorStop(0, wt(0));
+        grd.addColorStop(Math.min(0.999, at), wt(0));
+        grd.addColorStop(Math.min(1, at * 1.6), wt(1));
+        grd.addColorStop(1, wt(1));
+        return grd;
+      };
+      g.save();
+      g.globalCompositeOperation = 'destination-in';
+      g.fillStyle = band(true, 0);
+      g.fillRect(0, 0, W, H);
+      g.fillStyle = band(true, 1);
+      g.fillRect(0, 0, W, H);
+      g.fillStyle = band(false, 0);
+      g.fillRect(0, 0, W, H);
+      g.fillStyle = band(false, 1);
+      g.fillRect(0, 0, W, H);
+      g.restore();
     }
     content[ckv] = cv;
     content[ckk] = key;
@@ -14779,6 +14783,14 @@ showSplitPreview();
     const curveSel = document.getElementById('habSilkCurve');
     if (curveSel) curveSel.value = silkBezierOn() ? 'bez' : 'line';
     habitat.silkSoft = Number.isFinite(data.silkSoft) ? data.silkSoft : 0;
+    // r49z3e：一次性把旧默认残留的柔度 1/2 归到 0（默认就是干净的硬线）；3 视为故意设置，保留
+    try {
+      const softMigKey = 'silkworm-habitat-softdefault0/v1';
+      if (!localStorage.getItem(softMigKey)) {
+        if (habitat.silkSoft === 1 || habitat.silkSoft === 2) habitat.silkSoft = 0;
+        localStorage.setItem(softMigKey, '1');
+      }
+    } catch (e) {}
     habitat.silkCross = Number.isFinite(data.silkCross) ? Math.max(0, Math.min(1, data.silkCross)) : 1;
     const crossEl2 = document.getElementById('habSilkCross');
     if (crossEl2) crossEl2.value = String(silkCrossLevel());
@@ -17232,7 +17244,7 @@ showSplitPreview();
       const first = items[0], last = items[items.length - 1];
       const span = last.b.r - first.b.l;
       const sumW = items.reduce((n, o) => n + (o.b.r - o.b.l), 0);
-      const gap = (span - sumW) / (items.length - 1);
+      const gap = Math.max(0, (span - sumW) / (items.length - 1));
       let cur = first.b.l;
       items.forEach(o => {
         o.a.x += cur - o.b.l;
@@ -17243,7 +17255,7 @@ showSplitPreview();
       const first = items[0], last = items[items.length - 1];
       const span = last.b.b - first.b.t;
       const sumH = items.reduce((n, o) => n + (o.b.b - o.b.t), 0);
-      const gap = (span - sumH) / (items.length - 1);
+      const gap = Math.max(0, (span - sumH) / (items.length - 1));
       let cur = first.b.t;
       items.forEach(o => {
         o.a.y += cur - o.b.t;
