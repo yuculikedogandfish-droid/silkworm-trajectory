@@ -882,7 +882,7 @@
   #preDurRow label { flex: 0 0 60px; }
   #preDurRow input[type='range'] { flex: 1 1 60px; min-width: 0; }
   #preDurVal, #preSmoothVal, #preSoftVal { white-space: nowrap; font-size: 11px; min-width: 34px; text-align: right; }
-  #preSmoothRow label, #preSoftRow label { flex: 0 0 60px; }
+  #preSmoothRow label, #preSoftRow label, #preSheenRow label, #preGaugeRow label { flex: 0 0 60px; }
   #preSmoothRow input[type='range'], #preSoftRow input[type='range'] { flex: 1 1 60px; min-width: 0; }
 
   body.embed header h1 { display: none; }
@@ -960,7 +960,17 @@
         <input type=&quot;range&quot; id=&quot;preSoft&quot; min=&quot;0&quot; max=&quot;3&quot; step=&quot;1&quot; value=&quot;1&quot; oninput=&quot;onPreviewSilkFx()&quot;>
         <span id=&quot;preSoftVal&quot;>1</span>
       </div>
-      <p class=&quot;hint&quot;>这两个和数字蚕室的「丝线平滑 / 丝线柔度」同一个口径：平滑磨圆丝的转折（0＝原样折线），柔度加一圈很淡的绒光。只影响丝的样子，不改路线、不改爬行速度。</p>
+      <div class=&quot;row&quot; id=&quot;preSheenRow&quot;>
+        <label>真丝光泽</label>
+        <input type=&quot;range&quot; id=&quot;preSheen&quot; min=&quot;0&quot; max=&quot;4&quot; step=&quot;1&quot; value=&quot;2&quot; oninput=&quot;onPreviewSilkFx()&quot;>
+        <span id=&quot;preSheenVal&quot;>2</span>
+      </div>
+      <div class=&quot;row&quot; id=&quot;preGaugeRow&quot;>
+        <label>丝径</label>
+        <input type=&quot;range&quot; id=&quot;preGauge&quot; min=&quot;0.6&quot; max=&quot;3&quot; step=&quot;0.1&quot; value=&quot;1&quot; oninput=&quot;onPreviewSilkFx()&quot;>
+        <span id=&quot;preGaugeVal&quot;>1.0×</span>
+      </div>
+      <p class=&quot;hint&quot;>平滑 / 柔度和数字蚕室同一个口径：平滑磨圆丝的转折（0＝原样折线），柔度加一圈很淡的绒光。真丝光泽只在上面的「材质」选「真丝·缎面」时起作用：档位越高，沿丝走向滑动的那道高光越亮越锐。三者只影响丝的样子，不改路线、不改爬行速度。</p>
       <div class=&quot;row&quot;>
         <label>统一 u</label>
         <input type=&quot;range&quot; id=&quot;uSlider&quot; min=&quot;0&quot; max=&quot;1000&quot; value=&quot;0&quot; oninput=&quot;scrubU(this.value)&quot;>
@@ -973,8 +983,10 @@
       <label class=&quot;row&quot;><input type=&quot;checkbox&quot; id=&quot;showBeh&quot; checked> 显示活动范围框</label>
       <div class=&quot;row&quot;>
         <label>材质</label>
-        <select id=&quot;matSel&quot;>
+        <select id=&quot;matSel&quot; onchange=&quot;draw()&quot;>
           <option value=&quot;silk&quot; selected>蚕丝光泽</option>
+          <option value=&quot;truesilk&quot;>真丝·缎面（各向异性高光）</option>
+          <option value=&quot;rawsilk&quot;>生丝·原丝（哑光绒）</option>
           <option value=&quot;ribbon&quot;>丝带</option>
           <option value=&quot;line&quot;>细线</option>
         </select>
@@ -1692,7 +1704,16 @@ function drawRibbon(ctx, pts, style, color, alpha) {
   if (!pts || pts.length < 2) return;
 
   const matEl = document.getElementById('matSel');
-  const mat = matEl ? matEl.value : 'silk';
+  let mat = matEl ? matEl.value : 'silk';
+  if (mat === 'truesilk' || mat === 'rawsilk') mat = 'silk';
+  const gK = (typeof silkGauge === 'function') ? silkGauge() : 1;
+  if (gK !== 1 && style) {
+    style = Object.assign({}, style, {
+      headWidth: style.headWidth * gK,
+      midWidth: style.midWidth * gK,
+      tailWidth: style.tailWidth * gK,
+    });
+  }
   const v = getRibbonVertices(ctx, pts, style);
   if (!v || v.length < 2) return;
 
@@ -2504,13 +2525,20 @@ function draw() {
 /* ===== r49w/r49x：按丝线弧长匀速走；路线里已经没有断口，整条是连的 ===== */
 let routeArcCache = { ref: null, cum: null, len: 0, runs: null };
 
-const PRE_FX = { smooth: 3, soft: 1 };
+const PRE_FX = { smooth: 3, soft: 1, sheen: 2, gauge: 1 };
 
 function silkSmoothLv() {
   return Math.max(0, Math.min(8, Math.round(Number.isFinite(PRE_FX.smooth) ? PRE_FX.smooth : 3)));
 }
 function silkSoftLv() {
   return Math.max(0, Math.min(3, Math.round(Number.isFinite(PRE_FX.soft) ? PRE_FX.soft : 1)));
+}
+function silkSheenLv() {
+  return Math.max(0, Math.min(4, Math.round(Number.isFinite(PRE_FX.sheen) ? PRE_FX.sheen : 2)));
+}
+function silkGauge() {
+  var g = Number.isFinite(PRE_FX.gauge) ? PRE_FX.gauge : 1;
+  return Math.max(0.6, Math.min(3, g));
 }
 function syncPreviewFxUI() {
   const a = document.getElementById('preSmooth');
@@ -2521,12 +2549,24 @@ function syncPreviewFxUI() {
   const bv = document.getElementById('preSoftVal');
   if (av) av.textContent = String(silkSmoothLv());
   if (bv) bv.textContent = String(silkSoftLv());
+  const c = document.getElementById('preSheen');
+  if (c) c.value = String(silkSheenLv());
+  const cv = document.getElementById('preSheenVal');
+  if (cv) cv.textContent = String(silkSheenLv());
+  const g = document.getElementById('preGauge');
+  if (g) g.value = String(silkGauge());
+  const gv = document.getElementById('preGaugeVal');
+  if (gv) gv.textContent = silkGauge().toFixed(1) + '×';
 }
 function onPreviewSilkFx() {
   const a = document.getElementById('preSmooth');
   const b = document.getElementById('preSoft');
   if (a) PRE_FX.smooth = Math.max(0, Math.min(8, parseInt(a.value, 10) || 0));
   if (b) PRE_FX.soft = Math.max(0, Math.min(3, parseInt(b.value, 10) || 0));
+  const c = document.getElementById('preSheen');
+  if (c) PRE_FX.sheen = Math.max(0, Math.min(4, parseInt(c.value, 10) || 0));
+  const g = document.getElementById('preGauge');
+  if (g) PRE_FX.gauge = Math.max(0.6, Math.min(3, parseFloat(g.value) || 1));
   syncPreviewFxUI();
   routeViewCache.ref = null;
   routeArcCache.ref = null;
@@ -3043,6 +3083,8 @@ function studioPreviewSlice() {
     dur: (typeof rtDur === 'function') ? rtDur() : 120,
     smooth: (typeof silkSmoothLv === 'function') ? silkSmoothLv() : 3,
     soft: (typeof silkSoftLv === 'function') ? silkSoftLv() : 1,
+    sheen: (typeof silkSheenLv === 'function') ? silkSheenLv() : 2,
+    gauge: (typeof silkGauge === 'function') ? silkGauge() : 1,
     loopOn: document.getElementById('loopOn').checked,
     showSilk: document.getElementById('showSilk').checked,
     showWorm: document.getElementById('showWorm').checked,
@@ -3081,6 +3123,8 @@ function applyStudioPreview(preview) {
   if (Number.isFinite(preview.dur) && typeof rtSetDur === 'function') rtSetDur(preview.dur);
   if (Number.isFinite(preview.smooth)) PRE_FX.smooth = Math.max(0, Math.min(8, preview.smooth));
   if (Number.isFinite(preview.soft)) PRE_FX.soft = Math.max(0, Math.min(3, preview.soft));
+  if (Number.isFinite(preview.sheen)) PRE_FX.sheen = Math.max(0, Math.min(4, preview.sheen));
+  if (Number.isFinite(preview.gauge)) PRE_FX.gauge = Math.max(0.6, Math.min(3, preview.gauge));
   if (typeof syncPreviewFxUI === 'function') syncPreviewFxUI();
   setVal('tilt', preview.tilt);
   setVal('yaw', preview.yaw);
@@ -3634,29 +3678,134 @@ if (window.parent !== window) {
   };
   window.rtDur = rtDur;
 
-  /* 路线丝：按 lineWidth 跟分辨率一起放大的「真丝线」，不是发丝级细线 */
+  /* 路线丝：按 lineWidth 跟分辨率一起放大的「真丝线」，不是发丝级细线。
+     材质由右栏「材质」定：蚕丝光泽（默认）/ 真丝·缎面 / 生丝·原丝 / 丝带 / 细线。 */
+  var RT_SILK = { x: -0.55, y: -0.84, buf: null, n: 0 };
+  /* r49y：真丝照的是纤维的各向异性高光——Kajiya-Kay 那套 sin(T,H)^p 落在 2D 上：
+     纤维切向越接近「垂直于光向」，高光越亮；于是高光会沿着丝的走向一段段流动，
+     而不是像塑料那样整根一样亮。另配一道背光侧的暖灰边做体积、一道绒光做 Charlie sheen 那种掠射柔光。 */
   window.rtDrawSilk = function (ctx, pts) {
     var n = pts.length;
     if (n < 2) return;
     var W = ctx.canvas.width, H = ctx.canvas.height;
-    var q0 = projectPoint(pts[0], W, H);
-    var w = Math.max(0.55, 0.34 * (q0.scale || 1));
+    var sel = document.getElementById('matSel');
+    var mat = sel ? String(sel.value || 'silk') : 'silk';
+    var softK = (typeof silkSoftLv === 'function') ? silkSoftLv() : 1;
+    var sheenK = (typeof silkSheenLv === 'function') ? silkSheenLv() : 2;
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.beginPath();
-    for (var i = 0; i < n; i++) {
-      var q = projectPoint(pts[i], W, H);
-      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    if (mat !== 'truesilk' && mat !== 'rawsilk' && mat !== 'line') {
+      var q0 = projectPoint(pts[0], W, H);
+      var w0 = Math.max(0.55, 0.34 * (q0.scale || 1)) * ((typeof silkGauge === 'function') ? silkGauge() : 1);
+      ctx.beginPath();
+      for (var i = 0; i < n; i++) {
+        var q = projectPoint(pts[i], W, H);
+        if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+      }
+      if (softK > 0) {
+        ctx.globalAlpha = 0.028 + 0.03 * softK; ctx.strokeStyle = 'rgba(255,248,236,1)';
+        ctx.lineWidth = w0 * (2.0 + 1.3 * softK); ctx.stroke();
+      }
+      ctx.globalAlpha = 0.30; ctx.strokeStyle = 'rgba(255,248,236,1)'; ctx.lineWidth = w0 * (2.4 + 0.35 * softK); ctx.stroke();
+      ctx.globalAlpha = 0.62; ctx.strokeStyle = 'rgba(248,244,235,1)'; ctx.lineWidth = w0 * 1.8; ctx.stroke();
+      ctx.globalAlpha = 0.98; ctx.strokeStyle = 'rgba(255,253,247,1)'; ctx.lineWidth = w0 * (1 - 0.06 * softK); ctx.stroke();
+      ctx.restore();
+      return;
     }
-    var softK = (typeof silkSoftLv === 'function') ? silkSoftLv() : 1;
+    // 投影 + 切向/法线，一次算好复用（几条描边共用一套坐标）
+    if (!RT_SILK.buf || RT_SILK.n !== n) {
+      RT_SILK.buf = { x: new Float32Array(n), y: new Float32Array(n), tx: new Float32Array(n), ty: new Float32Array(n), spec: new Float32Array(n), cum: new Float32Array(n) };
+      RT_SILK.n = n;
+    }
+    var B = RT_SILK.buf, sc = 1;
+    for (var j = 0; j < n; j++) {
+      var qp = projectPoint(pts[j], W, H);
+      B.x[j] = qp.x; B.y[j] = qp.y;
+      B.cum[j] = j ? B.cum[j - 1] + Math.hypot(qp.x - B.x[j - 1], qp.y - B.y[j - 1]) : 0;
+      if (j === 0) sc = qp.scale || 1;
+    }
+    var w = Math.max(0.6, 0.34 * sc) * ((typeof silkGauge === 'function') ? silkGauge() : 1);
+    for (var k = 0; k < n; k++) {
+      var win = 4;
+      var ia = Math.max(0, k - win), ib = Math.min(n - 1, k + win);
+      var dx = B.x[ib] - B.x[ia], dy = B.y[ib] - B.y[ia], dl = Math.hypot(dx, dy) || 1;
+      B.tx[k] = dx / dl; B.ty[k] = dy / dl;
+      var dL = B.tx[k] * RT_SILK.x + B.ty[k] * RT_SILK.y;
+      B.spec[k] = Math.sqrt(Math.max(0, 1 - dL * dL));
+    }
+    function trail(ox, oy) {
+      ctx.beginPath();
+      for (var t = 0; t < n; t++) {
+        var xx = B.x[t] + ox, yy = B.y[t] + oy;
+        if (t === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+      }
+    }
+    if (mat === 'line') {
+      ctx.globalAlpha = 0.95; ctx.strokeStyle = 'rgba(248,246,238,1)'; ctx.lineWidth = Math.max(0.8, w * 0.95);
+      trail(0, 0); ctx.stroke(); ctx.restore(); return;
+    }
+    if (mat === 'rawsilk') {
+      // 生丝：哑光、少高光，靠两根偏出的绒毛线做蓬松感
+      ctx.globalAlpha = 0.035 + 0.026 * softK; ctx.strokeStyle = 'rgba(255,246,228,1)'; ctx.lineWidth = w * (2.5 + 1.5 * softK);
+      trail(0, 0); ctx.stroke();
+      ctx.globalAlpha = 0.72; ctx.strokeStyle = 'rgba(250,244,233,1)'; ctx.lineWidth = w * 1.85;
+      trail(0, 0); ctx.stroke();
+      ctx.globalAlpha = 0.20; ctx.strokeStyle = 'rgba(255,250,238,1)'; ctx.lineWidth = w * 0.32;
+      trail(RT_SILK.x * 0.62 * w, RT_SILK.y * 0.62 * w); ctx.stroke();
+      trail(-RT_SILK.x * 0.62 * w, -RT_SILK.y * 0.62 * w); ctx.stroke();
+      ctx.globalAlpha = 0.55; ctx.strokeStyle = 'rgba(255,252,244,1)'; ctx.lineWidth = w * 0.42;
+      trail(0, 0); ctx.stroke();
+      ctx.restore(); return;
+    }
+    // —— 真丝·缎面 ——
+    // 真丝的样子是「暗一段、亮一段」：丝身偏暖、偏暗，高光处直接烧到近白。
+    // 档位越高明暗差越大（缎面感），低档更像柔光绢。
+    var p = 4 + 3 * sheenK;
+    var amp = 0.60 + 0.09 * sheenK;
+    // 1) 绒光（掠射柔光）
     if (softK > 0) {
-      ctx.globalAlpha = 0.028 + 0.03 * softK; ctx.strokeStyle = 'rgba(255,248,236,1)';
-      ctx.lineWidth = w * (2.0 + 1.3 * softK); ctx.stroke();
+      ctx.globalAlpha = 0.026 + 0.03 * softK; ctx.strokeStyle = 'rgba(255,246,230,1)';
+      ctx.lineWidth = w * (1.9 + 1.5 * softK); trail(0, 0); ctx.stroke();
     }
-    ctx.globalAlpha = 0.30; ctx.strokeStyle = 'rgba(255,248,236,1)'; ctx.lineWidth = w * (2.4 + 0.35 * softK); ctx.stroke();
-    ctx.globalAlpha = 0.62; ctx.strokeStyle = 'rgba(248,244,235,1)'; ctx.lineWidth = w * 1.8; ctx.stroke();
-    ctx.globalAlpha = 0.98; ctx.strokeStyle = 'rgba(255,253,247,1)'; ctx.lineWidth = w * (1 - 0.06 * softK); ctx.stroke();
+    // 2) 背光侧的暖灰边（体积）
+    ctx.globalAlpha = 0.20; ctx.strokeStyle = 'rgba(188,168,138,1)'; ctx.lineWidth = w * 0.95;
+    trail(-RT_SILK.x * w * 0.55, -RT_SILK.y * w * 0.55); ctx.stroke();
+    // 3) 丝身：偏暗的暖底，亮带才有地方跳出来
+    ctx.globalAlpha = 0.62 + 0.05 * softK; ctx.strokeStyle = 'rgba(244,235,218,1)'; ctx.lineWidth = w * 1.80;
+    trail(0, 0); ctx.stroke();
+    // 4) 各向异性亮带：沿丝的走向按强度分四档，受光那侧稍偏
+    var lv = [1.00, 0.64, 0.38, 0.22];
+    var lw = [0.80, 0.72, 0.64, 0.56];
+    var litX = RT_SILK.x * w * 0.18, litY = RT_SILK.y * w * 0.18;
+    for (var b = 3; b >= 0; b--) {
+      ctx.globalAlpha = amp * lv[b];
+      ctx.strokeStyle = 'rgba(255,253,246,1)';
+      ctx.lineWidth = w * lw[b];
+      ctx.beginPath();
+      var on = false;
+      for (var s2 = 1; s2 < n; s2++) {
+        var sp = Math.pow(B.spec[s2], p) * (0.56 + 0.44 * Math.sin(B.cum[s2] / 62));
+        var idx = sp >= 0.62 ? 0 : sp >= 0.34 ? 1 : sp >= 0.16 ? 2 : 3;
+        if (idx !== b) { on = false; continue; }
+        if (!on) { ctx.moveTo(B.x[s2 - 1] + litX, B.y[s2 - 1] + litY); on = true; }
+        ctx.lineTo(B.x[s2] + litX, B.y[s2] + litY);
+      }
+      ctx.stroke();
+    }
+    // 5) 丝芯：一道亮的细脊
+    ctx.globalAlpha = 0.78; ctx.strokeStyle = 'rgba(255,252,244,1)'; ctx.lineWidth = w * 0.34;
+    trail(litX * 0.4, litY * 0.4); ctx.stroke();
+    // 6) 丝光颗粒：只有最亮的那些地方才闪，真丝在灯下就是这点碎光
+    if (sheenK >= 1 && n > 200) {
+      var stepP = Math.max(3, Math.round(n / 1200));
+      ctx.globalAlpha = 0.55; ctx.fillStyle = 'rgba(255,254,248,1)';
+      for (var g2 = 0; g2 < n; g2 += stepP) {
+        if (B.spec[g2] < 0.86) continue;
+        var rr = w * (0.34 + 0.10 * sheenK);
+        ctx.beginPath(); ctx.arc(B.x[g2] + litX * 0.6, B.y[g2] + litY * 0.6, rr, 0, Math.PI * 2); ctx.fill();
+      }
+    }
     ctx.restore();
   };
 
