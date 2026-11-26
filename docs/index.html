@@ -7898,7 +7898,11 @@ showSplitPreview();
     if (cell.outline && cell.outline.length >= 3) {
       if (!weaveInPoly(cell.outline, x, y)) return false;
       if (weavePolyDist(cell.outline, x, y) < m) return false;
-    } else if (Math.abs(x) > cell.w / 2 - m || Math.abs(y) > cell.h / 2 - m) return false;
+    } else {
+      // 只去缝档：可织范围也放宽到格框外面，丝才不会被"挡"在格边上堆成一道亮边
+      const em = Math.max(0, Number(cell.edgeMargin) || 0);
+      if (Math.abs(x) > cell.w / 2 - m + em || Math.abs(y) > cell.h / 2 - m + em) return false;
+    }
     if (cell.notch && Math.hypot(x - cell.notch.cx, y - cell.notch.cy) < cell.notch.r + m) return false;
     // 手画的缺口：任意闭合多边形（不是圆），内侧与贴边都算不能织
     if (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3) {
@@ -9035,61 +9039,6 @@ showSplitPreview();
     const hw = (a.w * cs + a.h * sn) / 2, hh = (a.w * sn + a.h * cs) / 2;
     return { l: a.x - hw, r: a.x + hw, t: a.y - hh, b: a.y + hh };
   }
-  // 只去缝：缝两边的交叠羽化带宽（世界单位），越宽越柔
-  const EDGE_FEATH = 16;
-
-  // 位图四边羽化后贴回：羽化带以格子边为中心、宽 EDGE_FEATH，
-  // 邻块的对向渐变正好补上另一半，合起来亮度不增不减 → 没有白框也没有黑缝。
-  const EDGE_FB = { mkey: '', mask: null, tmp: null };
-  // 四边羽化：羽化带以格子边为中心、宽 bandPx；邻块的对向渐变正好补上另一半
-  function edgeFeatherBlit(ctx, img, bx, by, bw, bh, edgePx, bandPx, outScale) {
-    const W = Math.max(6, Math.round(bw)), H = Math.max(6, Math.round(bh));
-    const e0 = Math.max(1, Math.min(edgePx, Math.min(W, H) / 2 - 2));
-    const hb = Math.max(0.6, Math.min(bandPx / 2, Math.floor(Math.min(W, H) / 4)));
-    const mk = W + 'x' + H + 'x' + e0.toFixed(1) + 'x' + hb.toFixed(1);
-    if (!EDGE_FB.mask) EDGE_FB.mask = document.createElement('canvas');
-    if (!EDGE_FB.tmp) EDGE_FB.tmp = document.createElement('canvas');
-    const mask = EDGE_FB.mask, tmp = EDGE_FB.tmp;
-    if (EDGE_FB.mkey !== mk) {
-      mask.width = W; mask.height = H;
-      const mg = mask.getContext('2d');
-      mg.globalCompositeOperation = 'source-over';
-      mg.clearRect(0, 0, W, H);
-      mg.fillStyle = '#fff';
-      mg.fillRect(0, 0, W, H);
-      mg.globalCompositeOperation = 'destination-in';
-      const pass = (horiz, p1, p2, rise, len) => {
-        const g = horiz ? mg.createLinearGradient(0, 0, len, 0) : mg.createLinearGradient(0, 0, 0, len);
-        const f1 = Math.max(0, Math.min(1, p1 / len)), f2 = Math.max(0, Math.min(1, p2 / len));
-        const a0 = rise ? 0 : 1, a1 = rise ? 1 : 0;
-        g.addColorStop(0, 'rgba(255,255,255,' + a0 + ')');
-        g.addColorStop(f1, 'rgba(255,255,255,' + a0 + ')');
-        g.addColorStop(f2, 'rgba(255,255,255,' + a1 + ')');
-        g.addColorStop(1, 'rgba(255,255,255,' + a1 + ')');
-        mg.fillStyle = g;
-        mg.fillRect(0, 0, W, H);
-      };
-      // 横向：左缘由 0 升到 1（画布最外一圈是 0），右缘由 1 落回 0；两次整幅填充相乘
-      pass(true, e0 - hb, e0 + hb, true, W);
-      pass(true, W - e0 - hb, W - e0 + hb, false, W);
-      pass(false, e0 - hb, e0 + hb, true, H);
-      pass(false, H - e0 - hb, H - e0 + hb, false, H);
-      EDGE_FB.mkey = mk;
-    }
-    tmp.width = W; tmp.height = H;
-    const tg = tmp.getContext('2d');
-    tg.globalCompositeOperation = 'source-over';
-    tg.clearRect(0, 0, W, H);
-    // 整体往外放一点点：丝在格边上本来就稀，放大后边界处借到的是里面更密的丝，
-    // 两块羽化叠起来正好补满，缝上不会留一条暗线（幅度只有几个世界单位，看不出形变）
-    const sc = Math.max(1, Math.min(1.25, outScale || 1));
-    tg.drawImage(img, -(W * sc - W) / 2, -(H * sc - H) / 2, W * sc, H * sc);
-    tg.globalCompositeOperation = 'destination-in';
-    tg.drawImage(mask, 0, 0);
-    tg.globalCompositeOperation = 'source-over';
-    ctx.drawImage(tmp, bx, by, bw, bh);
-  }
-
   // 只去缝用：花纹尺寸不变，只是丝不再被这一格的矩形收口（贴边那圈亮边就是它撞出来的）
   function edgeFreeSrc(agent) {
     const sig = [agent.w, agent.h, agent.seed, agent.worms, agent.coverage, agent.strata,
@@ -9178,11 +9127,11 @@ showSplitPreview();
         ctx.rect(v.px(agent.x - agent.w / 2), v.py(agent.y - agent.h / 2),
           Math.max(1, agent.w * v.s), Math.max(1, agent.h * v.s));
       } else if (edgeMode) {
-        // 只去缝：裁切框外放半条羽化带宽，缝两边各让一段 alpha 渐变互相叠住——
-        // 两条渐变加起来正好是 1，所以既没有白框、也没有黑缝，看着就是两张丝挨在一起。
-        const epd = (EDGE_FEATH / 2) * v.s;
-        ctx.rect(v.px(agent.x - agent.w / 2) - epd, v.py(agent.y - agent.h / 2) - epd,
-          Math.max(1, agent.w * v.s) + epd * 2, Math.max(1, agent.h * v.s) + epd * 2);
+        // 只去缝：硬边。裁切框就是这一块自己的矩形，边界对齐整数像素，
+        // 相邻两块的边落在同一个像素上，不羽化也不留缝。
+        const ex0 = Math.round(v.px(agent.x - agent.w / 2)), ex1 = Math.round(v.px(agent.x + agent.w / 2));
+        const ey0 = Math.round(v.py(agent.y - agent.h / 2)), ey1 = Math.round(v.py(agent.y + agent.h / 2));
+        ctx.rect(ex0, ey0, Math.max(1, ex1 - ex0), Math.max(1, ey1 - ey0));
       } else {
         ctx.rect(v.px(ox - cw / 2 + gap / 2), v.py(oy - ch / 2 + gap / 2),
           Math.max(1, (cw - gap) * v.s), Math.max(1, (ch - gap) * v.s));
@@ -9265,7 +9214,7 @@ showSplitPreview();
           const exX = cw + eo * 2, exY = ch + eo * 2;
           const bx = v.px(ox - exX / 2), by = v.py(oy - exY / 2), bw = exX * v.s, bh = exY * v.s;
           if (edgeMode) {
-            edgeFeatherBlit(ctx, img, bx, by, bw, bh, eo * v.s, EDGE_FEATH * v.s, 1 + 3.4 / Math.max(60, cw));
+            ctx.drawImage(img, bx, by, bw, bh);
           } else {
             const crossK = silkCrossLevel();
             if (crossK < 0.995) {
