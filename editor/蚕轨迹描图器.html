@@ -7915,6 +7915,16 @@ showSplitPreview();
     for (let k = 0; k < islands.length; k++) {
       if (Math.hypot(x - islands[k].cx, y - islands[k].cy) < islands[k].r + m) return false;
     }
+    // 并集织场里带过来的额外孔洞（接成一片：每格自己的圆孔 / 缺口）
+    if (Array.isArray(cell.holes)) {
+      for (let k = 0; k < cell.holes.length; k++) {
+        const h = cell.holes[k];
+        if (h.pts) {
+          const cv = h._curve || (h._curve = weaveNotchCurve(h.pts));
+          if (weaveInPoly(cv, x, y) || weavePolyDist(cv, x, y) < m) return false;
+        } else if (Math.hypot(x - h.cx, y - h.cy) < h.r + m) return false;
+      }
+    }
     return true;
   }
 
@@ -7982,6 +7992,18 @@ showSplitPreview();
     for (let k = 0; k < islands.length; k++) {
       const isl = islands[k];
       d = Math.max(d, -(Math.hypot(x - isl.cx, y - isl.cy) - isl.r));
+    }
+    if (Array.isArray(cell.holes)) {
+      for (let k = 0; k < cell.holes.length; k++) {
+        const h = cell.holes[k];
+        if (h.pts) {
+          const cv = h._curve || (h._curve = weaveNotchCurve(h.pts));
+          const nd = weavePolyDist(cv, x, y);
+          d = Math.max(d, weaveInPoly(cv, x, y) ? nd : -nd);
+        } else {
+          d = Math.max(d, -(Math.hypot(x - h.cx, y - h.cy) - h.r));
+        }
+      }
     }
     return d;
   }
@@ -8356,6 +8378,12 @@ showSplitPreview();
       for (let ii = 0; ii < islands.length; ii++) {
         if (Math.hypot(px0 - islands[ii].cx, py0 - islands[ii].cy) < islands[ii].r * 0.55) { bad = true; break; }
       }
+      if (!bad && Array.isArray(cell.holes)) {
+        for (let ii = 0; ii < cell.holes.length; ii++) {
+          const h = cell.holes[ii];
+          if (!h.pts && Math.hypot(px0 - h.cx, py0 - h.cy) < h.r * 0.55) { bad = true; break; }
+        }
+      }
       if (!bad) break;
       px0 += (rng() - 0.5) * W * 0.16;
       py0 += (rng() - 0.5) * H * 0.16;
@@ -8717,14 +8745,22 @@ showSplitPreview();
     // 缓存 key 额外带上密度与丝量；改任一项都必须重织
     const cellKey = ix + ',' + iy;
     const dens = resolveUnitStyle(agent).pathBoost * unitQuantity(agent);
-    const key = cellKey + ',' + dens.toFixed(2);
+    const custom = agent.custom || (agent.custom = { walls: {}, paths: {}, shapes: {} });
+    if (!custom.shapes) custom.shapes = {};
+    const manual = custom.shapes[cellKey];
+    // r49w：接成一片时整组共用一张并集织场，但每一格自己的孔洞要全部保留下来。
+    // 这些孔按「并集坐标系」预先换算好，塞进 manual.holes 交给这张大织场一起躲开。
+    const extraHoles = (manual && Array.isArray(manual.holes) && manual.holes.length) ? manual.holes : null;
+    const holesSig = extraHoles
+      ? '|h' + extraHoles.map(h => h.pts
+        ? 'p' + h.pts.length + ':' + Math.round(h.pts.reduce((s2, q) => s2 + q.x, 0)) + ':' + Math.round(h.pts.reduce((s2, q) => s2 + q.y, 0))
+        : 'c' + Math.round(h.cx) + ':' + Math.round(h.cy) + ':' + Math.round(h.r)).join(';')
+      : '';
+    const key = cellKey + ',' + dens.toFixed(2) + holesSig;
     const hit = agent.cache.get(key);
     if (hit) return hit;
     const seed = (((agent.seed >>> 0) ^ Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263)) ^ 0x9e3779b9) >>> 0;
     const cell0 = weaveCellSpecAt(agent, ix, iy, seed);
-    const custom = agent.custom || (agent.custom = { walls: {}, paths: {}, shapes: {} });
-    if (!custom.shapes) custom.shapes = {};
-    const manual = custom.shapes[cellKey];
     const cell = {
       edgeMargin: agent.__freeEdge ? Math.max(cell0.w, cell0.h) * 0.25 + 12 : 0,
       w: cell0.w, h: cell0.h, shape: cell0.shape, ix, iy,
@@ -8732,6 +8768,7 @@ showSplitPreview();
       notchPts: manual && manual.notchPts ? manual.notchPts : cell0.notchPts,
       islands: manual && manual.islands ? manual.islands : cell0.islands,
       outline: cell0.outline,
+      holes: extraHoles,
     };
     const customWalls = (custom.walls && custom.walls[cellKey]) || [];
     const customPaths = (custom.paths && custom.paths[cellKey]) || [];
@@ -8769,7 +8806,8 @@ showSplitPreview();
     const edgeMargin = Math.max(0, Number(cell.edgeMargin) || 0);
     const cwHalf = Math.max(8, cell.w / 2 - 1.2 + edgeMargin), chHalf = Math.max(8, cell.h / 2 - 1.2 + edgeMargin);
     const holeCenters = (cell.islands || (cell.island ? [cell.island] : []))
-      .concat(cell.notch ? [cell.notch] : []);
+      .concat(cell.notch ? [cell.notch] : [])
+      .concat((Array.isArray(cell.holes) ? cell.holes : []).filter(h => !h.pts));
     const clampCell = (x, y) => {
       let qx = Math.max(-cwHalf, Math.min(cwHalf, x));
       let qy = Math.max(-chHalf, Math.min(chHalf, y));
@@ -8789,7 +8827,8 @@ showSplitPreview();
     };
     const nearHole = (x, y) => holeCenters.some(o => Math.hypot(x - o.cx, y - o.cy) < o.r + 9)
       || (cell.outline && cell.outline.length >= 3 && weavePolyDist(cell.outline, x, y) < 9)
-      || (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3 && weavePolyDist(cell._notchCurve || (cell._notchCurve = weaveNotchCurve(cell.notchPts)), x, y) < 9);
+      || (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3 && weavePolyDist(cell._notchCurve || (cell._notchCurve = weaveNotchCurve(cell.notchPts)), x, y) < 9)
+      || (Array.isArray(cell.holes) && cell.holes.some(h => h.pts && weavePolyDist(h._curve || (h._curve = weaveNotchCurve(h.pts)), x, y) < 9));
     paths.forEach(p => {
       const src = p.pts;
       const out = [];
@@ -9067,19 +9106,42 @@ showSplitPreview();
     boxes.forEach(o => { l = Math.min(l, o.l); r = Math.max(r, o.r); t = Math.min(t, o.t); b = Math.max(b, o.b); });
     const w = Math.max(40, r - l), h = Math.max(40, b - t);
     const src = mates[0];
+    const mcx = (l + r) / 2, mcy = (t + b) / 2;
+    // 接成一片：并集尺寸织一整张连续的丝，但每格自己的孔洞（圆孔 / 缺口）一个都不丢，
+    // 按它在并集坐标系里的真实位置带过去，让这张大织场一起躲开。
+    // （以前 master 的 custom 是空对象，一接成一片孔洞就全没了。）
+    const holes = [];
+    mates.forEach(a => {
+      const cellA = (weaveCellContent(a, 0, 0) || {}).cell || {};
+      const dx = a.x - mcx, dy = a.y - mcy;
+      const isl = cellA.islands || (cellA.island ? [cellA.island] : []);
+      isl.forEach(o => holes.push({ cx: o.cx + dx, cy: o.cy + dy, r: o.r }));
+      if (cellA.notch) holes.push({ cx: cellA.notch.cx + dx, cy: cellA.notch.cy + dy, r: cellA.notch.r });
+      if (Array.isArray(cellA.notchPts) && cellA.notchPts.length >= 3) {
+        holes.push({ pts: cellA.notchPts.map(q => ({ x: q.x + dx, y: q.y + dy })) });
+      }
+    });
+    const holesKey = holes.map(h => h.pts
+      ? 'p' + h.pts.length + ':' + Math.round(h.pts.reduce((s2, q) => s2 + q.x, 0)) + ':' + Math.round(h.pts.reduce((s2, q) => s2 + q.y, 0))
+      : 'c' + Math.round(h.cx) + ':' + Math.round(h.cy) + ':' + Math.round(h.r)).join(';');
     const key = agent.seam + '|' + mates.map(a => a.id).join(',') + '|' + Math.round(l) + ',' + Math.round(t) + ','
       + Math.round(w) + ',' + Math.round(h) + '|' + (src.seed >>> 0) + '|' + Math.round((src.tone || 1) * 100)
-      + '|' + Math.round((src.coverage || 0.55) * 100) + '|' + Math.round((src.worms || 6)) + '|' + Math.round((src.strata || 1));
+      + '|' + Math.round((src.coverage || 0.55) * 100) + '|' + Math.round((src.worms || 6)) + '|' + Math.round((src.strata || 1))
+      + '|' + holesKey;
     const hit = SEAM.map.get(agent.seam);
     if (hit && hit.key === key) return hit.info;
     const master = Object.assign({}, src, {
       id: '__seam__' + agent.seam,
-      x: (l + r) / 2, y: (t + b) / 2,
+      x: mcx, y: mcy,
       w: w, h: h,
       gap: 0, tileField: false, rot: 0, seam: null,
       cache: new Map(),
       custom: {}
     });
+    if (holes.length) {
+      // 给了「多孔」就不再让并集织场自己随机长孔，孔洞完全由每一格自己的孔决定
+      master.custom.shapes = { '0,0': { notch: null, notchPts: null, islands: [], holes: holes } };
+    }
     const content = weaveCellContent(master, 0, 0);
     if (content.blank) content.blank = false;
     let umin = 1;
@@ -9203,6 +9265,37 @@ showSplitPreview();
       if (lu <= 0) { ctx.restore(); return; }
       const light = Math.max(0.16, Math.min(0.86, (0.30 + weaveHash01(i, j, seed + 101) * 0.30) * tone));
       ctx.globalCompositeOperation = look.comp;
+      // 接成一片：整组只有一份并集织场的丝，但这一块只负责自己那一格。
+      // 以前每块都从头到尾重画整张并集的所有丝，6 块就是 6 倍开销（实测 240 帧从 10 s 涨到 48 s）。
+      // 先把压根碰不到这一格的丝筛掉：画面完全一样，开销回到 ~1 倍。
+      let seamPaths = null;
+      if (seam) {
+        const padP = Math.max(6, 1.15 * look.width * v.s * 2 + 4);
+        const lx0 = agent.x - agent.w / 2 - ox - padP, lx1 = agent.x + agent.w / 2 - ox + padP;
+        const ly0 = agent.y - agent.h / 2 - oy - padP, ly1 = agent.y + agent.h / 2 - oy + padP;
+        seamPaths = [];
+        for (let pi = 0; pi < content.paths.length; pi++) {
+          const pp = content.paths[pi];
+          let bb = pp.__bb;
+          if (!bb) {
+            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+            for (let k = 0; k < pp.pts.length; k++) {
+              const q = pp.pts[k];
+              if (q.x < x0) x0 = q.x;
+              if (q.x > x1) x1 = q.x;
+              if (q.y < y0) y0 = q.y;
+              if (q.y > y1) y1 = q.y;
+            }
+            bb = pp.__bb = { x0: x0, y0: y0, x1: x1, y1: y1 };
+          }
+          if (bb.x1 < lx0 || bb.x0 > lx1 || bb.y1 < ly0 || bb.y0 > ly1) continue;
+          seamPaths.push(pi);
+        }
+      }
+      const eachIdx = (fn) => {
+        if (seamPaths) { for (let k = 0; k < seamPaths.length; k++) fn(seamPaths[k], content.paths[seamPaths[k]]); }
+        else { for (let k = 0; k < content.paths.length; k++) fn(k, content.paths[k]); }
+      };
       const strata = Math.max(1, Math.min(3, Math.round(agent.strata || 1)));
       if (lu >= 0.9999 && !habitat.composing) {
         // 已织满的块用离屏位图（每帧不再重画上万点）
@@ -9273,7 +9366,7 @@ showSplitPreview();
         let head = null;
         // 柔雾只铺一遍（全量，不做位移），负责丝层的空气感；柔度越高越宽越厚
         g.lineWidth = baseW * (1.6 + 1.9 * softK) * kLW;
-        content.paths.forEach((p, idx) => {
+        eachIdx((idx, p) => {
           const start = cum.acc[idx];
           if (start >= target) return;
           g.strokeStyle = 'rgba(' + look.rgb + ',' + silkAlpha(light * (0.03 + 0.035 * softK), 0.02, 0.16, look.gain).toFixed(2) + ')';
@@ -9287,7 +9380,7 @@ showSplitPreview();
           const off = (L - (strata - 1) / 2) * cw * 0.006;
           const lTone = 1 - L * 0.12;
           g.lineWidth = baseW * (1 - L * 0.08) * kLW;
-          content.paths.forEach((p, idx) => {
+          eachIdx((idx, p) => {
             if ((p.b != null ? p.b : idx) % strata !== L) return;
             const start = cum.acc[idx];
             if (start >= target) return;
@@ -9375,6 +9468,41 @@ showSplitPreview();
         keep(bx + nx * (p + 0.6), by + ny * (p + 0.6), bd);
       }
     }
+    if (Array.isArray(cell.holes)) {
+      for (let k = 0; k < cell.holes.length; k++) {
+        const h = cell.holes[k];
+        if (!h.pts) {
+          const dx = x - h.cx, dy = y - h.cy;
+          const d = Math.hypot(dx, dy) || 1e-6;
+          if (d < h.r + p) {
+            const rr = h.r + p + 0.6;
+            keep(h.cx + dx / d * rr, h.cy + dy / d * rr, Math.abs(h.r + p - d));
+          }
+          continue;
+        }
+        const pts = h._curve || (h._curve = weaveNotchCurve(h.pts));
+        const inside = weaveInPoly(pts, x, y);
+        const d = weavePolyDist(pts, x, y);
+        if (inside || d < p) {
+          let bx = x, by = y, bd = Infinity;
+          for (let i = 0, n = pts.length; i < n; i++) {
+            const q0 = pts[i], q1 = pts[(i + 1) % n];
+            const ex = q1.x - q0.x, ey = q1.y - q0.y;
+            const L2 = ex * ex + ey * ey || 1;
+            let t = ((x - q0.x) * ex + (y - q0.y) * ey) / L2;
+            t = Math.max(0, Math.min(1, t));
+            const cx1 = q0.x + ex * t, cy1 = q0.y + ey * t;
+            const dd = Math.hypot(x - cx1, y - cy1);
+            if (dd < bd) { bd = dd; bx = cx1; by = cy1; }
+          }
+          let nx = x - bx, ny = y - by;
+          const L = Math.hypot(nx, ny) || 1e-6;
+          nx /= L; ny /= L;
+          if (inside) { nx = -nx; ny = -ny; }
+          keep(bx + nx * (p + 0.6), by + ny * (p + 0.6), bd);
+        }
+      }
+    }
     // 只去缝档（cell.edgeMargin > 0）：不把丝贴回格子框，贴出来的那圈亮边就是用户说的白框
     const em = Math.max(0, Number(cell.edgeMargin) || 0);
     const hw = cell.w / 2 - p + em, hh = cell.h / 2 - p + em;
@@ -9422,6 +9550,36 @@ showSplitPreview();
         const gap = Math.max(0, 6 - bd);
         if (!best || gap > best.gap) {
           best = { nx, ny, cx: bx + nx * 2, cy: by + ny * 2, gap, ccx: bx, ccy: by, r: 0 };
+        }
+      }
+    }
+    if (Array.isArray(cell.holes)) {
+      for (let k = 0; k < cell.holes.length; k++) {
+        const h = cell.holes[k];
+        if (!h.pts) { test(h.cx, h.cy, h.r); continue; }
+        const pts = h._curve || (h._curve = weaveNotchCurve(h.pts));
+        const inside = weaveInPoly(pts, x, y);
+        const d = weavePolyDist(pts, x, y);
+        if (inside || d < 6) {
+          let bx = x, by = y, bd = Infinity;
+          for (let i = 0, n = pts.length; i < n; i++) {
+            const q0 = pts[i], q1 = pts[(i + 1) % n];
+            const ex = q1.x - q0.x, ey = q1.y - q0.y;
+            const L2 = ex * ex + ey * ey || 1;
+            let t = ((x - q0.x) * ex + (y - q0.y) * ey) / L2;
+            t = Math.max(0, Math.min(1, t));
+            const cx1 = q0.x + ex * t, cy1 = q0.y + ey * t;
+            const dd = Math.hypot(x - cx1, y - cy1);
+            if (dd < bd) { bd = dd; bx = cx1; by = cy1; }
+          }
+          let nx = x - bx, ny = y - by;
+          const L = Math.hypot(nx, ny) || 1e-6;
+          nx /= L; ny /= L;
+          if (inside) { nx = -nx; ny = -ny; }
+          const gap2 = Math.max(0, 6 - bd);
+          if (!best || gap2 > best.gap) {
+            best = { nx, ny, cx: bx + nx * 2, cy: by + ny * 2, gap: gap2, ccx: bx, ccy: by, r: 0 };
+          }
         }
       }
     }
