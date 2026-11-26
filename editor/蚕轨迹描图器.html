@@ -9072,7 +9072,9 @@ showSplitPreview();
     // 一个织网单元 = 一格（手动放多少就有多少块）；只有显式开启 tileField 才整场铺格
     const cells = (seam || !agent.tileField) ? [[0, 0]] : weaveVisibleCells(agent, v);
     // 无缝组按"整片里织得最少的那块"推进：几块在同一张织场上一根丝一根丝地长，不会有的已经织满
-    const u = Math.max(0, Math.min(1, seam ? seam.u : (agent.u || 0)));
+    const u = Math.max(0, Math.min(1, seam
+      ? (habitat.agents.indexOf(agent) >= 0 ? seam.u : (agent.u || 0))
+      : (agent.u || 0)));
     const seed = src.seed >>> 0;
     // r49：这一块实际生效的样式（单元覆盖优先，否则全局默认）
     const look = silkLookOf(resolveUnitStyle(src));
@@ -14053,6 +14055,7 @@ showSplitPreview();
       ? scene.range : null;
     const growFrac = 0.42, holdFrac = 0.88;
     const uFloor = 0.62;
+    const queue = [];
     scene.units.forEach((u, i) => {
       let agent = cache && cache[i];
       if (!agent) {
@@ -14081,8 +14084,19 @@ showSplitPreview();
         const delay = ((u.order != null ? u.order : i) % 7) * 0.045;
         agent.u = Math.max(0, Math.min(1, (T - delay) / (1 - delay || 1)));
       }
-      weaveDraw(g, agent, v);
+      queue.push(agent);
     });
+    // 无缝组：整片按组内最小的 u 推进（和场地里同一口径），导出不会出现一半已织满、一半刚起头
+    if (queue.some(a => a.seam)) {
+      const seamMin = new Map();
+      queue.forEach(a => {
+        if (!a.seam) return;
+        const cur = seamMin.has(a.seam) ? seamMin.get(a.seam) : 1;
+        seamMin.set(a.seam, Math.min(cur, a.u));
+      });
+      queue.forEach(a => { if (a.seam && seamMin.has(a.seam)) a.u = seamMin.get(a.seam); });
+    }
+    queue.forEach(a => weaveDraw(g, a, v));
     g.restore();
     } finally {
       habitat.composing = false;
