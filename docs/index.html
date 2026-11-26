@@ -7618,8 +7618,10 @@ showSplitPreview();
     showHeadDot: false,
     // 丝线绘制方式：true = 中点二次贝塞尔（曲线），false = 折线（原样）
     silkBezier: true,
-    // 柔度：丝外围那层柔雾的宽度/浓度。0 = 干净硬线，1 = 现状，3 = 毛茸茸的柔丝
+    // 柔度：丝外围那层柔雾的宽度/浓度。0 = 干净硬线，1 = 略软，3 = 毛茸茸的柔丝
     silkSoft: 0,
+    // 柔度是否被用户亲手调过：没调过的（旧工程里的 1/2）每次载入都归到 0，调过的就照他存的走
+    silkSoftUser: false,
     silkCross: 1,
     // r49：模拟编排 / 时间区间。rangeEnd=null 表示「还没定」，此时跟随建议值；一旦填写或点采用就锁定
     timeline: { mode: 'all', interval: 2, speed: 0.2, rangeStart: 0, rangeEnd: null, tail: 3 },
@@ -11378,6 +11380,7 @@ showSplitPreview();
       silkSoftEl.value = String(silkSoftLevel());
       silkSoftEl.addEventListener('input', () => {
         habitat.silkSoft = parseInt(silkSoftEl.value, 10);
+        habitat.silkSoftUser = true;
         const lab = document.getElementById('habSilkSoftVal');
         if (lab) lab.textContent = String(silkSoftLevel());
         invalidateWeaveSilk('raster');
@@ -13416,6 +13419,7 @@ showSplitPreview();
       showHeadDot: !!habitat.showHeadDot,
       silkBezier: silkBezierOn(),
       silkSoft: silkSoftLevel(),
+      silkSoftUser: !!habitat.silkSoftUser,
       silkCross: silkCrossLevel(),
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
@@ -13749,6 +13753,7 @@ showSplitPreview();
       showHeadDot: !!habitat.showHeadDot,
       silkBezier: silkBezierOn(),
       silkSoft: silkSoftLevel(),
+      silkSoftUser: !!habitat.silkSoftUser,
       silkCross: silkCrossLevel(),
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
@@ -14783,14 +14788,10 @@ showSplitPreview();
     const curveSel = document.getElementById('habSilkCurve');
     if (curveSel) curveSel.value = silkBezierOn() ? 'bez' : 'line';
     habitat.silkSoft = Number.isFinite(data.silkSoft) ? data.silkSoft : 0;
-    // r49z3e：一次性把旧默认残留的柔度 1/2 归到 0（默认就是干净的硬线）；3 视为故意设置，保留
-    try {
-      const softMigKey = 'silkworm-habitat-softdefault0/v1';
-      if (!localStorage.getItem(softMigKey)) {
-        if (habitat.silkSoft === 1 || habitat.silkSoft === 2) habitat.silkSoft = 0;
-        localStorage.setItem(softMigKey, '1');
-      }
-    } catch (e) {}
+    // 柔度默认 0：旧工程/旧存档里的 1、2 是上一版默认值的残留，不带标记就每次都归 0；
+    // 只要用户亲手拉过一次滑块（silkSoftUser=true），存下来多少就还原多少，不会反复被改
+    habitat.silkSoftUser = !!data.silkSoftUser;
+    if (!habitat.silkSoftUser && (habitat.silkSoft === 1 || habitat.silkSoft === 2)) habitat.silkSoft = 0;
     habitat.silkCross = Number.isFinite(data.silkCross) ? Math.max(0, Math.min(1, data.silkCross)) : 1;
     const crossEl2 = document.getElementById('habSilkCross');
     if (crossEl2) crossEl2.value = String(silkCrossLevel());
