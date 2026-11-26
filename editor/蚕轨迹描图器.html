@@ -4608,7 +4608,7 @@ if (window.parent !== window) {
       </div>
       <p class="hab-note" id="habVidRatioNote">屏体是 4:3（约 3.14 m × 2.36 m）。按 4:3 录，上屏才不会左右加黑边。</p>
       <button type="button" id="habVidRecord">录制并下载视频（WebM）</button>
-      <p class="hab-note" id="habVidStatus">还没录制。画面越密、分辨率越高，录制越容易掉帧。</p>
+      <p class="hab-note" id="habVidStatus">还没录制。导出走逐帧编码，不实时录制，机器忙也不会丢帧。</p>
       <h3>网页端导出图片</h3>
       <p class="hab-note">用上面同一个分辨率，导出当前这一帧（成品块群，不含蚕体和编辑手柄）。</p>
       <button type="button" id="habImgExport">导出当前画面 PNG</button>
@@ -9198,15 +9198,17 @@ showSplitPreview();
         });
       }
       if (agent.bodyVisible === false) { ctx.restore(); return; }
-      const delay = weaveHash01(i, j, seed) * 0.18;
+      const delay = weaveHash01(i, j, seed) * 0.06;
       const lu = Math.max(0, Math.min(1, (u - delay) / (1 - delay || 1)));
       if (lu <= 0) { ctx.restore(); return; }
       const light = Math.max(0.16, Math.min(0.86, (0.30 + weaveHash01(i, j, seed + 101) * 0.30) * tone));
       ctx.globalCompositeOperation = look.comp;
       const strata = Math.max(1, Math.min(3, Math.round(agent.strata || 1)));
-      if (lu >= 0.995) {
+      if (lu >= 0.9999 && !habitat.composing) {
         // 已织满的块用离屏位图（每帧不再重画上万点）
-        const pxW = seam ? Math.round(Math.max(640, Math.min(2048, cw * Math.min(4, v.s)))) : 512;
+        // 位图宽度 = 这一格在目标画面上的实际像素宽（下限 256、上限 2048）。
+        // 以前固定 512，2K/3K 导出时块「织满」那一刻会从矢量掉成糊图，看着像卡一下。
+        const pxW = Math.round(Math.max(256, Math.min(2048, cw * Math.max(1, v.s))));
         const eo = edgeMode ? 14 : 0;
         const img = weaveRasterFor(edgeSrc || src, content, cw, ch, light, tone, strata, pxW, eo);
         if (seam) {
@@ -9238,6 +9240,13 @@ showSplitPreview();
             }
             ctx.drawImage(strandImg, bx, by, bw, bh);
             if (edgeClipBox) ctx.restore();
+            // 生长阶段压了交叉亮度、位图阶段也得压，否则织满那一帧会突然亮一下
+            const crossKr = silkCrossLevel();
+            if (crossKr < 0.995) {
+              silkCrossCap(ctx, content, light, look, crossKr,
+                v.px(ox - cw / 2) + gap / 2 * v.s, v.py(oy - ch / 2) + gap / 2 * v.s,
+                Math.max(1, (cw - gap) * v.s), Math.max(1, (ch - gap) * v.s));
+            }
           } else {
             const crossK = silkCrossLevel();
             if (crossK < 0.995) {
@@ -13472,6 +13481,7 @@ showSplitPreview();
   // ===== 载入工程（场地场景）/ 自动保存 / 下次打开自动恢复 =====
   const AUTO_KEY = 'silkworm-habitat-autosave/v1';
   let autoSavedAt = 0;
+  let autoReady = false;   // 恢复流程跑完之前不写盘，避免空场地盖掉旧存档
   function syncAutoStat(msg) {
     const el = document.getElementById('habAutoStat');
     if (!el) return;
@@ -13483,8 +13493,19 @@ showSplitPreview();
   }
   function autoSaveNow() {
     try {
+      if (!autoReady) return;
       const doc = exportHabitat();
       if (!doc) return;
+      // 空场地（一个单元都没有）不许覆盖已有的非空存档
+      if (!(doc.agents || []).length) {
+        const old = localStorage.getItem(AUTO_KEY);
+        if (old) {
+          try {
+            const p = JSON.parse(old);
+            if (p && p.doc && (p.doc.agents || []).length) return;
+          } catch (err) { /* 旧存档坏了才允许写 */ }
+        }
+      }
       localStorage.setItem(AUTO_KEY, JSON.stringify({ t: Date.now(), doc }));
       autoSavedAt = Date.now();
       syncAutoStat();
@@ -13545,6 +13566,7 @@ showSplitPreview();
         ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + '）。', 'ok');
       syncAutoStat();
     } catch (err) { /* 损坏就当作没有 */ }
+    autoReady = true;
   }, 500);
   document.getElementById('habImportTraj').addEventListener('click', importMeasuredTrajectories);
   document.getElementById('habRef').addEventListener('click', () => {
@@ -14448,6 +14470,11 @@ showSplitPreview();
       } catch (err) { /* 试下一个 */ }
     }
     if (!cfg) return null;
+    // 恒定码率：关键帧不单独「重新压一遍」，画质不会每秒一起伏（那种起伏看着也像卡）
+    try {
+      const supC = await VideoEncoder.isConfigSupported(Object.assign({}, cfg, { bitrateMode: 'variable' }));
+      if (supC && supC.supported) cfg = supC.config;
+    } catch (err) { /* 不支持就保持默认 */ }
 
     const cv = document.createElement('canvas');
     cv.width = W; cv.height = H;
@@ -14485,7 +14512,9 @@ showSplitPreview();
       error: (e) => { throw e; },
     });
     encoder.configure(cfg);
-    const keyEvery = Math.max(1, Math.round(fps));
+    // 关键帧稀疏到 20 秒一个（短片就只有片头这一个）。关键帧那一帧要吃一大口码率，紧跟的几帧
+    // 画质就会掉一档，成片里看着就是「一卡一卡」；把关键帧拉开，整片码率就平稳了。
+    const keyEvery = Math.max(1, Math.round(fps * 20));
 
     for (let i = 0; i < total; i++) {
       const T = total <= 1 ? 1 : i / (total - 1);
@@ -14494,7 +14523,7 @@ showSplitPreview();
         timestamp: Math.round(i * 1e6 / fps),
         duration: Math.round(1e6 / fps),
       });
-      encoder.encode(frame, { keyFrame: i % keyEvery === 0 });
+      encoder.encode(frame, { keyFrame: i === 0 || (keyEvery > 0 && i % keyEvery === 0) });
       frame.close();
       // 编码跟不上就等一会儿：宁可导出久一点，也不丢帧
       while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 0));
@@ -14534,6 +14563,10 @@ showSplitPreview();
       } catch (e) { /* 下一个 */ }
     }
     if (!cfg) throw new Error('浏览器没有可用的 VP9/VP8 编码器');
+    try {
+      const supC = await VideoEncoder.isConfigSupported(Object.assign({}, cfg, { bitrateMode: 'variable' }));
+      if (supC && supC.supported) cfg = supC.config;
+    } catch (err) { /* 不支持就保持默认 */ }
 
     const cv = document.createElement('canvas');
     cv.width = W; cv.height = H;
@@ -14550,11 +14583,13 @@ showSplitPreview();
       error: (e) => { throw e; },
     });
     encoder.configure(cfg);
-    const keyEvery = Math.max(1, Math.round(fps));
+    // 关键帧稀疏到 20 秒一个（短片就只有片头这一个）。关键帧那一帧要吃一大口码率，紧跟的几帧
+    // 画质就会掉一档，成片里看着就是「一卡一卡」；把关键帧拉开，整片码率就平稳了。
+    const keyEvery = Math.max(1, Math.round(fps * 20));
     for (let i = 0; i < total; i++) {
       drawFn(g, total <= 1 ? 1 : i / (total - 1), W, H);
       const frame = new VideoFrame(cv, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
-      encoder.encode(frame, { keyFrame: i % keyEvery === 0 });
+      encoder.encode(frame, { keyFrame: i === 0 || (keyEvery > 0 && i % keyEvery === 0) });
       frame.close();
       while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 0));
       if (onProgress && (i % 5 === 0 || i === total - 1)) onProgress(i + 1, total);
