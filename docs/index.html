@@ -371,6 +371,7 @@
     color: #84918D; margin: 12px 0 8px;
   }
   .hab-side .row label { flex-basis: 52px; color: #84918D; }
+  #habSilkCrossRow label { flex-basis: 58px; font-size: 11px; white-space: nowrap; }
   .hab-side .row label:has(input[type="checkbox"]) { flex-basis: auto; display: flex; gap: 6px; align-items: center; color: #E6ECE9; }
   #habitat button { background: transparent; color: #E6ECE9; border-color: rgba(230,236,233,0.16); }
   #habitat button:hover { border-color: #E6ECE9; color: #E6ECE9; }
@@ -3841,7 +3842,7 @@ if (window.parent !== window) {
         <option value="line">折线（原样）</option>
       </select></div>
       <div class="row"><label>丝线柔度</label><input type="range" id="habSilkSoft" min="0" max="3" step="1" value="1"><span class="hab-note" id="habSilkSoftVal" style="margin:0">1</span></div>
-      <div class="row"><label>交叉处亮度</label><input type="range" id="habSilkCross" min="0" max="1" step="0.05" value="1"><span class="hab-note" id="habSilkCrossVal" style="margin:0">1.00</span></div>
+      <div class="row" id="habSilkCrossRow"><label>交叉处亮度</label><input type="range" id="habSilkCross" min="0" max="1" step="0.05" value="1"><span class="hab-note" id="habSilkCrossVal" style="margin:0">1.00</span></div>
       <p class="hab-note"><b>1.00 = 不干预</b>（丝照原来那样叠）。往左拉＝把「几根丝叠在一起才亮出来的白斑」压下去：<b>0.50</b> 只削最亮的那四分之一，<b>0.00</b> 压到中灰（交叉不再比丝亮）。只压亮点、不动一根根的丝，所以丝亮度滑条怎么调它都有效。</p>
       <p class="hab-note">和描线器里的「平滑强度」是同一个数：上面改，这里跟着改；这里改，上面也回写。</p>
       <label class="row"><input type="checkbox" id="habHeadDot"> 显示吐丝头白点（只是编辑提示，不进成品）</label>
