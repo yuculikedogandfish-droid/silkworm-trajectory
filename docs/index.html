@@ -986,6 +986,7 @@
         <select id=&quot;matSel&quot; onchange=&quot;draw()&quot;>
           <option value=&quot;silk&quot; selected>蚕丝光泽</option>
           <option value=&quot;truesilk&quot;>真丝·缎面（各向异性高光）</option>
+          <option value=&quot;silk3d&quot;>真丝·3D 管（仅预览）</option>
           <option value=&quot;rawsilk&quot;>生丝·原丝（哑光绒）</option>
           <option value=&quot;ribbon&quot;>丝带</option>
           <option value=&quot;line&quot;>细线</option>
@@ -1078,6 +1079,7 @@
 </main>
 </div>
 
+<script src=&quot;vendor/three.min.js&quot;></script>
 <script>
 const STORAGE_KEY = 'SILKWORM_PREVIEW_V1';
 const state = {
@@ -3684,14 +3686,163 @@ if (window.parent !== window) {
   /* r49y：真丝照的是纤维的各向异性高光——Kajiya-Kay 那套 sin(T,H)^p 落在 2D 上：
      纤维切向越接近「垂直于光向」，高光越亮；于是高光会沿着丝的走向一段段流动，
      而不是像塑料那样整根一样亮。另配一道背光侧的暖灰边做体积、一道绒光做 Charlie sheen 那种掠射柔光。 */
+  /* ===== r49z：真丝 3D 管（WebGL，仅预览）=====
+     把路线投影到屏幕坐标后，按像素建一根带径向环的管子：每个顶点都有真的 3D 法线，
+     所以「管身中间一道亮脊、两侧压暗、掠射角起绒光」全是光照算出来的，不是叠几条线画的。
+     导出仍走 2D（导出画布上没有 WebGL 层）。 */
+  var GLT = { ready: false, failed: false, gl: null, renderer: null, scene: null, camera: null, mesh: null };
+  function gltHide() { if (GLT.gl) GLT.gl.style.display = 'none'; }
+  function gltInit() {
+    if (GLT.ready || GLT.failed) return GLT.ready;
+    if (typeof THREE === 'undefined') { GLT.failed = true; return false; }
+    try {
+      var cvs = document.getElementById('cvs');
+      var wrap = cvs.parentElement;
+      var gl = document.createElement('canvas');
+      gl.id = 'gl3d';
+      gl.style.position = 'absolute';
+      gl.style.left = cvs.offsetLeft + 'px';
+      gl.style.top = cvs.offsetTop + 'px';
+      gl.style.width = cvs.getBoundingClientRect().width + 'px';
+      gl.style.height = cvs.getBoundingClientRect().height + 'px';
+      gl.style.pointerEvents = 'none';
+      gl.style.zIndex = '6';
+      gl.style.display = 'none';
+      wrap.appendChild(gl);
+      var renderer = new THREE.WebGLRenderer({ canvas: gl, alpha: true, antialias: true });
+      renderer.setPixelRatio(1);
+      renderer.setSize(cvs.width, cvs.height, false);
+      renderer.setClearColor(0x000000, 0);
+      var scene = new THREE.Scene();
+      var camera = new THREE.OrthographicCamera(0, cvs.width, cvs.height, 0, -60, 60);
+      var cx0 = cvs.width * 0.5, cy0 = cvs.height * 0.5;
+      var key = new THREE.DirectionalLight(0xfff2dd, 3.0);
+      key.position.set(cx0 - cvs.width * 0.35, cy0 + cvs.height * 0.45, 500);
+      var rim = new THREE.DirectionalLight(0xbcd0e8, 1.1);
+      rim.position.set(cx0 + cvs.width * 0.4, cy0 - cvs.height * 0.5, 420);
+      var face = new THREE.DirectionalLight(0xfff8ee, 1.4);
+      face.position.set(cx0, cy0, 500);
+      var amb = new THREE.AmbientLight(0xffffff, 0.34);
+      scene.add(face);
+      scene.add(key); scene.add(rim); scene.add(amb);
+      var mat = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(0xf8f2e6),
+        roughness: 0.42,
+        metalness: 0.0,
+        clearcoat: 0.28,
+        clearcoatRoughness: 0.55,
+        sheen: 1.0,
+        sheenColor: new THREE.Color(0xfff1da),
+        sheenRoughness: 0.42,
+        vertexColors: true,
+        side: THREE.DoubleSide
+      });
+      GLT.renderer = renderer; GLT.scene = scene; GLT.camera = camera;
+      GLT.mat = mat; GLT.gl = gl; GLT.ready = true;
+      return true;
+    } catch (e) { GLT.failed = true; return false; }
+  }
+  function gltUpdate(pts, W, H, radiusPx, sheenK) {
+    if (!gltInit()) return false;
+    var n = pts.length;
+    if (n < 3) { gltHide(); return false; }
+    var rad = Math.max(0.55, radiusPx);
+    var step = Math.max(1.8, Math.min(9, rad * 2.4));
+    var sx = [], sy = [], acc = 0, px = 0, py = 0, started = false;
+    for (var i = 0; i < n; i++) {
+      var q = projectPoint(pts[i], W, H);
+      var x = q.x, y = H - q.y;
+      if (!started) { sx.push(x); sy.push(y); px = x; py = y; started = true; continue; }
+      acc += Math.hypot(x - px, y - py); px = x; py = y;
+      if (acc >= step || i === n - 1) { sx.push(x); sy.push(y); acc = 0; }
+    }
+    var m = sx.length;
+    if (m < 2) { gltHide(); return false; }
+    var R = rad >= 2.2 ? 10 : rad >= 1.1 ? 8 : 6;
+    var pos = new Float32Array(m * R * 3);
+    var nor = new Float32Array(m * R * 3);
+    var col = new Float32Array(m * R * 3);
+    var Lx = -0.55, Ly = 0.84;
+    for (var k = 0; k < m; k++) {
+      var a0 = k > 0 ? k - 1 : k, a1 = k < m - 1 ? k + 1 : k;
+      var dx = sx[a1] - sx[a0], dy = sy[a1] - sy[a0], dl = Math.hypot(dx, dy) || 1;
+      var tx = dx / dl, ty = dy / dl;
+      var nx = -ty, ny = tx;
+      var dL = tx * Lx + ty * Ly;
+      var sp = Math.pow(Math.sqrt(Math.max(0, 1 - dL * dL)), 4 + 3 * sheenK);
+      var v = 0.55 + 0.75 * sp;
+      for (var j = 0; j < R; j++) {
+        var a = (j / R) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+        var o = (k * R + j) * 3;
+        pos[o] = sx[k] + nx * ca * rad;
+        pos[o + 1] = sy[k] + ny * ca * rad;
+        pos[o + 2] = sa * rad;
+        nor[o] = -nx * ca; nor[o + 1] = -ny * ca; nor[o + 2] = -sa;
+        col[o] = v; col[o + 1] = v; col[o + 2] = v * 0.985;
+      }
+    }
+    var idx = new Uint16Array((m - 1) * R * 6);
+    var t2 = 0;
+    for (var r2 = 0; r2 < m - 1; r2++) {
+      for (var c2 = 0; c2 < R; c2++) {
+        var b0 = r2 * R + c2, b1 = r2 * R + (c2 + 1) % R;
+        var b2 = (r2 + 1) * R + c2, b3 = (r2 + 1) * R + (c2 + 1) % R;
+        idx[t2++] = b0; idx[t2++] = b2; idx[t2++] = b1;
+        idx[t2++] = b1; idx[t2++] = b2; idx[t2++] = b3;
+      }
+    }
+    // 每次渲染都按 #cvs 的实际位置/显示尺寸重新贴一次，缩放窗口不会错位
+    var cr = document.getElementById('cvs').getBoundingClientRect();
+    var wr = GLT.gl.parentElement.getBoundingClientRect();
+    GLT.gl.style.left = (cr.left - wr.left) + 'px';
+    GLT.gl.style.top = (cr.top - wr.top) + 'px';
+    GLT.gl.style.width = cr.width + 'px';
+    GLT.gl.style.height = cr.height + 'px';
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    if (GLT.mesh) { GLT.scene.remove(GLT.mesh); GLT.mesh.geometry.dispose(); }
+    GLT.mesh = new THREE.Mesh(geo, GLT.mat);
+    GLT.scene.add(GLT.mesh);
+    GLT.renderer.render(GLT.scene, GLT.camera);
+    GLT.gl.style.display = 'block';
+    return true;
+  }
+
   window.rtDrawSilk = function (ctx, pts) {
     var n = pts.length;
     if (n < 2) return;
     var W = ctx.canvas.width, H = ctx.canvas.height;
     var sel = document.getElementById('matSel');
     var mat = sel ? String(sel.value || 'silk') : 'silk';
+    var isPreview = (ctx.canvas && ctx.canvas.id === 'cvs');
+    if (!isPreview) { if (mat === 'silk3d') mat = 'truesilk'; }
     var softK = (typeof silkSoftLv === 'function') ? silkSoftLv() : 1;
     var sheenK = (typeof silkSheenLv === 'function') ? silkSheenLv() : 2;
+    if (mat === 'silk3d' && isPreview) {
+      // 2D 这层只留一圈柔光，管子交给 WebGL
+      var qg = projectPoint(pts[0], W, H);
+      var wg = Math.max(0.55, 0.34 * (qg.scale || 1)) * ((typeof silkGauge === 'function') ? silkGauge() : 1);
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      if (softK > 0) {
+        ctx.globalAlpha = 0.05 + 0.028 * softK; ctx.strokeStyle = 'rgba(255,242,220,1)';
+        ctx.lineWidth = wg * (3.0 + 1.4 * softK);
+        ctx.beginPath();
+        for (var gi = 0; gi < n; gi++) {
+          var qq = projectPoint(pts[gi], W, H);
+          if (gi === 0) ctx.moveTo(qq.x, qq.y); else ctx.lineTo(qq.x, qq.y);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+      gltUpdate(pts, W, H, wg * 0.72, sheenK);
+      return;
+    }
+    if (isPreview) gltHide();
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -3810,7 +3961,7 @@ if (window.parent !== window) {
   };
 
   window.drawRibbonSegs = function (ctx, route, end, style, color, alpha) {
-    if (!rtActive()) { drawRibbon(ctx, route.slice(0, end), style, color, alpha); return; }
+    if (!rtActive()) { if (ctx.canvas && ctx.canvas.id === 'cvs') gltHide(); drawRibbon(ctx, route.slice(0, end), style, color, alpha); return; }
     var e2 = Math.max(2, Math.min(route.length, Math.round(end)));
     if (RM.link) { rtDrawSilk(ctx, route.slice(0, e2)); return; }
     var s0 = 0;
