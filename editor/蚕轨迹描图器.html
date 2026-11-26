@@ -3982,6 +3982,17 @@ if (window.parent !== window) {
       <div class="row"><label>旋转</label><input type="range" id="habAdjRot" min="-180" max="180" step="2"><span class="hab-adj-val" id="habAdjRotVal">0°</span></div>
       <div class="row"><label>缩放</label><input type="range" id="habAdjScale" min="0.3" max="2" step="0.05"><span class="hab-adj-val" id="habAdjScaleVal">1.00</span></div>
       <div class="row"><label>速度倍率</label><input type="range" id="habAdjSpeed" min="0.1" max="3" step="0.05" value="1"><span class="hab-adj-val" id="habAdjSpeedVal">1.00×</span></div>
+
+      <h3>旋转 / 删除（选中 1 块或多块）</h3>
+      <div class="row"><label>旋转量</label><input type="number" id="habRotAmt" min="-360" max="360" step="1" value="15" style="width:64px"> 度<button type="button" id="habRotApply">旋转</button></div>
+      <div class="row"><button type="button" id="habRotCCW90">↺ 90</button><button type="button" id="habRotCW90">↻ 90</button><button type="button" id="habRotCCW15">↺ 15</button><button type="button" id="habRotCW15">↻ 15</button></div>
+      <div class="row"><label>旋转中心</label><select id="habRotPivot">
+        <option value="sel">选中区中心</option>
+        <option value="arena">场地中心</option>
+        <option value="custom">自定（画布上点）</option>
+      </select></div>
+      <div class="row"><button type="button" id="habRotPick">在画布上点旋转中心</button><button type="button" id="habRotZero">朝向归零</button></div>
+      <p class="hab-note" id="habRotStat">选中一块或多块：Delete 删除；旋转按「旋转中心」整体转，转完还能继续拖。</p>
       <div id="habWeavePanel" hidden>
         <h3>出场与时长</h3>
         <div class="row"><label>出场顺序</label><input type="number" id="habUnitOrder" min="0" max="999" step="1" style="width:64px"><span class="hab-note" id="habUnitStart" style="margin:0"></span></div>
@@ -8120,6 +8131,60 @@ showSplitPreview();
     hint('块群是有上限的：5×5 位阵里挑出约六成，块大小一致、形状随机带大圆孔；每块都能单独拖/改形状/改亮度。');
   }
 
+  /* ===== r49u 织网单元旋转：绕自身中心转，角度存在 agent.rot 上（0 = 不转）===== */
+  const WEAVE_TAU = Math.PI * 2;
+  function weaveRotOf(a) {
+    const r = Number.isFinite(a && a.rot) ? a.rot : 0;
+    if (!r) return 0;
+    let q = r % WEAVE_TAU;
+    if (q > Math.PI) q -= WEAVE_TAU;
+    if (q < -Math.PI) q += WEAVE_TAU;
+    return q;
+  }
+  // 世界点 → 这一块的局部坐标（先把点反向绕块心转回来）
+  function weaveLocal(a, x, y) {
+    const r = weaveRotOf(a);
+    const dx = x - a.x, dy = y - a.y;
+    if (!r) return { x: dx, y: dy };
+    const cs = Math.cos(-r), sn = Math.sin(-r);
+    return { x: dx * cs - dy * sn, y: dx * sn + dy * cs };
+  }
+  function weaveHit(a, x, y) {
+    if (!a) return false;
+    const l = weaveLocal(a, x, y);
+    return Math.abs(l.x) <= Math.max(1, a.w) / 2 + 0.001 && Math.abs(l.y) <= Math.max(1, a.h) / 2 + 0.001;
+  }
+  // 在屏幕坐标里绕块心转：等比缩放下等价于在世界里绕块心转
+  function weaveApplyRot(ctx, agent, v) {
+    const r = weaveRotOf(agent);
+    if (!r) return false;
+    const cx = v.px(agent.x), cy = v.py(agent.y);
+    ctx.translate(cx, cy); ctx.rotate(r); ctx.translate(-cx, -cy);
+    return true;
+  }
+  function weaveDraw(ctx, agent, v) {
+    const r = weaveRotOf(agent);
+    if (!r) { drawWeave(ctx, agent, v); return; }
+    ctx.save();
+    weaveApplyRot(ctx, agent, v);
+    drawWeave(ctx, agent, v);
+    ctx.restore();
+  }
+  // 把若干块绕 pivot 整体转 rad：位置绕 pivot 转，自身朝向 +rad（也就是绕 pivot 转）
+  function rotateWeaveAround(list, pivot, rad) {
+    if (!list || !list.length || !Number.isFinite(rad) || !rad) return 0;
+    const cs = Math.cos(rad), sn = Math.sin(rad);
+    list.forEach(a => {
+      const dx = a.x - pivot.x, dy = a.y - pivot.y;
+      a.x = pivot.x + dx * cs - dy * sn;
+      a.y = pivot.y + dx * sn + dy * cs;
+      a.rot = weaveRotOf(a) + rad;
+      a.rot = weaveRotOf(a);
+      a.flashUntil = performance.now() + 1200;
+    });
+    return list.length;
+  }
+
   function drawWeave(ctx, agent, v) {
     const cw = Math.max(60, agent.w), ch = Math.max(60, agent.h);
     // 一个织网单元 = 一格（手动放多少就有多少块）；只有显式开启 tileField 才整场铺格
@@ -9519,6 +9584,12 @@ showSplitPreview();
     habitat.agents.forEach(agent => {
       if (agent.mode === 'bench') return;
       if (agent.kind === 'weave') {
+        // r49u：转过角度的块，整块一起转（内容、选中框、闪框都在同一个坐标系里）
+        const wRot = weaveRotOf(agent);
+        if (wRot) {
+          ctx.save();
+          weaveApplyRot(ctx, agent, v);
+        }
         // 丝被隐藏时，只留一圈很淡的虚线框，方便找回这一块在哪
         const hideSilk = habitat.hideSilkAll || agent.hideSilk;
         if (hideSilk && !habitat.finalPreview) {
@@ -9568,9 +9639,10 @@ showSplitPreview();
           ctx.restore();
         }
         if (!habitat.finalPreview) {
-          drawWeaveHandles(ctx, agent, v);
+          if (!wRot) drawWeaveHandles(ctx, agent, v);   // 旋转态先不给手柄：手柄按轴对齐算，转过的块会对不上
           if (editAgent && editAgent.id === agent.id) drawEditLivePreview(ctx, agent, v);
         }
+        if (wRot) ctx.restore();
         return;
       }
       if (agent.kind === 'route') {
@@ -10571,11 +10643,12 @@ showSplitPreview();
   //   ③ 同档里丝线更近的优先，再同就按上层（数组靠后）优先
   function weaveInkDist(a, p) {
     const cw = Math.max(60, a.w), ch = Math.max(60, a.h);
+    const lp = weaveLocal(a, p.x, p.y);            // r49u：旋转过的块先把点转回局部坐标
     const cells = a.tileField ? weaveVisibleCells(a, view()) : [[0, 0]];
     for (let ci = 0; ci < cells.length; ci++) {
       const i = cells[ci][0], j = cells[ci][1];
-      const ox = a.x + i * cw, oy = a.y + j * ch;
-      const lx = p.x - ox, ly = p.y - oy;
+      const ox = i * cw, oy = j * ch;             // 局部坐标：块心为原点（旋转已在 weaveLocal 里反算）
+      const lx = lp.x - ox, ly = lp.y - oy;
       if (Math.abs(lx) > cw / 2 || Math.abs(ly) > ch / 2) continue;
       const content = weaveCellContent(a, i, j);
       const paths = (content && content.paths) || [];
@@ -10638,7 +10711,7 @@ showSplitPreview();
     habitat.agents.forEach(a => {
       if (!a.locked) return;
       if (a.kind === 'weave') {
-        if (Math.abs(a.x - p.x) <= a.w / 2 && Math.abs(a.y - p.y) <= a.h / 2) found = a;
+        if (weaveHit(a, p.x, p.y)) found = a;
       } else if (Math.hypot(a.x - p.x, a.y - p.y) < 16) found = a;
     });
     return found;
@@ -13064,7 +13137,7 @@ showSplitPreview();
         const delay = ((u.order != null ? u.order : i) % 7) * 0.045;
         agent.u = Math.max(0, Math.min(1, (T - delay) / (1 - delay || 1)));
       }
-      drawWeave(g, agent, v);
+      weaveDraw(g, agent, v);
     });
     g.restore();
     } finally {
@@ -13775,8 +13848,23 @@ showSplitPreview();
     renderDrive();
   }
 
+  window.__weaveGeom = {
+    rot: weaveRotOf, local: weaveLocal, hit: weaveHit,
+    apply: weaveApplyRot, draw: weaveDraw, rotate: rotateWeaveAround,
+  };
   window.__studioHabitat = {
     export: exportHabitat, import: importHabitat, syncMeasured: syncMeasured,
+    pushUndo: () => pushUndo(), undoStep: () => undoStep(),
+    weaveRot: (id) => { const a = habitat.agents.find(z => z.id === id); return a ? weaveRotOf(a) : 0; },
+    rotateUnits: (ids, pivot, deg) => {
+      const set = new Set(ids || []);
+      const list = habitat.agents.filter(a => a.kind === 'weave' && set.has(a.id));
+      if (!list.length) return 0;
+      pushUndo();
+      rotateWeaveAround(list, pivot || { x: 0, y: 0 }, (Number.isFinite(deg) ? deg : 0) * Math.PI / 180);
+      return list.length;
+    },
+    weaveDraw: (ctx, a, v) => weaveDraw(ctx, a, v),
     toast: toast, hint: hint,
     agents: () => habitat.agents,
     finalPreview: () => !!habitat.finalPreview,
@@ -15565,11 +15653,18 @@ showSplitPreview();
     if (ov.width !== wrap.clientWidth || ov.height !== wrap.clientHeight) { ov.width = wrap.clientWidth; ov.height = wrap.clientHeight; }
     if (world) { ov.style.left = world.offsetLeft + 'px'; ov.style.top = world.offsetTop + 'px'; }
   }
+  function unitBox(a) {
+    const r = (window.__weaveGeom ? window.__weaveGeom.rot(a) : (a.rot || 0));
+    if (!r) return { l: a.x - a.w / 2, r: a.x + a.w / 2, t: a.y - a.h / 2, b: a.y + a.h / 2 };
+    const cs = Math.abs(Math.cos(r)), sn = Math.abs(Math.sin(r));
+    const hw = (a.w * cs + a.h * sn) / 2, hh = (a.w * sn + a.h * cs) / 2;
+    return { l: a.x - hw, r: a.x + hw, t: a.y - hh, b: a.y + hh };
+  }
   function bboxOf(ids) {
     const list = ids.map(byId).filter(a => a && a.kind === 'weave');
     if (!list.length) return null;
     let l = Infinity, r = -Infinity, t = Infinity, b = -Infinity;
-    list.forEach(a => { l = Math.min(l, a.x - a.w / 2); r = Math.max(r, a.x + a.w / 2); t = Math.min(t, a.y - a.h / 2); b = Math.max(b, a.y + a.h / 2); });
+    list.forEach(a => { const q = unitBox(a); l = Math.min(l, q.l); r = Math.max(r, q.r); t = Math.min(t, q.t); b = Math.max(b, q.b); });
     return { l, r, t, b };
   }
   function paint() {
@@ -15708,7 +15803,7 @@ showSplitPreview();
     let hit = null;
     agents().forEach(a => {
       if (a.kind !== 'weave' || a.locked) return;
-      if (Math.abs(p.x - a.x) <= a.w / 2 && Math.abs(p.y - a.y) <= a.h / 2) hit = a;
+      if (window.__weaveGeom ? window.__weaveGeom.hit(a, p.x, p.y) : (Math.abs(p.x - a.x) <= a.w / 2 && Math.abs(p.y - a.y) <= a.h / 2)) hit = a;
     });
     return hit;
   }
@@ -15824,7 +15919,7 @@ showSplitPreview();
     if (!marquee.add) sel.clear();
     agents().forEach(a => {
       if (a.kind !== 'weave') return;
-      const box = { l: a.x - a.w / 2, r: a.x + a.w / 2, t: a.y - a.h / 2, b: a.y + a.h / 2 };
+      const box = unitBox(a);
       if (box.l < r && box.r > l && box.t < b && box.b > t) sel.add(a.id);
     });
     marquee = null;
@@ -16104,6 +16199,7 @@ showSplitPreview();
         if (l.length <= before) continue;
         const u = l[l.length - 1];
         ['w', 'h', 'coverage', 'shape', 'worms', 'seed', 'duration', 'wallAff', 'tileField', 'tone', 'gap', 'strata', 'profile', 'outline'].forEach(k => { if (one[k] !== undefined) u[k] = one[k]; });
+        u.rot = one.rot || 0;   // r49u：阵列里的每一块跟源块同朝向
         u.custom = JSON.parse(JSON.stringify(one.custom || { walls: {}, paths: {}, shapes: {} }));
         u.x = one.x + i * sx;
         u.y = one.y + j * sy;
@@ -16133,14 +16229,15 @@ showSplitPreview();
       ctx.fillRect(0, 0, cv.width, cv.height);
       // 首选：直接调用引擎的织块绘制，画一块"自己的样子"
       try {
-        const k = Math.min(cv.width / a.w, cv.height / a.h) * 0.96;
+        const rotK = weaveRotOf(a) ? 0.74 : 0.96;   // 转过角度：按对角尺寸缩，避免四角被裁掉
+        const k = Math.min(cv.width / a.w, cv.height / a.h) * rotK;
         const tv = {
           s: k, cx: cv.width / 2 - a.x * k, cy: cv.height / 2 - a.y * k,
           px: (x) => cv.width / 2 + (x - a.x) * k,
           py: (y) => cv.height / 2 + (y - a.y) * k,
           w: cv.width, h: cv.height,
         };
-        H().drawWeave(ctx, a, tv);
+        H().weaveDraw(ctx, a, tv);
       } catch (e) {
         // 退路：从主画布抠
         const sx = v.px(a.x - a.w / 2) * kx, sy = v.py(a.y - a.h / 2) * ky;
@@ -16227,6 +16324,18 @@ showSplitPreview();
       api.clear();
     }, true);
     if (n >= 2) mk('把这 ' + n + ' 层编为一组', () => { const b = $('habLayerGroup'); if (b) b.click(); });
+    mk('旋转：顺时针 90°', () => {
+      const ids = api.ids();
+      if (ids.length && window.__habRotate) window.__habRotate.rotateBy(90);
+    });
+    mk('旋转：逆时针 90°', () => {
+      const ids = api.ids();
+      if (ids.length && window.__habRotate) window.__habRotate.rotateBy(-90);
+    });
+    mk('旋转：顺时针 15°', () => {
+      const ids = api.ids();
+      if (ids.length && window.__habRotate) window.__habRotate.rotateBy(15);
+    });
     mk('取消选择', () => api.clear());
     ($('habitat') || document.body).appendChild(menu);
     const r = menu.getBoundingClientRect();
@@ -16285,6 +16394,175 @@ showSplitPreview();
       api.set([hit.id]);                                   // 双击未选块：只选这一块
     }
   }, true);
+})();
+</script>
+<script>
+/* ===== r49u 删除键 + 旋转选中区（独立模块，只加不改） ===== */
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const H = () => window.__studioHabitat;
+  const G = () => window.__weaveGeom;
+  const world = $('habWorld');
+  if (!world) return;
+  const worldWrap = $('habWorldWrap') || world.parentElement;
+  let pivot = null;                 // 自定旋转中心 {x, y}
+  let pickMode = false;
+
+  function selIds() {
+    const api = window.__layerSel;
+    return api ? api.ids() : [];
+  }
+  function unitsOf(ids) {
+    const set = new Set(ids || []);
+    return ((H() && H().agents()) || []).filter(a => a.kind === 'weave' && set.has(a.id));
+  }
+  function selUnits() {
+    let list = unitsOf(selIds());
+    if (!list.length && H().selectedId && H().selectedId()) list = unitsOf([H().selectedId()]);
+    return list;
+  }
+  function bboxOf(list) {
+    let l = Infinity, r = -Infinity, t = Infinity, b = -Infinity;
+    list.forEach(a => {
+      const r0 = G().rot(a), cs = Math.abs(Math.cos(r0)), sn = Math.abs(Math.sin(r0));
+      const hw = (a.w * cs + a.h * sn) / 2, hh = (a.w * sn + a.h * cs) / 2;
+      l = Math.min(l, a.x - hw); r = Math.max(r, a.x + hw);
+      t = Math.min(t, a.y - hh); b = Math.max(b, a.y + hh);
+    });
+    return list.length ? { l: l, r: r, t: t, b: b, cx: (l + r) / 2, cy: (t + b) / 2 } : null;
+  }
+  function pivotPoint(list) {
+    const mode = ($('habRotPivot') || {}).value || 'sel';
+    if (mode === 'arena') return { x: 0, y: 0 };
+    if (mode === 'custom' && pivot) return { x: pivot.x, y: pivot.y };
+    const b = bboxOf(list);
+    return b ? { x: b.cx, y: b.cy } : { x: 0, y: 0 };
+  }
+  function stat(msg) { const el = $('habRotStat'); if (el) el.textContent = msg; }
+
+  function rotateBy(deg) {
+    const list = selUnits();
+    if (!list.length) { H().toast('先在画布或图层列表里选中要转的块。', 'err'); return; }
+    if (!Number.isFinite(deg) || !deg) return;
+    const p = pivotPoint(list);
+    H().pushUndo();
+    G().rotate(list, p, deg * Math.PI / 180);
+    if (window.__layerSel) window.__layerSel.set(list.map(a => a.id));
+    H().hint('已把 ' + list.length + ' 块绕（' + Math.round(p.x) + ', ' + Math.round(p.y) + '）转了 ' + deg + '°。');
+    stat('已把 ' + list.length + ' 块绕（' + Math.round(p.x) + ', ' + Math.round(p.y) + '）转了 ' + deg + '°；Ctrl+Z 可撤销。');
+    paintPivot();
+  }
+  function bindBtn(id, fn) { const el = $(id); if (el) el.addEventListener('click', fn); }
+  bindBtn('habRotApply', () => rotateBy(parseFloat(($('habRotAmt') || {}).value || '0') || 0));
+  bindBtn('habRotCCW90', () => rotateBy(-90));
+  bindBtn('habRotCW90', () => rotateBy(90));
+  bindBtn('habRotCCW15', () => rotateBy(-15));
+  bindBtn('habRotCW15', () => rotateBy(15));
+  bindBtn('habRotZero', () => {
+    const list = selUnits();
+    if (!list.length) { H().toast('先选中要归零的块。', 'err'); return; }
+    H().pushUndo();
+    list.forEach(a => { a.rot = 0; a.flashUntil = performance.now() + 1200; });
+    if (window.__layerSel) window.__layerSel.set(list.map(a => a.id));
+    H().toast('已把 ' + list.length + ' 块的朝向归零（位置没动）。', 'ok');
+    paintPivot();
+  });
+
+  /* ---- 旋转中心：在画布上点一下 ---- */
+  function togglePick(on) {
+    pickMode = (on === undefined) ? !pickMode : !!on;
+    const btn = $('habRotPick');
+    if (btn) btn.textContent = pickMode ? '正在等你在画布上点…（Esc 取消）' : '在画布上点旋转中心';
+    world.style.cursor = pickMode ? 'crosshair' : '';
+    if (pickMode) {
+      const sel0 = $('habRotPivot'); if (sel0 && !pivot) sel0.value = 'custom';
+      H().hint('在画布上点一下，就把那一点设成旋转中心（之后所有旋转都绕它）。');
+    }
+    paintPivot();
+  }
+  bindBtn('habRotPick', () => togglePick());
+  const pv = $('habRotPivot');
+  if (pv) pv.addEventListener('change', () => {
+    if (pv.value !== 'custom') {
+      pickMode = false;
+      const b = $('habRotPick'); if (b) b.textContent = '在画布上点旋转中心';
+      world.style.cursor = '';
+    } else if (!pivot) togglePick(true);
+    paintPivot();
+  });
+
+  // 捕获放到 window 上：比画布自己的 pointerdown 更早，抢到这一点就不会顺便选中/拖块
+  window.addEventListener('pointerdown', (e) => {
+    if (!pickMode) return;
+    if (!world.contains(e.target)) return;
+    const v = H().view();
+    const r = world.getBoundingClientRect();
+    pivot = { x: (e.clientX - r.left - v.cx) / v.s, y: (e.clientY - r.top - v.cy) / v.s };
+    togglePick(false);
+    H().toast('旋转中心已设为（' + Math.round(pivot.x) + ', ' + Math.round(pivot.y) + '）。', 'ok');
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+  }, true);
+
+  /* ---- 中心十字标（跟画布一起平移/缩放）---- */
+  const mark = document.createElement('div');
+  mark.style.cssText = 'position:absolute;z-index:18;pointer-events:none;display:none;transform:translate(-50%,-50%);' +
+    'color:#79cbb6;font:11px ui-monospace,monospace;text-align:center;';
+  mark.innerHTML = '<div style="width:22px;height:22px;border:1px dashed rgba(121,203,182,.9);border-radius:50%;margin:0 auto;position:relative;">' +
+    '<div style="position:absolute;left:50%;top:-7px;width:1px;height:36px;background:rgba(121,203,182,.85);margin-left:-.5px"></div>' +
+    '<div style="position:absolute;top:50%;left:-7px;height:1px;width:36px;background:rgba(121,203,182,.85);margin-top:-.5px"></div>' +
+    '<div style="position:absolute;left:50%;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;background:#79cbb6;border-radius:50%"></div></div>' +
+    '<div style="margin-top:2px">旋转中心</div>';
+  worldWrap.appendChild(mark);
+  function paintPivot() {
+    const mode = (pv && pv.value) || 'sel';
+    const list = selUnits();
+    const p = (mode === 'custom' && pivot) ? pivot : null;
+    if (!p || !list.length) { mark.style.display = 'none'; return; }
+    const v = H().view();
+    mark.style.display = 'block';
+    mark.style.left = (world.offsetLeft + v.cx + p.x * v.s) + 'px';
+    mark.style.top = (world.offsetTop + v.cy + p.y * v.s) + 'px';
+  }
+  (function loop() { paintPivot(); requestAnimationFrame(loop); })();
+
+  /* ---- Delete / Backspace 删掉选中的块 ---- */
+  function typing(t) {
+    if (!t) return false;
+    const tag = (t.tagName || '').toUpperCase();
+    if (t.isContentEditable) return true;
+    if (tag === 'TEXTAREA') return true;
+    if (tag === 'INPUT') return !/^(range|checkbox|radio|button|color|file|submit|reset)$/i.test(t.type || 'text');
+    return false;
+  }
+  window.addEventListener('keydown', (e) => {
+    const k = e.key;
+    if (k === 'Escape' && pickMode) { togglePick(false); return; }
+    if (k !== 'Delete' && k !== 'Backspace') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (typing(e.target)) return;
+    const api = window.__layerSel;
+    // 正在画缺口/壁/丝路（还有没收尾的草稿点）时，Delete 让给编辑工具；
+    // 只是「选了块在编辑」则照样能整块删掉（这是用户最常用的那一下）
+    const st = H().weaveEditState && H().weaveEditState();
+    const drafting = !!(st && (st.drafts || []).some(x => Number(String(x).split(':').pop()) > 0));
+    if (st && st.agentId && drafting) return;
+    const list = selUnits();
+    if (!list.length) return;
+    e.preventDefault(); e.stopPropagation();
+    const n = list.length;
+    window.__weaveHooks.deleteUnits(list.map(a => a.id));
+    if (api) api.clear();
+    H().toast('Delete 删掉了 ' + n + ' 块。Ctrl+Z 可以一次撤销。', 'ok');
+  }, true);
+
+  window.__habRotate = {
+    rotateBy: rotateBy,
+    pivot: () => pivot,
+    setPivot: (x, y) => { pivot = { x: x, y: y }; const s2 = $('habRotPivot'); if (s2) s2.value = 'custom'; paintPivot(); },
+    selUnits: () => selUnits().map(a => a.id),
+    picking: () => pickMode,
+  };
 })();
 </script>
 </body>
