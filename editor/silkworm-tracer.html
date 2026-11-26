@@ -12093,13 +12093,26 @@ showSplitPreview();
   if (habRedoBtn) habRedoBtn.addEventListener('click', () => { redoStep(); });
   // 快捷键：Ctrl+Z 撤销，Ctrl+Shift+Z / Ctrl+Y 重做。输入框里不抢键。
   window.addEventListener('keydown', (ev) => {
-    const tag = (ev.target && ev.target.tagName || '').toLowerCase();
-    if (tag === 'input' || tag === 'textarea' || tag === 'select' || ev.target.isContentEditable) return;
+    if (typingTarget(ev.target)) return;
     if (!(ev.ctrlKey || ev.metaKey)) return;
     const k = (ev.key || '').toLowerCase();
     if (k === 'z' && !ev.shiftKey) { ev.preventDefault(); undoStep(); }
     else if ((k === 'z' && ev.shiftKey) || k === 'y') { ev.preventDefault(); redoStep(); }
   });
+
+
+  // 只有「真的在打字」的控件才让出快捷键；滑杆/勾选/下拉/按钮不算，
+  // 否则刚拖完一个滑杆，Ctrl+C / Ctrl+V / Ctrl+Z 就全都失灵了。
+  function typingTarget(t) {
+    if (!t) return false;
+    if (t.isContentEditable) return true;
+    const tag = (t.tagName || '').toLowerCase();
+    if (tag === 'textarea') return true;
+    if (tag !== 'input') return false;
+    const ty = (t.type || 'text').toLowerCase();
+    return ty !== 'range' && ty !== 'checkbox' && ty !== 'radio' && ty !== 'button' &&
+      ty !== 'color' && ty !== 'file' && ty !== 'submit';
+  }
 
   /* ---------- 原地复制 / 粘贴一块织网单元 ---------- */
   // 编号取「当前没被占用的最小 wv-N」，删过块再新建也不会撞号
@@ -12120,11 +12133,47 @@ showSplitPreview();
     });
     return m + 1;
   }
-  const weaveClip = { unit: null };
+  const weaveClip = { units: [], unit: null };
   // 剪贴板里存的是「数据快照 + 当时的位置」，所以贴回来还是原地（原块挪走了也仍贴回原处）
+  // 现在一次可以装多块：框选/多选后 Ctrl+C 会把整批按原相对位置记下来
   function captureWeaveClip(src) {
-    weaveClip.unit = JSON.parse(JSON.stringify(src));
+    const list = Array.isArray(src) ? src : [src];
+    weaveClip.units = list.filter(u => u && u.kind === 'weave').map(u => JSON.parse(JSON.stringify(u)));
+    weaveClip.unit = weaveClip.units[0] || null;
     return weaveClip.unit;
+  }
+  // 一批快照 → 逐个原地克隆，贴完自动选中这一批
+  function placeWeaveCopies(srcs, label) {
+    if (!srcs || !srcs.length) return [];
+    pushUndo();
+    const out = [];
+    srcs.forEach(src => {
+      const agent = cloneWeaveFrom(src, src.x, src.y);
+      habitat.agents.push(agent);
+      agent.flashUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 1600;
+      out.push(agent);
+    });
+    timelineDirty();
+    if (window.__layerSel && window.__layerSel.set) window.__layerSel.set(out.map(a => a.id));
+    habitat.selected = out[out.length - 1].id;
+    renderList();
+    const n = out.length;
+    toast('已' + label + ' ' + n + ' 块织网单元（' + out[0].id + (n > 1 ? ' 等 ' + n + ' 块' : '') + '），和原块完全重合、排在最上层。', 'ok');
+    hint(n > 1
+      ? '复制件整批压在原位：拖其中一块，整批会跟着走（已经在同一组选区里）。'
+      : '复制件压在 ' + srcs[0].id + ' 正上方：直接拖它就能分开，或在右侧图层列表选它改参数。');
+    return out;
+  }
+  // 当前选中的织网单元：优先用多选（框选 / 图层里勾的），没有多选就用单选的那一块
+  function selectedWeaveUnits() {
+    const api = window.__layerSel;
+    if (api && api.ids && api.size && api.size() > 0) {
+      const ids = api.ids();
+      const list = habitat.agents.filter(a => a.kind === 'weave' && ids.indexOf(a.id) >= 0);
+      if (list.length) return list;
+    }
+    const c = chosen();
+    return c && c.kind === 'weave' ? [c] : [];
   }
   function cloneWeaveFrom(data, x, y) {
     const agent = JSON.parse(JSON.stringify(data));
@@ -12141,52 +12190,54 @@ showSplitPreview();
     return agent;
   }
   function placeWeaveCopy(src, label) {
-    pushUndo();
-    const agent = cloneWeaveFrom(src, src.x, src.y);
-    habitat.agents.push(agent);
-    timelineDirty();
-    habitat.selected = agent.id;
-    agent.flashUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 1600;
-    renderList();
-    toast('已' + label + ' 1 块织网单元（' + agent.id + '），和原块完全重合、排在最上层。', 'ok');
-    hint('复制件压在 ' + src.id + ' 正上方：直接拖它就能分开，或在右侧图层列表选它改参数。');
-    return agent;
+    const out = placeWeaveCopies([src], label);
+    return out[0] || null;
   }
   function duplicateSelectedWeave() {
-    const src = chosen();
-    if (!src || src.kind !== 'weave') {
-      toast('先在画布或图层列表里选中一块织网单元，再按 Ctrl+D 原地复制。', 'err');
-      hint('Ctrl+D = 原地复制；Ctrl+C 复制、Ctrl+V 原地粘贴。');
+    const list = selectedWeaveUnits();
+    if (!list.length) {
+      toast('先在画布或图层列表里选中织网单元（可框选、可勾多层），再按 Ctrl+D 原地复制。', 'err');
+      hint('Ctrl+D = 原地复制；Ctrl+C 复制、Ctrl+V 原地粘贴；Ctrl+A 选中全部织网单元。');
       return null;
     }
-    return placeWeaveCopy(src, '原地复制');
+    const out = placeWeaveCopies(list, '原地复制');
+    return out[out.length - 1] || null;
   }
   function pasteWeaveClip() {
-    const d = weaveClip.unit;
-    if (!d) {
-      toast('还没有复制过单元：先按 Ctrl+C 复制一块。', 'err');
+    const list = weaveClip.units && weaveClip.units.length ? weaveClip.units : [];
+    if (!list.length) {
+      toast('还没有复制过单元：先按 Ctrl+C 复制（支持多选整批）。', 'err');
       return null;
     }
-    return placeWeaveCopy(d, '原地粘贴');
+    const out = placeWeaveCopies(list, '原地粘贴');
+    return out[out.length - 1] || null;
   }
   window.addEventListener('keydown', (ev) => {
-    const tag = (ev.target && ev.target.tagName || '').toLowerCase();
-    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (ev.target && ev.target.isContentEditable)) return;
+    if (typingTarget(ev.target)) return;
     if (!(ev.ctrlKey || ev.metaKey)) return;
     const k = (ev.key || '').toLowerCase();
     if (k === 'd') { ev.preventDefault(); duplicateSelectedWeave(); return; }
+    if (k === 'a') {
+      // 选中全部织网单元（不选蚕/演示个体），方便整批复制
+      const all = habitat.agents.filter(a => a.kind === 'weave').map(a => a.id);
+      if (!all.length) return;
+      ev.preventDefault();
+      if (window.__layerSel && window.__layerSel.set) window.__layerSel.set(all);
+      toast('已选中全部 ' + all.length + ' 块织网单元，Ctrl+C / Ctrl+D 可整批复制。', 'ok');
+      return;
+    }
     if (k === 'c') {
-      const src = chosen();
-      if (!src || src.kind !== 'weave') return;
+      const list = selectedWeaveUnits();
+      if (!list.length) return;
       const picked = (window.getSelection && String(window.getSelection())) || '';
       if (picked.trim()) return;    // 页面上选了文字时，让浏览器照常复制
-      captureWeaveClip(src);
+      captureWeaveClip(list);
       ev.preventDefault();
-      toast('已复制 ' + src.id + '，按 Ctrl+V 可在原地贴一份。', 'ok');
+      toast('已复制 ' + list.length + ' 块织网单元' + (list.length > 1 ? '（整批）' : '（' + list[0].id + '）') + '，按 Ctrl+V 可在原地贴一份。', 'ok');
       return;
     }
     if (k === 'v') {
-      if (!weaveClip.unit) return;
+      if (!weaveClip.units.length) return;
       ev.preventDefault();
       pasteWeaveClip();
     }
@@ -13753,9 +13804,16 @@ showSplitPreview();
       return (sh && sh.islands) ? sh.islands.length : 0;
     },
     duplicate: () => { const a = duplicateSelectedWeave(); return a ? a.id : null; },
-    copyUnit: () => { const a = chosen(); if (!a || a.kind !== 'weave') return null; captureWeaveClip(a); return a.id; },
+    copyUnit: () => { const list = selectedWeaveUnits(); if (!list.length) return null; captureWeaveClip(list); return list[list.length - 1].id; },
+    copyUnits: (ids) => {
+      const target = (ids && ids.length) ? habitat.agents.filter(a => a.kind === 'weave' && ids.indexOf(a.id) >= 0) : selectedWeaveUnits();
+      if (!target.length) return 0;
+      captureWeaveClip(target);
+      return target.length;
+    },
     pasteUnit: () => { const a = pasteWeaveClip(); return a ? a.id : null; },
     clipUnit: () => (weaveClip.unit ? weaveClip.unit.id : null),
+    clipCount: () => (weaveClip.units ? weaveClip.units.length : 0),
     selectedId: () => habitat.selected,
     exitEdit: () => { if (window.__weaveHooks && window.__weaveHooks.exit) window.__weaveHooks.exit(); },
     editingId: () => (habitat.weaveEdit && habitat.weaveEdit.agentId) || null,
