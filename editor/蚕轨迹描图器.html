@@ -4596,7 +4596,14 @@ if (window.parent !== window) {
           <option value="28">画质：很高（28 Mbps）</option>
           <option value="40">画质：母版级（40 Mbps）</option>
         </select>
+        <select id="habVidKf" title="关键帧越稀：画面越平顺（没有亮度起伏），拖进度条越慢；越密：拖时间线立刻出画，但每个关键帧会有一次极轻的亮度台阶">
+          <option value="20" selected>关键帧：平顺（20 秒）</option>
+          <option value="3">关键帧：跟手（3 秒）</option>
+          <option value="0">关键帧：全片一个</option>
+        </select>
       </div>
+      <label style="display:flex;align-items:center;gap:6px;margin:6px 0 0;font-size:12px;line-height:1.45;color:#cfe0d5;cursor:pointer"><input type="checkbox" id="habVidClip" checked style="flex:0 0 auto"> <span>同时出剪辑副本（半分辨率 · 关键帧 3 秒）</span></label>
+      <p class="hab-note" style="margin:2px 0 0">成片按上面的关键帧档位出（平顺、没有亮度起伏）；剪辑副本单独一份、关键帧密，专门拖时间线挑帧。两份共用一次渲染。</p>
       <div id="habVidCustomRow" style="display:none">
         <div class="row" style="margin:2px 0 0">
           <label>自定义宽×高</label>
@@ -4613,6 +4620,14 @@ if (window.parent !== window) {
       <p class="hab-note">用上面同一个分辨率，导出当前这一帧（成品块群，不含蚕体和编辑手柄）。</p>
       <button type="button" id="habImgExport">导出当前画面 PNG</button>
       <p class="hab-note" id="habImgStatus">还没导出。</p>
+      <h3>导出无损帧序列（本地 ffmpeg 用）</h3>
+      <p class="hab-note">逐帧 PNG 打包（ZIP 不压缩，解开就能直接喂 ffmpeg）。这条路不经过浏览器编码器，所以没有「关键帧亮一下」；用本地 ffmpeg 的恒定质量（CRF）编，关键帧 3 秒也不会有亮度台阶，一个文件就同时做到平顺和好拖。</p>
+      <select id="habFramesFmt">
+        <option value="png" selected>帧格式：PNG（无损，慢）</option>
+        <option value="jpg">帧格式：JPEG 95%（快 5–10 倍）</option>
+      </select>
+      <button type="button" id="habFramesZip">导出 PNG 序列（ZIP）</button>
+      <p class="hab-note" id="habFramesStatus">还没导出。按上面的分辨率 / 帧率 / 时长出图，文件名 f_00000.png 起。113 秒 2K 约 2700 张。</p>
     </aside>
     <div class="hab-world" id="habWorldWrap">
       <canvas id="habBg"></canvas>
@@ -14234,6 +14249,7 @@ showSplitPreview();
     });
     on('habVidRecord', () => { ledRecordWebVideo(); });
     on('habImgExport', () => { ledExportImage(); });
+    on('habFramesZip', () => { ledExportFrameZip(); });
     const vidResSel = document.getElementById('habVidRes');
     const vidCustomRow = document.getElementById('habVidCustomRow');
     const vidWInput = document.getElementById('habVidW');
@@ -14603,7 +14619,7 @@ showSplitPreview();
   }
 
   /* 逐帧编码一段成品；返回 { frames, bytes, codec }。机器慢只会更久，不会少帧。 */
-  async function ledEncodeAllFrames(scene, W, H, fps, total, bit, onProgress) {
+  async function ledEncodeAllFrames(scene, W, H, fps, total, bit, onProgress, plan) {
     // VP9 的 level 必须跟分辨率匹配：1080p 以下用 3.0/4.0，2K/3K 用 5.0/5.1，4K 用 6.0，
     // 否则 isConfigSupported 可能直接拒，或者编码到一半报错，只能退回 VP8（更慢更糊）
     const vp9Levels = (function (w, h) {
@@ -14616,7 +14632,7 @@ showSplitPreview();
       if (px <= 3840 * 2160) return ['51', '60'];
       return ['60', '61', '62', '51'];
     })(W, H);
-    const cfgList = vp9Levels.map(function (lv) { return { codec: 'vp09.00.' + lv + '.08', webm: 'V_VP9' }; });
+    let cfgList = vp9Levels.map(function (lv) { return { codec: 'vp09.00.' + lv + '.08', webm: 'V_VP9' }; });
     cfgList.push({ codec: 'vp8', webm: 'V_VP8' });
     let cfg = null, info = null;
     for (const c of cfgList) {
@@ -14630,7 +14646,8 @@ showSplitPreview();
     if (!cfg) return null;
     // 恒定码率：关键帧不单独「重新压一遍」，画质不会每秒一起伏（那种起伏看着也像卡）
     try {
-      const supC = await VideoEncoder.isConfigSupported(Object.assign({}, cfg, { bitrateMode: 'variable' }));
+      const extra2 = { bitrateMode: 'variable' };
+      const supC = await VideoEncoder.isConfigSupported(Object.assign({}, cfg, extra2));
       if (supC && supC.supported) cfg = supC.config;
     } catch (err) { /* 不支持就保持默认 */ }
 
@@ -14672,7 +14689,11 @@ showSplitPreview();
     encoder.configure(cfg);
     // 关键帧稀疏到 20 秒一个（短片就只有片头这一个）。关键帧那一帧要吃一大口码率，紧跟的几帧
     // 画质就会掉一档，成片里看着就是「一卡一卡」；把关键帧拉开，整片码率就平稳了。
-    const keyEvery = Math.max(1, Math.round(fps * 20));
+    // 关键帧策略：plan.keyEvery 给了就用（0 = 全片只片头一个关键帧）；
+    // 没给则默认 20 秒一个（关键帧那一帧要吃一大口码率，紧跟几帧画质会掉一档，看着就是一卡一卡）
+    const keyEvery = (plan && Number.isFinite(plan.keyEvery))
+      ? Math.max(0, Math.round(plan.keyEvery))
+      : Math.max(1, Math.round(fps * 20));
 
     for (let i = 0; i < total; i++) {
       const T = total <= 1 ? 1 : i / (total - 1);
@@ -14711,7 +14732,7 @@ showSplitPreview();
       if (px <= 3840 * 2160) return ['51', '60'];
       return ['60', '61', '62', '51'];
     })(W, H);
-    const cfgList = vp9Levels.map(function (lv) { return { codec: 'vp09.00.' + lv + '.08', webm: 'V_VP9' }; });
+    let cfgList = vp9Levels.map(function (lv) { return { codec: 'vp09.00.' + lv + '.08', webm: 'V_VP9' }; });
     cfgList.push({ codec: 'vp8', webm: 'V_VP8' });
     let cfg = null, info = null;
     for (const c of cfgList) {
@@ -14722,7 +14743,8 @@ showSplitPreview();
     }
     if (!cfg) throw new Error('浏览器没有可用的 VP9/VP8 编码器');
     try {
-      const supC = await VideoEncoder.isConfigSupported(Object.assign({}, cfg, { bitrateMode: 'variable' }));
+      const extra2 = { bitrateMode: 'variable' };
+      const supC = await VideoEncoder.isConfigSupported(Object.assign({}, cfg, extra2));
       if (supC && supC.supported) cfg = supC.config;
     } catch (err) { /* 不支持就保持默认 */ }
 
@@ -14775,6 +14797,169 @@ showSplitPreview();
   }
   window.__exportCanvasFrames = encodeCanvasFrames;
 
+  // ===== 导出无损帧序列（PNG → ZIP，交给本地 ffmpeg 做「零瑕疵」母版） =====
+  const ZIP_CRC_TABLE = (function () {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function zipCrc32(u8) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < u8.length; i++) c = ZIP_CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  async function ledExportFrameZip() {
+    const btn = document.getElementById('habFramesZip');
+    const st = document.getElementById('habFramesStatus');
+    const setSt = (t) => { if (st) st.textContent = t; };
+    if (!habitat.agents.some(a => a.kind === 'weave')) {
+      toast('还没有织网单元，先放一块再导出帧序列。', 'err');
+      return;
+    }
+    const dims = habVidDims();
+    const W = dims.W, H = dims.H;
+    const fpsSel = document.getElementById('habVidFps');
+    const secSel = document.getElementById('habVidSec');
+    const fps = Math.max(12, parseInt(fpsSel ? fpsSel.value : '30', 10) || 30);
+    const secs = Math.max(2, parseInt(secSel ? secSel.value : '10', 10) || 10);
+    const scene = ledScene();
+    scene.loop = false;
+    const rg = (scene.range && Number.isFinite(scene.range.end)) ? scene.range : null;
+    const durSecs = rg ? Math.max(2, Math.round((rg.end - rg.start) * 10) / 10) : secs;
+    const total = Math.max(2, Math.round(durSecs * fps));
+    scene.frames = total;
+    const fmtSel = document.getElementById('habFramesFmt');
+    const fmt = (fmtSel && fmtSel.value === 'jpg') ? 'jpg' : 'png';
+    const ext = fmt === 'jpg' ? 'jpg' : 'png';
+    const mime = fmt === 'jpg' ? 'image/jpeg' : 'image/png';
+    const zipName = 'weave_frames_' + W + 'x' + H + '_' + fps + 'fps_' + Math.round(durSecs) + 's_' + ext + '.zip';
+
+    // 边出帧边写盘：整段（2700+ 张 2K PNG）不压在内存里
+    let writer = null;
+    // 长片 / 大分辨率才弹「选择保存位置」边出边写盘；短片直接下载，少一步操作
+    const needStream = (durSecs > 20 || W * H > 2.0e6) && typeof window.showSaveFilePicker === 'function';
+    if (needStream) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: zipName,
+          types: [{ description: 'ZIP 帧序列', accept: { 'application/zip': ['.zip'] } }],
+        });
+        writer = await handle.createWritable();
+      } catch (err) {
+        if (err && err.name === 'AbortError') { setSt('已取消，没有导出。'); return; }
+        writer = null;   // 拿不到写盘就退回内存
+      }
+    }
+    if (btn) { btn.disabled = true; btn.textContent = '导出帧中…'; }
+
+    const enc8 = new TextEncoder();
+    const central = [];
+    const memParts = [];
+    let offset = 0, memBytes = 0;
+    const writeU8 = async (u8) => {
+      if (writer) await writer.write(u8);
+      else { memParts.push(u8); memBytes += u8.length; }
+      offset += u8.length;
+    };
+    const addEntry = async (name, u8) => {
+      const nameU8 = enc8.encode(name);
+      const size = u8.length;
+      const crc = zipCrc32(u8);
+      const localOffset = offset;
+      const h = new Uint8Array(30 + nameU8.length);
+      const dv = new DataView(h.buffer);
+      dv.setUint32(0, 0x04034b50, true);
+      dv.setUint16(4, 20, true);            // version needed
+      dv.setUint16(6, 0x0800, true);        // UTF-8 名
+      dv.setUint16(8, 0, true);             // store（不压缩）
+      dv.setUint16(10, 0, true); dv.setUint16(12, 0x21, true);   // 固定时间：1980-01-01
+      dv.setUint32(14, crc, true);
+      dv.setUint32(18, size, true); dv.setUint32(22, size, true);
+      dv.setUint16(26, nameU8.length, true); dv.setUint16(28, 0, true);
+      h.set(nameU8, 30);
+      await writeU8(h);
+      await writeU8(u8);
+      const c = new Uint8Array(46 + nameU8.length);
+      const dv2 = new DataView(c.buffer);
+      dv2.setUint32(0, 0x02014b50, true);
+      dv2.setUint16(4, 20, true); dv2.setUint16(6, 20, true);
+      dv2.setUint16(8, 0x0800, true); dv2.setUint16(10, 0, true);
+      dv2.setUint16(12, 0, true); dv2.setUint16(14, 0x21, true);
+      dv2.setUint32(16, crc, true);
+      dv2.setUint32(20, size, true); dv2.setUint32(24, size, true);
+      dv2.setUint16(28, nameU8.length, true); dv2.setUint16(30, 0, true);
+      dv2.setUint16(32, 0, true); dv2.setUint16(34, 0, true);
+      dv2.setUint16(36, 0, true); dv2.setUint32(38, localOffset, true);
+      c.set(nameU8, 46);
+      central.push(c);
+    };
+
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d', { alpha: false });
+    const cache = [];
+    ledComposeFrame(g, scene, 0, false, W, H, cache);
+    const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    try {
+      for (let i = 0; i < total; i++) {
+        const T = total <= 1 ? 1 : i / (total - 1);
+        ledComposeFrame(g, scene, T, false, W, H, cache);
+        // 用 toDataURL 而不是 toBlob：toBlob 的回调会被浏览器按 1 秒节流，一张要等 1 s 以上
+        const dataUrl = cv.toDataURL(mime, fmt === 'jpg' ? 0.95 : undefined);
+        const comma = dataUrl.indexOf(',');
+        if (comma < 0) throw new Error('第 ' + i + ' 帧图片编码失败');
+        const b64 = dataUrl.slice(comma + 1);
+        const bin = atob(b64);
+        const u8 = new Uint8Array(bin.length);
+        for (let p = 0; p < bin.length; p++) u8[p] = bin.charCodeAt(p);
+        await addEntry('f_' + String(i).padStart(5, '0') + '.' + ext, u8);
+        if (!writer && memBytes > 1.6e9) throw new Error('内存放不下这么长的帧序列，请换「选择保存位置」方式或降分辨率/缩短时长');
+        if (i % 10 === 0 || i === total - 1) {
+          const el = ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) / 1000;
+          const eta = i > 8 ? (el / (i + 1)) * (total - i - 1) : 0;
+          setSt('导出中 ' + Math.round((i + 1) / total * 100) + '% · 第 ' + (i + 1) + '/' + total +
+            ' 帧 · 已用 ' + el.toFixed(0) + ' s' + (eta > 1 ? '，约剩 ' + eta.toFixed(0) + ' s' : ''));
+        }
+      }
+      const cdStart = offset;
+      let cdSize = 0;
+      for (const c of central) { await writeU8(c); cdSize += c.length; }
+      const end = new Uint8Array(22);
+      const dv3 = new DataView(end.buffer);
+      dv3.setUint32(0, 0x06054b50, true);
+      dv3.setUint16(8, central.length, true); dv3.setUint16(10, central.length, true);
+      dv3.setUint32(12, cdSize, true); dv3.setUint32(16, cdStart, true);
+      await writeU8(end);
+      if (writer) {
+        await writer.close();
+        setSt('已导出 ' + zipName + '（' + total + ' 张 ' + ext.toUpperCase() + ' / ' + W + '×' + H + ' / ' + fps + ' fps）。' +
+          '本地编码：ffmpeg -framerate ' + fps + ' -start_number 0 -i f_%05d.' + ext + ' -c:v libx264 -crf ' + (fmt === 'jpg' ? '18' : '16') + ' -preset slow -pix_fmt yuv420p -g ' + Math.round(fps * 3) + ' -movflags +faststart out.mp4');
+        toast('帧序列已导出：' + zipName + '（解压后用 ffmpeg 编，零亮度台阶）', 'ok');
+      } else {
+        const blob = new Blob(memParts, { type: 'application/zip' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = zipName;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 6000);
+        setSt('已导出 ' + zipName + '（' + total + ' 张 ' + ext.toUpperCase() + ' / ' + Math.round(memBytes / 1048576) + ' MB）。' +
+          '本地编码：ffmpeg -framerate ' + fps + ' -start_number 0 -i f_%05d.' + ext + ' -c:v libx264 -crf ' + (fmt === 'jpg' ? '18' : '16') + ' -preset slow -pix_fmt yuv420p -g ' + Math.round(fps * 3) + ' -movflags +faststart out.mp4');
+        toast('帧序列已导出：' + zipName + '（解压后用 ffmpeg 编，零亮度台阶）', 'ok');
+      }
+    } catch (err) {
+      if (writer) { try { await writer.abort(); } catch (e2) {} }
+      const msg = '导出帧序列失败：' + (err && err.message ? err.message : String(err));
+      setSt(msg); toast(msg, 'err');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '导出 PNG 序列（ZIP）'; }
+    }
+  }
+
   async function ledRecordWebVideo() {
     const btn = document.getElementById('habVidRecord');
     if (!habitat.agents.some(a => a.kind === 'weave')) {
@@ -14800,6 +14985,15 @@ showSplitPreview();
     const bitSel = document.getElementById('habVidBit');
     const mbps = Math.max(4, Math.min(60, parseFloat(bitSel ? bitSel.value : '16') || 16));
     const bit = Math.round(mbps * 1e6);
+    // 关键帧档位：平顺 20 秒 / 跟手 3 秒 / 全片只一个（0）
+    const kfSel = document.getElementById('habVidKf');
+    const kfSec = kfSel ? parseFloat(kfSel.value) : 20;
+    const keyEvery = Number.isFinite(kfSec) && kfSec > 0 ? Math.max(1, Math.round(kfSec * fps)) : 0;
+    // 剪辑副本：半分辨率 + 3 秒关键帧，只为拖时间线用
+    const clipEl = document.getElementById('habVidClip');
+    const wantClip = !!(clipEl && clipEl.checked);
+    const W2 = Math.max(320, Math.round(W / 2 / 2) * 2), H2 = Math.max(240, Math.round(H / 2 / 2) * 2);
+    const bit2 = Math.max(4e6, Math.round(bit * 0.5));
     // 长片 / 母版分辨率：边录边写盘（File System Access），不把整段压在内存里
     let fileWriter = null, outName = 'weave_web_' + W + 'x' + H + '_' + Math.round(durSecs) + 's.webm';
     if ((durSecs > 30 || W * H > 2.2e6) && typeof window.showSaveFilePicker === 'function') {
@@ -14827,25 +15021,43 @@ showSplitPreview();
           ledVideoStatus('编码中 ' + Math.round(done / all * 100) + '% · 第 ' + done + '/' + all +
             ' 帧 · 已用 ' + el.toFixed(0) + ' s' + (eta > 1 ? '，约剩 ' + eta.toFixed(0) + ' s' : '') +
             '（逐帧编码，画面速度与预览一致，不会掉帧）');
-        });
+        }, { keyEvery });
         if (!enc) throw new Error('浏览器没有可用的 VP9/VP8 编码器');
-        if (fileWriter) {
-          for (const part of enc.parts) await fileWriter.write(part);
-          await fileWriter.close();
-        } else {
-          const blob = new Blob(enc.parts, { type: 'video/webm' });
+        const saveBlob = (partsArr, name) => {
+          const blob = new Blob(partsArr, { type: 'video/webm' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = outName;
+          a.download = name;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
           setTimeout(() => URL.revokeObjectURL(url), 6000);
+        };
+        if (fileWriter) {
+          for (const part of enc.parts) await fileWriter.write(part);
+          await fileWriter.close();
+        } else {
+          saveBlob(enc.parts, outName);
+        }
+        // 剪辑副本：同一套合成再走一遍（渲染只占很小一部分时间），半分辨率、关键帧 3 秒
+        let clipName = '';
+        if (wantClip) {
+          ledVideoStatus('成片已出（' + outName + '）。正在出剪辑副本 ' + W2 + '×' + H2 + '…');
+          const clip = await ledEncodeAllFrames(scene, W2, H2, fps, total, bit2, (done, all) => {
+            ledVideoStatus('剪辑副本编码中 ' + Math.round(done / all * 100) + '% · 第 ' + done + '/' + all + ' 帧');
+          }, { keyEvery: Math.max(1, Math.round(fps * 3)) });
+          if (clip) {
+            clipName = outName.replace(/\.webm$/i, '') + '_clip_' + W2 + 'x' + H2 + '.webm';
+            saveBlob(clip.parts, clipName);
+          }
         }
         ledVideoStatus('已导出 ' + outName + '（' + W + '×' + H + ' / ' + fps + ' fps / ' +
-          enc.frames + '/' + total + ' 帧全部写入 / ' + mbps + ' Mbps）。逐帧编码：不会掉帧。');
-        toast('视频已导出：' + outName + '（逐帧编码，无掉帧）', 'ok');
+          enc.frames + '/' + total + ' 帧全部写入 / ' + mbps + ' Mbps' +
+          (keyEvery ? ' / 关键帧 ' + Math.round(keyEvery / fps) + ' 秒' : ' / 关键帧：全片一个') +
+          '）。逐帧编码：不会掉帧。' +
+          (clipName ? ' 剪辑副本：' + clipName + '（' + W2 + '×' + H2 + ' / 关键帧 3 秒，拖时间线立刻出画）。' : ''));
+        toast('视频已导出：' + outName + (clipName ? ' + 剪辑副本 ' + clipName : '') + '（逐帧编码，无掉帧）', 'ok');
         if (btn) { btn.disabled = false; btn.textContent = '导出视频'; }
         return;
       } catch (err) {
@@ -15240,6 +15452,7 @@ showSplitPreview();
       ledComposeFrame(g, scene, T, false, W, H, []);
       return cv.toDataURL('image/png');
     },
+    exportFramesZip: () => ledExportFrameZip(),
     encodeTest: async (W, H, fps, total, mbps) => {
       const scene = ledScene();
       scene.loop = false;
