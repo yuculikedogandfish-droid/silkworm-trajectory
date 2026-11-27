@@ -38,7 +38,7 @@ function Test-GitHubIp([string]$ip) {
 
 Write-Host "== 1/3 先试直连 push（$Remote $Branch）"
 if (-not $SkipFastPath) {
-  & git push $Remote $Branch
+  & git -c "http.version=HTTP/1.1" push $Remote $Branch
   if ($LASTEXITCODE -eq 0) { Write-Host "直连可用，已经推送完成。"; exit 0 }
   Write-Host "直连不通（常见于 DNS 污染 / Connection reset），改走隧道。"
 }
@@ -63,7 +63,7 @@ $tunnel = Start-Process -FilePath $python.Source -ArgumentList @("$PSScriptRoot\
 try {
   Start-Sleep -Milliseconds 600
   $proxy = "http://127.0.0.1:$TunnelPort"
-  & git -c "http.proxy=$proxy" -c "https.proxy=$proxy" -c "http.sslVerify=true" push $Remote $Branch
+  & git -c "http.proxy=$proxy" -c "https.proxy=$proxy" -c "http.sslVerify=true" -c "http.version=HTTP/1.1" push $Remote $Branch
   if ($LASTEXITCODE -eq 0) {
     Write-Host "推送完成（经隧道 $good）。"
   } else {
@@ -75,3 +75,4 @@ try {
   Write-Host "隧道已关闭。"
 }
 exit $ErrorCode
+
