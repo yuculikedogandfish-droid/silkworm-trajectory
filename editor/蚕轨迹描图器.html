@@ -4653,12 +4653,20 @@ if (window.parent !== window) {
       <div id="habLayerTree"></div>
       <div class="lay-align">
         <span class="hab-note" style="margin:0 0 2px">对齐所选</span>
-        <div class="row"><button type="button" data-align="l">左</button><button type="button" data-align="cx">横中</button><button type="button" data-align="r">右</button><button type="button" data-align="t">上</button><button type="button" data-align="cy">竖中</button><button type="button" data-align="b">下</button></div>
+        <div class="row"><button type="button" data-align="l">左</button><button type="button" data-align="cx">横中</button><button type="button" data-align="r">右</button></div>
+        <div class="row"><button type="button" data-align="t">上</button><button type="button" data-align="cy">竖中</button><button type="button" data-align="b">下</button></div>
         <div class="row"><button type="button" data-align="dx">水平等距</button><button type="button" data-align="dy">垂直等距</button></div>
+        <div class="row"><label>基准</label><select id="habAlignRef" style="flex:1">
+          <option value="auto">自动</option>
+          <option value="local">按块朝向</option>
+          <option value="world">场地正放</option>
+        </select></div>
+        <span class="hab-note" style="margin:2px 0 0">自动：同角的块按它自己的横竖轴对齐（边线真贴合，接成一片才连得上）；朝向不一致就退回场地外框。</span>
       </div>
       <div class=lay-align>
         <span class=hab-note style=margin:0 0 2px>无缝相邻衔接：勾选相邻的几块，合成一片连着的织场（块缝不再裁黑边）</span>
         <div class=row><button type=button id=habSeamGo>接成一片</button><button type=button id=habSeamEdge>只去缝</button><button type=button id=habSeamOff>取消无缝</button></div>
+        <div class=row><label style="flex:1;display:flex;gap:6px;align-items:center;font-size:12px;color:#9aa"><input type=checkbox id=habSeamFlatten> 混角时先摆正（旋转归零）</label></div>
       </div>
       <div class=lay-array>
         <span class=hab-note style=margin:0 0 2px>阵列复制（先只选一块）</span>
@@ -4669,7 +4677,7 @@ if (window.parent !== window) {
       <div class="stat" id="habRouteInfo">未选中个体</div>
       <div class="row"><label>位置 X</label><input type="range" id="habAdjX" min="-180" max="180" step="2"><span class="hab-adj-val" id="habAdjXVal">0</span></div>
       <div class="row"><label>位置 Y</label><input type="range" id="habAdjY" min="-180" max="180" step="2"><span class="hab-adj-val" id="habAdjYVal">0</span></div>
-      <div class="row"><label>旋转</label><input type="range" id="habAdjRot" min="-180" max="180" step="2"><span class="hab-adj-val" id="habAdjRotVal">0°</span></div>
+      <div class="row"><label>旋转</label><input type="range" id="habAdjRot" min="-180" max="180" step="1"><span class="hab-adj-val" id="habAdjRotVal">0°</span></div>
       <div class="row"><label>缩放</label><input type="range" id="habAdjScale" min="0.3" max="2" step="0.05"><span class="hab-adj-val" id="habAdjScaleVal">1.00</span></div>
       <div class="row"><label>速度倍率</label><input type="range" id="habAdjSpeed" min="0.1" max="3" step="0.05" value="1"><span class="hab-adj-val" id="habAdjSpeedVal">1.00×</span></div>
 
@@ -4682,7 +4690,7 @@ if (window.parent !== window) {
         <option value="custom">自定（画布上点）</option>
       </select></div>
       <div class="row"><button type="button" id="habRotPick">在画布上点旋转中心</button><button type="button" id="habRotZero">朝向归零</button></div>
-      <p class="hab-note" id="habRotStat">选中一块或多块：Delete 删除；旋转按「旋转中心」整体转，转完还能继续拖。</p>
+      <p class="hab-note" id="habRotStat">选中一块或多块：Delete 删除；旋转按「旋转中心」整体转，转完还能继续拖。位置 X/Y 始终是场地坐标（块心），不跟着块内轴走；块转过角度后，编辑时画布上会多出一条「块内横轴/竖轴」的淡淡参照线，告诉你这一块自己的横竖在哪。</p>
       <div id="habWeavePanel" hidden>
         <h3>出场与时长</h3>
         <div class="row"><label>出场顺序</label><input type="number" id="habUnitOrder" min="0" max="999" step="1" style="width:64px"><span class="hab-note" id="habUnitStart" style="margin:0"></span></div>
@@ -9085,6 +9093,15 @@ showSplitPreview();
   // 把若干块绕 pivot 整体转 rad：位置绕 pivot 转，自身朝向 +rad（也就是绕 pivot 转）
   function rotateWeaveAround(list, pivot, rad) {
     if (!list || !list.length || !Number.isFinite(rad) || !rad) return 0;
+    // r49y-2：成片（同一个 seam 组）是一个整体——转其中一块就等于转整片，
+    // 否则一片丝会被拆成两种朝向，缝上的丝立刻错位（用户说的「成片转过之后就对不上了」）。
+    try {
+      const seamIds = new Set(list.filter(a => a.seam).map(a => a.seam));
+      if (seamIds.size) {
+        const extra = habitat.agents.filter(a => a.kind === 'weave' && a.seam && seamIds.has(a.seam) && list.indexOf(a) < 0);
+        if (extra.length) list = list.concat(extra);
+      }
+    } catch (e) {}
     const cs = Math.cos(rad), sn = Math.sin(rad);
     list.forEach(a => {
       const dx = a.x - pivot.x, dy = a.y - pivot.y;
@@ -9125,14 +9142,36 @@ showSplitPreview();
     return p;
   }
 
+  // 朝向差在 0/90/180/270° 附近 → 同一个坐标系（矩形仍轴对齐，只是宽高换个方向）
+  function seamFrameOk(d) {
+    const q = Math.abs(((d % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2));
+    return Math.min(q, Math.PI / 2 - q) < 2e-3;
+  }
   function seamGroupFor(agent) {
     if (!agent.seam) return null;
     if ((agent.seamMode || 'merge') !== 'merge') return null;   // 只去缝：各织各的，只把缝裁掉
     const mates = habitat.agents.filter(a => a.kind === 'weave' && a.seam === agent.seam);
     if (mates.length < 2) return null;
-    const boxes = mates.map(a => seamBoxOf(a));
+    /* r49y-2：接成一片不再要求「正放」。
+       整组朝向一致（差 90° 的整数倍也算）→ 就按这个朝向建「组的局部坐标系」：
+       每块在局部系里仍是一个正放的矩形，并集、孔洞、每格的窗口全在这个系里算，
+       画的时候再绕组的旋转中心把整片转回去——斜着摆的几块现在也能接成一片，丝照样贯穿缝。
+       混角（朝向不一致）→ 退回场地坐标系（并集会比斜块大一圈，但不会有静默错位）。 */
+    const r0 = weaveRotOf(mates[0]);
+    const same = mates.every(a => seamFrameOk(weaveRotOf(a) - r0));
+    const th = same ? r0 : 0;
+    const P = { x: mates.reduce((n, a) => n + a.x, 0) / mates.length, y: mates.reduce((n, a) => n + a.y, 0) / mates.length };
+    const cs = Math.cos(th), sn = Math.sin(th);
+    const toF = (x, y) => ({ x: (x - P.x) * cs + (y - P.y) * sn, y: -(x - P.x) * sn + (y - P.y) * cs });
+    const units = {};
     let l = Infinity, r = -Infinity, t = Infinity, b = -Infinity;
-    boxes.forEach(o => { l = Math.min(l, o.l); r = Math.max(r, o.r); t = Math.min(t, o.t); b = Math.max(b, o.b); });
+    mates.forEach(a => {
+      const d = weaveRotOf(a) - th, dc = Math.abs(Math.cos(d)), ds = Math.abs(Math.sin(d));
+      const c = toF(a.x, a.y);
+      const hw = (a.w * dc + a.h * ds) / 2, hh = (a.w * ds + a.h * dc) / 2;
+      units[a.id] = { x: c.x, y: c.y, hw: hw, hh: hh, d: d };
+      l = Math.min(l, c.x - hw); r = Math.max(r, c.x + hw); t = Math.min(t, c.y - hh); b = Math.max(b, c.y + hh);
+    });
     const w = Math.max(40, r - l), h = Math.max(40, b - t);
     const src = mates[0];
     const mcx = (l + r) / 2, mcy = (t + b) / 2;
@@ -9142,12 +9181,15 @@ showSplitPreview();
     const holes = [];
     mates.forEach(a => {
       const cellA = (weaveCellContent(a, 0, 0) || {}).cell || {};
-      const dx = a.x - mcx, dy = a.y - mcy;
+      const u = units[a.id];
+      // 孔洞是在「这一格的局部系」里记的，挪进并集系要带上这块自己的朝向差 u.d（90° 的整数倍）
+      const dc = Math.cos(u.d), ds = Math.sin(u.d);
+      const mv = (cx, cy) => ({ x: u.x + cx * dc - cy * ds, y: u.y + cx * ds + cy * dc });
       const isl = cellA.islands || (cellA.island ? [cellA.island] : []);
-      isl.forEach(o => holes.push({ cx: o.cx + dx, cy: o.cy + dy, r: o.r }));
-      if (cellA.notch) holes.push({ cx: cellA.notch.cx + dx, cy: cellA.notch.cy + dy, r: cellA.notch.r });
+      isl.forEach(o => { const q = mv(o.cx, o.cy); holes.push({ cx: q.x, cy: q.y, r: o.r }); });
+      if (cellA.notch) { const q = mv(cellA.notch.cx, cellA.notch.cy); holes.push({ cx: q.x, cy: q.y, r: cellA.notch.r }); }
       if (Array.isArray(cellA.notchPts) && cellA.notchPts.length >= 3) {
-        holes.push({ pts: cellA.notchPts.map(q => ({ x: q.x + dx, y: q.y + dy })) });
+        holes.push({ pts: cellA.notchPts.map(q0 => mv(q0.x, q0.y)) });
       }
     });
     const holesKey = holes.map(h => h.pts
@@ -9156,7 +9198,7 @@ showSplitPreview();
     const key = agent.seam + '|' + mates.map(a => a.id).join(',') + '|' + Math.round(l) + ',' + Math.round(t) + ','
       + Math.round(w) + ',' + Math.round(h) + '|' + (src.seed >>> 0) + '|' + Math.round((src.tone || 1) * 100)
       + '|' + Math.round((src.coverage || 0.55) * 100) + '|' + Math.round((src.worms || 6)) + '|' + Math.round((src.strata || 1))
-      + '|' + holesKey;
+      + '|' + holesKey + '|r' + Math.round(th * 1000) + ':' + mates.map(a => Math.round(weaveRotOf(a) * 180 / Math.PI)).join('.');
     const hit = SEAM.map.get(agent.seam);
     if (hit && hit.key === key) return hit.info;
     const master = Object.assign({}, src, {
@@ -9175,7 +9217,7 @@ showSplitPreview();
     if (content.blank) content.blank = false;
     let umin = 1;
     mates.forEach(a => { umin = Math.min(umin, Math.max(0, Number.isFinite(a.u) ? a.u : 0)); });
-    const info = { cx: master.x, cy: master.y, w: w, h: h, master: master, content: content, u: umin };
+    const info = { cx: master.x, cy: master.y, w: w, h: h, master: master, content: content, u: umin, rot: th, pivot: P, units: units };
     SEAM.map.set(agent.seam, { key: key, info: info });
     if (SEAM.map.size > 4) SEAM.map.delete(SEAM.map.keys().next().value);
     return info;
@@ -9203,6 +9245,11 @@ showSplitPreview();
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    // r49y-2：这一组是斜着摆的 → 把画布绕组心转到组的局部系，后面全部按局部坐标算
+    if (seam && seam.rot) {
+      const pcx = v.px(seam.pivot.x), pcy = v.py(seam.pivot.y);
+      ctx.translate(pcx, pcy); ctx.rotate(seam.rot); ctx.translate(-pcx, -pcy);
+    }
     let edgeClipBox = null;
     cells.forEach(([i, j]) => {
       edgeClipBox = null;
@@ -9210,6 +9257,10 @@ showSplitPreview();
       if (!agent.tileField) content.blank = false;   // 手放的单元一定织满，不留空格
       const ox = seam ? seam.cx : agent.x + i * cw;
       const oy = seam ? seam.cy : agent.y + j * ch;
+      // 这一格在「绘图坐标系」里的框：普通块是世界坐标，接成一片时是组的局部坐标
+      const ub = (seam && seam.units && seam.units[agent.id])
+        ? seam.units[agent.id] : { x: agent.x, y: agent.y, hw: agent.w / 2, hh: agent.h / 2 };
+      const axb = ub.x - ub.hw, ayb = ub.y - ub.hh, awb = ub.hw * 2, ahb = ub.hh * 2;
       const gap = seam ? 0 : Math.max(0, Number.isFinite(agent.gap) ? agent.gap : 6);
       // 只去缝：缝距离归零，但每块自己的丝在框边会「撞壁收口」堆出一道亮边。
       // 所以不放大裁切框（那只会把邻居的丝也拽进来），而是把这一块的丝图形整体向外放 9 个单位，
@@ -9220,8 +9271,8 @@ showSplitPreview();
       ctx.beginPath();
       if (seam) {
         // 接成一片：裁的是这块自己的矩形，没有 gap，左右邻居把同一片丝的相邻部分画出来
-        ctx.rect(v.px(agent.x - agent.w / 2), v.py(agent.y - agent.h / 2),
-          Math.max(1, agent.w * v.s), Math.max(1, agent.h * v.s));
+        ctx.rect(v.px(axb), v.py(ayb),
+          Math.max(1, awb * v.s), Math.max(1, ahb * v.s));
       } else if (edgeMode) {
         // 只去缝：丝是硬边（裁回自己的矩形），柔雾则允许越过格边一两个像素——
         // 不然光晕会在缝上被切断，出现一条"有光晕 / 没光晕"的界线。
@@ -9300,8 +9351,8 @@ showSplitPreview();
       let seamPaths = null;
       if (seam) {
         const padP = Math.max(6, 1.15 * look.width * v.s * 2 + 4);
-        const lx0 = agent.x - agent.w / 2 - ox - padP, lx1 = agent.x + agent.w / 2 - ox + padP;
-        const ly0 = agent.y - agent.h / 2 - oy - padP, ly1 = agent.y + agent.h / 2 - oy + padP;
+        const lx0 = axb - ox - padP, lx1 = axb + awb - ox + padP;
+        const ly0 = ayb - oy - padP, ly1 = ayb + ahb - oy + padP;
         seamPaths = [];
         for (let pi = 0; pi < content.paths.length; pi++) {
           const pp = content.paths[pi];
@@ -9336,12 +9387,12 @@ showSplitPreview();
         if (seam) {
           // 并集位图 → 只取这一块所在的那一格窗口贴出来，窗口之间天然无缝
           const kx = img.width / cw, ky = img.height / ch;
-          const sx0 = (agent.x - agent.w / 2 - (ox - cw / 2)) * kx;
-          const sy0 = (agent.y - agent.h / 2 - (oy - ch / 2)) * ky;
-          const sw0 = agent.w * kx, sh0 = agent.h * ky;
+          const sx0 = (axb - (ox - cw / 2)) * kx;
+          const sy0 = (ayb - (oy - ch / 2)) * ky;
+          const sw0 = awb * kx, sh0 = ahb * ky;
           ctx.drawImage(img,
             Math.max(0, sx0), Math.max(0, sy0), Math.min(sw0, img.width - Math.max(0, sx0)), Math.min(sh0, img.height - Math.max(0, sy0)),
-            v.px(agent.x - agent.w / 2), v.py(agent.y - agent.h / 2), agent.w * v.s, agent.h * v.s);
+            v.px(axb), v.py(ayb), awb * v.s, ahb * v.s);
         } else {
           const exX = cw + eo * 2, exY = ch + eo * 2;
           const bx = v.px(ox - exX / 2), by = v.py(oy - exY / 2), bw = exX * v.s, bh = exY * v.s;
@@ -11119,12 +11170,18 @@ showSplitPreview();
           : '实测样本 raby-1 回放');
       panelSet('habAdjX', Math.round(a.x)); panelVal('habAdjXVal', String(Math.round(a.x)));
       panelSet('habAdjY', Math.round(a.y)); panelVal('habAdjYVal', String(Math.round(a.y)));
-      panelSet('habAdjRot', 0); panelVal('habAdjRotVal', '0°');
+      // r49y-2：织块的「旋转」不再写死 0° —— 这栏显示的就是它现在真的转了多少，拖它也能转
+      const wRot = (window.__weaveGeom ? window.__weaveGeom.rot(a) : (Number(a.rot) || 0)) || 0;
+      let wDeg = (wRot * 180 / Math.PI) % 360;
+      if (wDeg > 180) wDeg -= 360; if (wDeg < -180) wDeg += 360;
+      panelSet('habAdjRot', Math.round(wDeg)); panelVal('habAdjRotVal', Math.round(wDeg) + '°');
       panelSet('habAdjScale', 1); panelVal('habAdjScaleVal', '1.00');
       panelSet('habAdjFollow', false); panelCheck('habAdjFollow', false);
       panelSet('habAdjSpeed', Number.isFinite(a.speedScale) ? a.speedScale : 1);
       panelVal('habAdjSpeedVal', (Number.isFinite(a.speedScale) ? a.speedScale : 1).toFixed(2) + '×');
-      ['habAdjRot', 'habAdjScale', 'habAdjFollow'].forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
+      ['habAdjScale', 'habAdjFollow'].forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
+      const rotLEl = document.getElementById('habAdjRot');
+      if (rotLEl) rotLEl.disabled = false;
       const speedEl = document.getElementById('habAdjSpeed');
       if (speedEl) speedEl.disabled = false;
       panelSet('habWeaveW', Math.round(a.w)); panelVal('habWeaveWVal', Math.round(a.w) + 'px');
@@ -11210,7 +11267,42 @@ showSplitPreview();
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('input', fn); };
     bind('habAdjX', () => { const a = chosen(); if (!a) return; const v = parseFloat(document.getElementById('habAdjX').value); if (a.kind === 'route') { a.offX = v; applyRouteTransform(a); } else { a.x = v; } syncRoutePanel(); });
     bind('habAdjY', () => { const a = chosen(); if (!a) return; const v = parseFloat(document.getElementById('habAdjY').value); if (a.kind === 'route') { a.offY = v; applyRouteTransform(a); } else { a.y = v; } syncRoutePanel(); });
-    bind('habAdjRot', () => { const a = chosen(); if (!a || a.kind !== 'route') return; a.rot = parseFloat(document.getElementById('habAdjRot').value) * Math.PI / 180; applyRouteTransform(a); syncRoutePanel(); });
+    bind('habAdjRot', () => {
+      const a = chosen(); if (!a) return;
+      const el = document.getElementById('habAdjRot');
+      const tgtDeg = parseFloat(el.value);
+      if (a.kind === 'route') { a.rot = tgtDeg * Math.PI / 180; applyRouteTransform(a); syncRoutePanel(); return; }
+      if (a.kind !== 'weave') return;
+      // 织块：绕自己块心转，位置 X/Y（场地坐标）不动；拖滑杆时先不压撤销，松手时记一步
+      const cur = (window.__weaveGeom ? window.__weaveGeom.rot(a) : (Number(a.rot) || 0)) || 0;
+      let dDeg = tgtDeg - cur * 180 / Math.PI;
+      while (dDeg > 180) dDeg -= 360; while (dDeg < -180) dDeg += 360;
+      if (Math.abs(dDeg) < 0.05) return;
+      if (window.__studioHabitat && window.__studioHabitat.rotateUnits) {
+        // 属于无缝组时整片一起转（引擎会摊开同组），枢轴取整片中心而不是某一块的块心
+        let piv = { x: a.x, y: a.y };
+        if (a.seam) {
+          const mates = window.__studioHabitat.agents().filter(b => b.kind === 'weave' && b.seam === a.seam);
+          if (mates.length > 1) {
+            let l = Infinity, r = -Infinity, t = Infinity, b2 = -Infinity;
+            mates.forEach(b => {
+              const rr = (window.__weaveGeom ? window.__weaveGeom.rot(b) : (Number(b.rot) || 0)) || 0;
+              const cc = Math.abs(Math.cos(rr)), ss = Math.abs(Math.sin(rr));
+              const hw = (b.w * cc + b.h * ss) / 2, hh = (b.w * ss + b.h * cc) / 2;
+              l = Math.min(l, b.x - hw); r = Math.max(r, b.x + hw); t = Math.min(t, b.y - hh); b2 = Math.max(b2, b.y + hh);
+            });
+            piv = { x: (l + r) / 2, y: (t + b2) / 2 };
+          }
+        }
+        window.__studioHabitat.rotateUnits([a.id], piv, dDeg, true);
+      }
+      panelVal('habAdjRotVal', Math.round(tgtDeg) + '°');
+    });
+    const rotEl0 = document.getElementById('habAdjRot');
+    if (rotEl0) rotEl0.addEventListener('change', () => {
+      const a = chosen();
+      if (a && a.kind === 'weave' && window.__studioHabitat && window.__studioHabitat.pushUndo) window.__studioHabitat.pushUndo();
+    });
     bind('habAdjScale', () => { const a = chosen(); if (!a || a.kind !== 'route') return; a.scale = parseFloat(document.getElementById('habAdjScale').value); applyRouteTransform(a); syncRoutePanel(); });
     bind('habAdjSpeed', () => {
       const a = chosen(); if (!a) return;
@@ -13291,6 +13383,36 @@ showSplitPreview();
       ctx.closePath();
       ctx.stroke();
     })();
+    // r49y-2：块内坐标轴参照——转过的块，横轴/竖轴按它自己的朝向画（淡线 + 横轴正方向的小箭头）。
+    // 只在这一格处于编辑态时出现，成品预览、导出视频/图片里都没有。
+    const rr0 = weaveRotOf(a);
+    if (rr0) {
+      const cs0 = Math.cos(rr0), sn0 = Math.sin(rr0);
+      const ext = Math.max(a.w, a.h) / 2 + 28;
+      const PX = (t) => ({ x: a.x + cs0 * t, y: a.y + sn0 * t });   // 块内横轴
+      const PY = (t) => ({ x: a.x - sn0 * t, y: a.y + cs0 * t });   // 块内竖轴
+      ctx.save();
+      ctx.setLineDash([10, 8]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(150,200,192,0.28)';
+      [[PX(-ext), PX(ext)], [PY(-ext), PY(ext)]].forEach(pr => {
+        ctx.beginPath();
+        ctx.moveTo(v.px(pr[0].x), v.py(pr[0].y));
+        ctx.lineTo(v.px(pr[1].x), v.py(pr[1].y));
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+      // 横轴正方向箭头（哪边算「块的右边」）
+      const tip = PX(ext), b1 = PX(ext - 9), s1 = PY(5), s2 = PY(-5);
+      ctx.strokeStyle = 'rgba(150,200,192,0.55)';
+      ctx.beginPath();
+      ctx.moveTo(v.px(tip.x), v.py(tip.y));
+      ctx.lineTo(v.px(b1.x + (s1.x - a.x) * 0.9), v.py(b1.y + (s1.y - a.y) * 0.9));
+      ctx.moveTo(v.px(tip.x), v.py(tip.y));
+      ctx.lineTo(v.px(b1.x + (s2.x - a.x) * 0.9), v.py(b1.y + (s2.y - a.y) * 0.9));
+      ctx.stroke();
+      ctx.restore();
+    }
     ctx.setLineDash([]);
     const qNW = W(-a.w / 2, -a.h / 2);
     drawChip(ctx, v.px(qNW.x), v.py(qNW.y), '编辑：第 ' +
@@ -15408,11 +15530,11 @@ showSplitPreview();
     pushUndo: () => pushUndo(), undoStep: () => undoStep(),
     weaveRot: (id) => { const a = habitat.agents.find(z => z.id === id); return a ? weaveRotOf(a) : 0; },
     silkCross: () => silkCrossLevel(),
-    rotateUnits: (ids, pivot, deg) => {
+    rotateUnits: (ids, pivot, deg, noUndo) => {
       const set = new Set(ids || []);
       const list = habitat.agents.filter(a => a.kind === 'weave' && set.has(a.id));
       if (!list.length) return 0;
-      pushUndo();
+      if (!noUndo) pushUndo();
       rotateWeaveAround(list, pivot || { x: 0, y: 0 }, (Number.isFinite(deg) ? deg : 0) * Math.PI / 180);
       return list.length;
     },
@@ -17731,45 +17853,86 @@ showSplitPreview();
 
   /* ---------- 对齐 / 等距 ---------- */
   function selAgents() { return [...sel].map(byId).filter(Boolean); }
-  /* 对齐一律按「这块自己的外框边」算位移差，不再用 a.w/2 硬把中心推到边上：
-     旋转过的块外框比 w 宽，用 w/2 推会让它冲出选区（框选几块「对齐中间」全跑最左/最右就是这么来的）。
-     dx/dy 也改成按外框边等缝排——块大小不一样时，等中心距会叠在一起，等缝才是视觉上均匀。 */
+  const rotOf = (a) => (window.__weaveGeom ? window.__weaveGeom.rot(a) : (Number(a.rot) || 0));
+  const alignSay = (m, k) => { try { const H0 = window.__studioHabitat; if (H0 && H0.toast) H0.toast(m, k || 'ok'); } catch (e) {} };
+  // 朝向「在同一个坐标系里能当正放处理」：差 0 / 90 / 180 / 270° 都行（矩形仍是轴对齐，只是宽高互换）
+  function frameOk(d) {
+    const q = Math.abs(((d % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2));
+    return Math.min(q, Math.PI / 2 - q) < 2e-3;
+  }
+  /* 对齐 / 等距的位移一律在「参考坐标系」里算：
+     - 基准 = 块朝向：把每块投影到这个朝向的横轴 u 与竖轴 v 上，按投影半宽对齐 → 同角的块边线能真正贴合（无缝才接得起来）
+     - 基准 = 场地：u=(1,0)、v=(0,1)，就是原来的世界轴对齐框（混角时只能这样）
+     旋转过的块外框比 w 宽，用 w/2 硬推会让它冲出选区（以前「对齐中间」全跑最左/最右就是这么来的）。 */
   function applyAlign(kind) {
     const list = selAgents();
     const ws = list.filter(a => a.kind === 'weave');
     if (list.length < 2 || ws.length < 2) { alert('先勾选两块织网单元（或点一个组名）再对齐。'); return; }
-    const items = ws.map(a => ({ a, b: unitBox(a) }));
-    const box = bboxOf(ws.map(a => a.id));
-    if (!box) return;
-    if (kind === 'l') items.forEach(o => { o.a.x += box.l - o.b.l; });
-    else if (kind === 'r') items.forEach(o => { o.a.x += box.r - o.b.r; });
-    else if (kind === 'cx') items.forEach(o => { o.a.x += (box.l + box.r) / 2 - (o.b.l + o.b.r) / 2; });
-    else if (kind === 't') items.forEach(o => { o.a.y += box.t - o.b.t; });
-    else if (kind === 'b') items.forEach(o => { o.a.y += box.b - o.b.b; });
-    else if (kind === 'cy') items.forEach(o => { o.a.y += (box.t + box.b) / 2 - (o.b.t + o.b.b) / 2; });
+    const mode = (document.getElementById('habAlignRef') || {}).value || 'auto';
+    let theta = 0;
+    if (mode !== 'world') {
+      const r0 = rotOf(ws[0]);
+      const ok = ws.every(a => frameOk(rotOf(a) - r0));
+      if (ok) theta = r0;
+      else if (mode === 'local') {
+        alert('这几块的朝向不一致（差不是 90° 的整数倍），没法按块朝向对齐。\n先把朝向统一：用「朝向归零」，或把每块转到同一个角度；也可以把「基准」改成「场地正放」。');
+        return;
+      }
+    }
+    const u = { x: Math.cos(theta), y: Math.sin(theta) };   // 块的横轴（世界方向）
+    const v = { x: -Math.sin(theta), y: Math.cos(theta) };  // 块的竖轴
+    // 每块在参考系里的投影：中心 + 投影半宽/半高
+    const items = ws.map(a => {
+      const d = rotOf(a) - theta;
+      const c = Math.abs(Math.cos(d)), s2 = Math.abs(Math.sin(d));
+      return {
+        a,
+        cx: a.x * u.x + a.y * u.y,
+        cy: a.x * v.x + a.y * v.y,
+        hw: (c * a.w + s2 * a.h) / 2,
+        hh: (s2 * a.w + c * a.h) / 2,
+      };
+    });
+    const along = (o, dx, dy) => { o.a.x += dx * u.x + dy * v.x; o.a.y += dx * u.y + dy * v.y; };
+    const minL = Math.min(...items.map(o => o.cx - o.hw));
+    const maxR = Math.max(...items.map(o => o.cx + o.hw));
+    const minT = Math.min(...items.map(o => o.cy - o.hh));
+    const maxB = Math.max(...items.map(o => o.cy + o.hh));
+    if (kind === 'l') items.forEach(o => along(o, minL - (o.cx - o.hw), 0));
+    else if (kind === 'r') items.forEach(o => along(o, maxR - (o.cx + o.hw), 0));
+    else if (kind === 'cx') items.forEach(o => along(o, (minL + maxR) / 2 - o.cx, 0));
+    else if (kind === 't') items.forEach(o => along(o, 0, minT - (o.cy - o.hh)));
+    else if (kind === 'b') items.forEach(o => along(o, 0, maxB - (o.cy + o.hh)));
+    else if (kind === 'cy') items.forEach(o => along(o, 0, (minT + maxB) / 2 - o.cy));
     else if (kind === 'dx') {
-      items.sort((p, q) => p.b.l - q.b.l);
+      items.sort((p, q) => (p.cx - p.hw) - (q.cx - q.hw));
       const first = items[0], last = items[items.length - 1];
-      const span = last.b.r - first.b.l;
-      const sumW = items.reduce((n, o) => n + (o.b.r - o.b.l), 0);
+      const span = (last.cx + last.hw) - (first.cx - first.hw);
+      const sumW = items.reduce((n, o) => n + o.hw * 2, 0);
       const gap = Math.max(0, (span - sumW) / (items.length - 1));
-      let cur = first.b.l;
+      let cur = first.cx - first.hw;
       items.forEach(o => {
-        o.a.x += cur - o.b.l;
-        cur += (o.b.r - o.b.l) + gap;
+        const need = cur - (o.cx - o.hw);
+        along(o, need, 0);
+        o.cx += need;
+        cur += o.hw * 2 + gap;
       });
     } else if (kind === 'dy') {
-      items.sort((p, q) => p.b.t - q.b.t);
+      items.sort((p, q) => (p.cy - p.hh) - (q.cy - q.hh));
       const first = items[0], last = items[items.length - 1];
-      const span = last.b.b - first.b.t;
-      const sumH = items.reduce((n, o) => n + (o.b.b - o.b.t), 0);
+      const span = (last.cy + last.hh) - (first.cy - first.hh);
+      const sumH = items.reduce((n, o) => n + o.hh * 2, 0);
       const gap = Math.max(0, (span - sumH) / (items.length - 1));
-      let cur = first.b.t;
+      let cur = first.cy - first.hh;
       items.forEach(o => {
-        o.a.y += cur - o.b.t;
-        cur += (o.b.b - o.b.t) + gap;
+        const need = cur - (o.cy - o.hh);
+        along(o, 0, need);
+        o.cy += need;
+        cur += o.hh * 2 + gap;
       });
     }
+    if (Math.abs(theta) > 1e-4) alignSay('按块朝向（' + Math.round(theta * 180 / Math.PI) + '°）对齐：同角的块边线真贴合，可以直接「接成一片」。', 'ok');
+    else if (mode !== 'world' && ws.some(a => Math.abs(rotOf(a)) > 1e-4)) alignSay('这些块朝向不一致，这次按场地正放对齐：贴的是外框，不是斜着的丝边；要对丝边就把朝向统一，或把基准切到「按块朝向」。', 'warn');
     sig = ''; refresh(true);
   }
   document.querySelectorAll('[data-align]').forEach(b => b.addEventListener('click', () => applyAlign(b.dataset.align)));
@@ -17790,10 +17953,21 @@ showSplitPreview();
     let linked = false;
     for (let i = 0; i < n && !linked; i++) for (let j = i + 1; j < n; j++) if (touch(ws[i], ws[j])) { linked = true; break; }
     if (!linked) { alert('这 '+n+' 块彼此都隔着距离，先让它们挨上（或用对齐/等距排成一排）再来无缝。'); return; }
-    const rotated = ws.filter(a => Math.abs(Number(a.rot) || 0) > 1e-4);
-    if (rotated.length) {
+    /* r49y-2：不再「一接成一片就把旋转销毁」。
+       同角（差 90° 的整数倍也算）→ 直接按这个朝向接，丝照样贯穿缝；
+       混角 → 先提示；只有勾了「混角时先摆正」才真的把旋转归零（这是显式授权，不是偷偷改）。 */
+    const rotK = (a) => (window.__weaveGeom ? window.__weaveGeom.rot(a) : (Number(a.rot) || 0));
+    const r0 = rotK(ws[0]);
+    const fOk = (d) => { const q = Math.abs(((d % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2)); return Math.min(q, Math.PI / 2 - q) < 2e-3; };
+    const mixed = ws.some(a => !fOk(rotK(a) - r0));
+    if (mixed) {
+      const flatten = !!(document.getElementById('habSeamFlatten') || {}).checked;
+      if (!flatten) {
+        alert('这几块的朝向不一致（差不是 90° 的整数倍），接起来丝在缝上会错位。\n办法一：把每块转到同一个角度（或都「朝向归零」）再接——现在同角能直接接，不用摆正；\n办法二：勾上「混角时先摆正（旋转归零）」，它会先把选中这几块的旋转清掉再接。');
+        return;
+      }
       ws.forEach(a => { a.rot = 0; });
-      say('无缝拼接只做正放的织场：'+rotated.length+' 块已摆正（旋转角的视觉会变）。', 'warn');
+      say('按你的勾选，先把 ' + ws.length + ' 块摆正（旋转归零）再接。', 'warn');
     }
     const gid = 'sm' + (++seamSeq) + '_' + Date.now().toString(36);
     ws.forEach(a => { a.seam = gid; a.seamMode = 'merge'; a.gap = 0; a.tileField = false; });
@@ -17825,6 +17999,9 @@ showSplitPreview();
     if (n * m <= 1) return;
     const gap = Number(($('habArrayGap') || {}).value || 12);
     const sx = one.w + gap, sy = one.h + gap;
+    // r49y-2：源块转过角度时，阵列沿它自己的横/竖轴排——按场地轴排会让斜块之间露出一条斜缝
+    const aTh = (window.__weaveGeom ? window.__weaveGeom.rot(one) : (Number(one.rot) || 0)) || 0;
+    const aU = { x: Math.cos(aTh), y: Math.sin(aTh) }, aV = { x: -Math.sin(aTh), y: Math.cos(aTh) };
     const H0 = H();
     for (let j = 0; j < m; j++) {
       for (let i = 0; i < n; i++) {
@@ -17837,8 +18014,8 @@ showSplitPreview();
         ['w', 'h', 'coverage', 'shape', 'worms', 'seed', 'duration', 'wallAff', 'tileField', 'tone', 'gap', 'strata', 'profile', 'outline'].forEach(k => { if (one[k] !== undefined) u[k] = one[k]; });
         u.rot = one.rot || 0;   // r49u：阵列里的每一块跟源块同朝向
         u.custom = JSON.parse(JSON.stringify(one.custom || { walls: {}, paths: {}, shapes: {} }));
-        u.x = one.x + i * sx;
-        u.y = one.y + j * sy;
+        u.x = one.x + i * sx * aU.x + j * sy * aV.x;
+        u.y = one.y + i * sx * aU.y + j * sy * aV.y;
         u.tileField = false;
         if (u.cache && u.cache.clear) u.cache.clear();
         H0.buildWeave(u);
@@ -18076,15 +18253,36 @@ showSplitPreview();
     return b ? { x: b.cx, y: b.cy } : { x: 0, y: 0 };
   }
   function stat(msg) { const el = $('habRotStat'); if (el) el.textContent = msg; }
+  // r49y-2：转完/归零后，右栏「选中调整」的读数立刻跟着变，别让用户看着 35° 以为没转
+  function syncAdjQuick(a) {
+    if (!a) return;
+    const setV = (id, v) => { const el = $(id); if (el) el.value = v; };
+    const setT = (id, txt) => { const el = $(id); if (el) el.textContent = txt; };
+    setV('habAdjX', Math.round(a.x)); setT('habAdjXVal', String(Math.round(a.x)));
+    setV('habAdjY', Math.round(a.y)); setT('habAdjYVal', String(Math.round(a.y)));
+    let d = (G().rot(a) * 180 / Math.PI) % 360;
+    if (d > 180) d -= 360; if (d < -180) d += 360;
+    setV('habAdjRot', Math.round(d)); setT('habAdjRotVal', Math.round(d) + '°');
+  }
 
+  function expandSeamList(list) {
+    const ids = new Set(list.map(a => a.id));
+    const seams = new Set(list.filter(a => a.seam).map(a => a.seam));
+    if (!seams.size) return list;
+    H().agents().forEach(b => { if (b.kind === 'weave' && b.seam && seams.has(b.seam)) ids.add(b.id); });
+    return H().agents().filter(a => ids.has(a.id) && a.kind === 'weave');
+  }
   function rotateBy(deg) {
-    const list = selUnits();
-    if (!list.length) { H().toast('先在画布或图层列表里选中要转的块。', 'err'); return; }
+    const list0 = selUnits();
+    if (!list0.length) { H().toast('先在画布或图层列表里选中要转的块。', 'err'); return; }
     if (!Number.isFinite(deg) || !deg) return;
+    const list = expandSeamList(list0);
+    if (list.length > list0.length) H().hint('这一块属于一片无缝组：整片 ' + list.length + ' 块一起转，缝上的丝才连得住。');
     const p = pivotPoint(list);
     H().pushUndo();
     G().rotate(list, p, deg * Math.PI / 180);
     if (window.__layerSel) window.__layerSel.set(list.map(a => a.id));
+    syncAdjQuick(list[0]);
     H().hint('已把 ' + list.length + ' 块绕（' + Math.round(p.x) + ', ' + Math.round(p.y) + '）转了 ' + deg + '°。');
     stat('已把 ' + list.length + ' 块绕（' + Math.round(p.x) + ', ' + Math.round(p.y) + '）转了 ' + deg + '°；Ctrl+Z 可撤销。');
     paintPivot();
@@ -18096,12 +18294,23 @@ showSplitPreview();
   bindBtn('habRotCCW15', () => rotateBy(-15));
   bindBtn('habRotCW15', () => rotateBy(15));
   bindBtn('habRotZero', () => {
-    const list = selUnits();
-    if (!list.length) { H().toast('先选中要归零的块。', 'err'); return; }
+    const list0 = selUnits();
+    if (!list0.length) { H().toast('先选中要归零的块。', 'err'); return; }
+    const list = expandSeamList(list0);
+    // 成片：整片绕自己的中心转回去（各块位置跟着走，缝保持连着）；单块：原地归零（位置不动）
+    const th = G().rot(list[0]);
+    const allSame = list.every(a => Math.abs(G().rot(a) - th) < 1e-4);
     H().pushUndo();
-    list.forEach(a => { a.rot = 0; a.flashUntil = performance.now() + 1200; });
+    if (list.length > 1 && list[0].seam && allSame && Math.abs(th) > 1e-4) {
+      const b = bboxOf(list);
+      G().rotate(list, { x: b.cx, y: b.cy }, -th);
+      H().toast('整片（' + list.length + ' 块）绕自己的中心转回正放，缝还连着。', 'ok');
+    } else {
+      list.forEach(a => { a.rot = 0; a.flashUntil = performance.now() + 1200; });
+      H().toast('已把 ' + list.length + ' 块的朝向归零（位置没动）。' + (list.length > 1 && list[0].seam ? '（这几块朝向本来就不一致，归零后缝会散开）' : ''), 'ok');
+    }
+    syncAdjQuick(list[0]);
     if (window.__layerSel) window.__layerSel.set(list.map(a => a.id));
-    H().toast('已把 ' + list.length + ' 块的朝向归零（位置没动）。', 'ok');
     paintPivot();
   });
 
