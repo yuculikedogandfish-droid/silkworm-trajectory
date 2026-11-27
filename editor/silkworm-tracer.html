@@ -9052,6 +9052,20 @@ showSplitPreview();
     const l = weaveLocal(a, x, y);
     return Math.abs(l.x) <= Math.max(1, a.w) / 2 + 0.001 && Math.abs(l.y) <= Math.max(1, a.h) / 2 + 0.001;
   }
+  /* r49y：旋转后「画的、点的、拖的」必须用同一套换算。
+     块的一切几何（手柄、孔洞、缺口、壁、丝路、外框顶点）都存成「相对块心的局部坐标」，
+     显示时再按 rot 转出去，拾取/拖拽时再转回来；不这么做就会出现「丝转过去了、框还在原位」。 */
+  function weaveToWorld(a, lx, ly) {
+    const r = weaveRotOf(a);
+    if (!r) return { x: a.x + lx, y: a.y + ly };
+    const cs = Math.cos(r), sn = Math.sin(r);
+    return { x: a.x + lx * cs - ly * sn, y: a.y + lx * sn + ly * cs };
+  }
+  // 世界点 → 这一块（某一格）的局部坐标（相对该格中心，未旋转）
+  function weaveCellLocal(a, x, y, ix, iy) {
+    const l = weaveLocal(a, x, y);
+    return { x: l.x - (ix || 0) * a.w, y: l.y - (iy || 0) * a.h };
+  }
   // 在屏幕坐标里绕块心转：等比缩放下等价于在世界里绕块心转
   function weaveApplyRot(ctx, agent, v) {
     const r = weaveRotOf(agent);
@@ -10852,11 +10866,13 @@ showSplitPreview();
           );
           ctx.restore();
         }
+        // 手柄 / 编辑预览用的是世界坐标（rotation 已在 weaveHandles 里算过），
+        // 必须在「没被 weaveApplyRot 转过」的画布空间里画，否则会被转第二次（r49y）
+        if (wRot) ctx.restore();
         if (!habitat.finalPreview) {
-          if (!wRot) drawWeaveHandles(ctx, agent, v);   // 旋转态先不给手柄：手柄按轴对齐算，转过的块会对不上
+          drawWeaveHandles(ctx, agent, v);
           if (editAgent && editAgent.id === agent.id) drawEditLivePreview(ctx, agent, v);
         }
-        if (wRot) ctx.restore();
         return;
       }
       if (agent.kind === 'route') {
@@ -11973,8 +11989,15 @@ showSplitPreview();
         // 踩过的坑：块与块贴合/叠放（尤其 Ctrl+D 复制出来的重合件）时，格内任意一点都会
         // 同时落在邻居的包围盒里，早先无条件切块会让「加孔洞/拖手柄」变成"跳到另一块"，点了半天加不进去。
         // 例外：正在编辑的这块被锁定时，它对画布点击是透明的，点到别人就切过去。
-        const insideEdited = !a.locked
-          && Math.abs(p.x - a.x) <= a.w / 2 && Math.abs(p.y - a.y) <= a.h / 2;
+        const v = view();
+        const tol = 14 / v.s;
+        const hs = weaveHandles(a, e.ix, e.iy);
+        // 缺口工具下把抓取半径放大（白点小、又贴着曲线，手要够得着）
+        const tol2 = (e.tool === 'notch') ? 22 / v.s : tol;
+        // 抓住手柄本身就是「我在这一块」的证据：旋转后角点/边中点正好压在边界上，
+        // 早先只看矩形命中，几百个像素的框里差几个像素就被判成「点了空白」而退出编辑。
+        const hit = hs.find(h => Math.hypot(h.x - p.x, h.y - p.y) <= tol2);
+        const insideEdited = !a.locked && (weaveHit(a, p.x, p.y) || !!hit);
         const otherUnit = insideEdited ? null : (() => {
           const z = pickCanvasAgent(p);
           return (z && z.kind === 'weave' && z.id !== a.id) ? z : null;
@@ -11996,14 +12019,9 @@ showSplitPreview();
           if (window.__layerSel && window.__layerSel.clear) window.__layerSel.clear();
           return;
         }
-        const v = view();
-        const tol = 14 / v.s;
-        const hs = weaveHandles(a, e.ix, e.iy);
-        // 缺口工具下把抓取半径放大（白点小、又贴着曲线，手要够得着）
-        const tol2 = (e.tool === 'notch') ? 22 / v.s : tol;
-        const hit = hs.find(h => Math.hypot(h.x - p.x, h.y - p.y) <= tol2);
         if (hit) {
           if (ev.altKey && deleteWeaveHandleVertex(hit)) return;
+          hit.__p0 = { x: p.x, y: p.y };   // 拖动基准：按下时的指针（旋转/抓偏了都能跟手）
           pushUndo();
           habitat.drag = { kind: 'weaveHandle', handle: hit };
           try { world.setPointerCapture(ev.pointerId); } catch (_) { /* 合成事件无 pointer id */ }
@@ -12026,8 +12044,9 @@ showSplitPreview();
             pushUndo();
             const sh = ensureShapeOverride(a, 0, 0);
             if (!sh.notch) sh.notch = { cx: 0, cy: 0, r: Math.min(a.w, a.h) * 0.34 };
-            sh.notch.cx = Math.max(-a.w / 2, Math.min(a.w / 2, p.x - a.x));
-            sh.notch.cy = Math.max(-a.h / 2, Math.min(a.h / 2, p.y - a.y));
+            const nlp = weaveLocal(a, p.x, p.y);
+            sh.notch.cx = Math.max(-a.w / 2, Math.min(a.w / 2, nlp.x));
+            sh.notch.cy = Math.max(-a.h / 2, Math.min(a.h / 2, nlp.y));
             dropWeaveCellCache(a, '0,0');
             weaveCellContent(a, 0, 0);
             syncEditNote();
@@ -12039,7 +12058,7 @@ showSplitPreview();
         }
         const c = weaveCellAt(a, p);
         if (!a.tileField) {
-          const inside = Math.abs(p.x - a.x) <= a.w / 2 && Math.abs(p.y - a.y) <= a.h / 2;
+          const inside = weaveHit(a, p.x, p.y);
           if (!inside) {
             // 点到格外：正在画的那一笔先收尾
             const key0 = e.ix + ',' + e.iy;
@@ -12635,12 +12654,13 @@ showSplitPreview();
 
   /* ===== 织网形状编辑：人工创建 / 调整壁与路径 ===== */
   function weaveCellAt(agent, p) {
-    const ix = Math.floor((p.x - agent.x) / agent.w + 0.5);
-    const iy = Math.floor((p.y - agent.y) / agent.h + 0.5);
+    const l = weaveLocal(agent, p.x, p.y);
+    const ix = Math.floor(l.x / agent.w + 0.5);
+    const iy = Math.floor(l.y / agent.h + 0.5);
     return {
       ix, iy,
-      lx: p.x - (agent.x + ix * agent.w),
-      ly: p.y - (agent.y + iy * agent.h),
+      lx: l.x - ix * agent.w,
+      ly: l.y - iy * agent.h,
     };
   }
 
@@ -12743,7 +12763,7 @@ showSplitPreview();
       const pts = (e.outlinePts || []).slice();
       if (pts.length < 3) { toast('外框至少 3 个顶点。', 'err'); return; }
       pushUndo();
-      a.outline = pts.map(p => ({ x: p.x - a.x, y: p.y - a.y }));
+      a.outline = pts.map(p => weaveLocal(a, p.x, p.y));
       a.shape = 'island';
       if (a.cache && a.cache.clear) a.cache.clear();
       buildWeave(a);
@@ -12841,8 +12861,9 @@ showSplitPreview();
     const key = cx0 + ',' + cy0;
     const sh = ensureShapeOverride(a, cx0, cy0);
     if (!Array.isArray(sh.islands)) sh.islands = [];
-    const lx = Math.max(-a.w / 2, Math.min(a.w / 2, p.x - a.x));
-    const ly = Math.max(-a.h / 2, Math.min(a.h / 2, p.y - a.y));
+    const nlp = weaveLocal(a, p.x, p.y);
+    const lx = Math.max(-a.w / 2, Math.min(a.w / 2, nlp.x));
+    const ly = Math.max(-a.h / 2, Math.min(a.h / 2, nlp.y));
     const near = sh.islands.find(o => Math.hypot(o.cx - lx, o.cy - ly) < Math.min(a.w, a.h) * 0.12);
     if (near) {
       toast('这一点已经有一个孔：拖青圈改大小，右键可删。', 'ok');
@@ -12894,47 +12915,58 @@ showSplitPreview();
     };
     const hs = [];
     const add = (h) => { if (want(h.kind)) { h.label = WEAVE_HANDLE_LABEL[h.kind] || ''; hs.push(h); } };
+    // 局部偏移 → 世界点（带上这一格在整块里的位移，再按 rot 转出去）
+    const W = (lx, ly) => weaveToWorld(a, ix * a.w + lx, iy * a.h + ly);
     [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sy]) => {
-      add({ kind: 'unitCorner', sx, sy, x: ox + sx * a.w / 2, y: oy + sy * a.h / 2 });
+      const q = W(sx * a.w / 2, sy * a.h / 2);
+      add({ kind: 'unitCorner', sx, sy, x: q.x, y: q.y });
     });
     // 四个边中点：只拖这一边，另一侧固定（像建模软件拉包围盒）
-    add({ kind: 'unitEdge', edge: 'l', x: ox - a.w / 2, y: oy });
-    add({ kind: 'unitEdge', edge: 'r', x: ox + a.w / 2, y: oy });
-    add({ kind: 'unitEdge', edge: 't', x: ox, y: oy - a.h / 2 });
-    add({ kind: 'unitEdge', edge: 'b', x: ox, y: oy + a.h / 2 });
-    add({ kind: 'unitMove', x: a.x, y: a.y });
+    const qL = W(-a.w / 2, 0), qR = W(a.w / 2, 0), qT = W(0, -a.h / 2), qB = W(0, a.h / 2);
+    add({ kind: 'unitEdge', edge: 'l', x: qL.x, y: qL.y });
+    add({ kind: 'unitEdge', edge: 'r', x: qR.x, y: qR.y });
+    add({ kind: 'unitEdge', edge: 't', x: qT.x, y: qT.y });
+    add({ kind: 'unitEdge', edge: 'b', x: qB.x, y: qB.y });
+    const qM = W(0, 0);
+    add({ kind: 'unitMove', x: qM.x, y: qM.y });
     (c.cell.islands || []).forEach((isl, i) => {
-      add({ kind: 'islandMove', i, x: ox + isl.cx, y: oy + isl.cy });
-      add({ kind: 'islandR', i, x: ox + isl.cx + isl.r, y: oy + isl.cy });
+      const q1 = W(isl.cx, isl.cy), q2 = W(isl.cx + isl.r, isl.cy);
+      add({ kind: 'islandMove', i, x: q1.x, y: q1.y });
+      add({ kind: 'islandR', i, x: q2.x, y: q2.y });
     });
     if (c.cell.notch) {
-      add({ kind: 'notchMove', x: ox + c.cell.notch.cx, y: oy + c.cell.notch.cy });
-      add({ kind: 'notchR', x: ox + c.cell.notch.cx + c.cell.notch.r, y: oy + c.cell.notch.cy });
+      const q1 = W(c.cell.notch.cx, c.cell.notch.cy), q2 = W(c.cell.notch.cx + c.cell.notch.r, c.cell.notch.cy);
+      add({ kind: 'notchMove', x: q1.x, y: q1.y });
+      add({ kind: 'notchR', x: q2.x, y: q2.y });
     }
     // 手画的缺口：每个顶点一个点，每条边的中点可以拖出一个新顶点
     if (Array.isArray(c.cell.notchPts) && c.cell.notchPts.length >= 3) {
       const np = c.cell.notchPts;
-      np.forEach((pt, vi) => add({ kind: 'notchV', vi, x: ox + pt.x, y: oy + pt.y }));
+      np.forEach((pt, vi) => { const q = W(pt.x, pt.y); add({ kind: 'notchV', vi, x: q.x, y: q.y }); });
       for (let vi = 0; vi < np.length; vi++) {
         const p1 = np[vi], p2 = np[(vi + 1) % np.length];
-        add({ kind: 'notchMid', vi, x: ox + (p1.x + p2.x) / 2, y: oy + (p1.y + p2.y) / 2 });
+        const q = W((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+        add({ kind: 'notchMid', vi, x: q.x, y: q.y });
       }
     }
     const bw = (a.custom && a.custom.walls && a.custom.walls[key]) || [];
     const bp = (a.custom && a.custom.paths && a.custom.paths[key]) || [];
     bw.forEach((line, wi) => (line.pts || line).forEach((pt, vi) => {
-      add({ kind: 'wallV', wi, vi, x: ox + pt.x, y: oy + pt.y });
+      const q = W(pt.x, pt.y);
+      add({ kind: 'wallV', wi, vi, x: q.x, y: q.y });
     }));
     bp.forEach((line, pi) => (line.pts || line).forEach((pt, vi) => {
-      add({ kind: 'pathV', pi, vi, x: ox + pt.x, y: oy + pt.y });
+      const q = W(pt.x, pt.y);
+      add({ kind: 'pathV', pi, vi, x: q.x, y: q.y });
     }));
     // 自定义外框轮廓顶点：白点可拖，Alt+点可删
     if (Array.isArray(a.outline)) {
-      a.outline.forEach((pt, vi) => add({ kind: 'outlineV', vi, x: ox + pt.x, y: oy + pt.y }));
+      a.outline.forEach((pt, vi) => { const q = W(pt.x, pt.y); add({ kind: 'outlineV', vi, x: q.x, y: q.y }); });
       // 每条边的中点：拖一下就地拉出一个新角点（像钢笔工具加点）
       for (let vi = 0; vi < a.outline.length; vi++) {
         const p1 = a.outline[vi], p2 = a.outline[(vi + 1) % a.outline.length];
-        add({ kind: 'outlineMid', vi, x: ox + (p1.x + p2.x) / 2, y: oy + (p1.y + p2.y) / 2 });
+        const q = W((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+        add({ kind: 'outlineMid', vi, x: q.x, y: q.y });
       }
     }
     return hs;
@@ -12947,77 +12979,95 @@ showSplitPreview();
     if (a.locked) return;
     const key = e.ix + ',' + e.iy;
     const ix = e.ix, iy = e.iy;
+    // 起手时的几何快照：拖动过程中 a.w/a.h 会变，锚点必须用按下那一刻的
+    if (!h.__g || !Number.isFinite(h.__g.w)) {
+      h.__g = { w: a.w, h: a.h, x: a.x, y: a.y, rot: weaveRotOf(a), ix, iy };
+    }
+    const g = h.__g;
+    const gcs = Math.cos(g.rot), gsn = Math.sin(g.rot);
+    // 世界点 → 按下那一刻的「这一格」的局部坐标（相对格心、未旋转）
+    const lpOf = (wx, wy) => {
+      const dx = wx - g.x, dy = wy - g.y;
+      return { x: (dx * gcs + dy * gsn) - g.ix * g.w, y: (-dx * gsn + dy * gcs) - g.iy * g.h };
+    };
+    // 按下那一刻：局部偏移 → 世界点
+    const gWorld = (lx, ly) => ({ x: g.x + lx * gcs - ly * gsn, y: g.y + lx * gsn + ly * gcs });
     const ox = a.x + ix * a.w, oy = a.y + iy * a.h;
     if (h.kind === 'unitMove') {
-      a.x = p.x;
-      a.y = p.y;
+      // 跟手：按「按下那一刻」的指针做绝对换算（不能每次 move 都 += 差值，否则越拖越飘）
+      const p0 = h.__p0 || g;
+      a.x = g.x + (p.x - p0.x);
+      a.y = g.y + (p.y - p0.y);
       return;
     }
-    if (h.kind === 'unitEdge') {
-      // 只动被拖的这一边，对面那条边钉死
-      if (h.edge === 'l' || h.edge === 'r') {
-        const left = ox - a.w / 2, right = ox + a.w / 2;
-        const nw = Math.max(80, Math.min(1200, h.edge === 'l' ? right - p.x : p.x - left));
-        const nox = h.edge === 'l' ? right - nw / 2 : left + nw / 2;
-        a.w = nw;
-        a.x = nox - ix * nw;
+    // 缩放的通用算法：先把「该钉死的那条边/那个角」记在按下那一刻的局部坐标里，
+    // 再把光标转进同一套局部系量新宽高，最后把新的块心算回来——所以旋转多少度都不会走形。
+    if (h.kind === 'unitEdge' || h.kind === 'unitCorner') {
+      const pl = lpOf(p.x, p.y);
+      let nw = g.w, nh = g.h;
+      let fx = 0, fy = 0;          // 钉死在起手局部系里的那条边（相对格心）
+      let f2x = 0, f2y = 0;        // 同样的边，在新尺寸下相对新格心的位置
+      if (h.kind === 'unitCorner') {
+        fx = -h.sx * g.w / 2; fy = -h.sy * g.h / 2;
+        nw = Math.max(80, Math.min(1200, Math.abs(pl.x - fx)));
+        nh = Math.max(80, Math.min(1200, Math.abs(pl.y - fy)));
+        f2x = -h.sx * nw / 2; f2y = -h.sy * nh / 2;
+      } else if (h.edge === 'l' || h.edge === 'r') {
+        fx = (h.edge === 'l' ? 1 : -1) * g.w / 2; fy = 0;
+        nw = Math.max(80, Math.min(1200, Math.abs(pl.x - fx)));
+        f2x = (h.edge === 'l' ? 1 : -1) * nw / 2; f2y = 0;
       } else {
-        const top = oy - a.h / 2, bot = oy + a.h / 2;
-        const nh = Math.max(80, Math.min(1200, h.edge === 't' ? bot - p.y : p.y - top));
-        const noy = h.edge === 't' ? bot - nh / 2 : top + nh / 2;
-        a.h = nh;
-        a.y = noy - iy * nh;
+        fx = 0; fy = (h.edge === 't' ? 1 : -1) * g.h / 2;
+        nh = Math.max(80, Math.min(1200, Math.abs(pl.y - fy)));
+        f2x = 0; f2y = (h.edge === 't' ? 1 : -1) * nh / 2;
       }
-      a.cache = new Map();
-      buildWeave(a);
-      return;
-    }
-    if (h.kind === 'unitCorner') {
-      // 对角固定，拖动角改宽高（像建模软件拉框）
-      const fixedX = a.x + ix * a.w - h.sx * a.w / 2;
-      const fixedY = a.y + iy * a.h - h.sy * a.h / 2;
-      a.w = Math.max(80, Math.min(1200, Math.abs(p.x - fixedX)));
-      a.h = Math.max(80, Math.min(1200, Math.abs(p.y - fixedY)));
-      a.x = fixedX + h.sx * a.w / 2 - ix * a.w;
-      a.y = fixedY + h.sy * a.h / 2 - iy * a.h;
+      // 钉死的那个点，按起手几何算到世界坐标
+      const Fw = gWorld(g.ix * g.w + fx, g.iy * g.h + fy);
+      // 新格心的世界坐标 = 钉死点 - 新尺寸下这条边的局部偏移（同样要转出去）
+      const cw = { x: Fw.x - (f2x * gcs - f2y * gsn), y: Fw.y - (f2x * gsn + f2y * gcs) };
+      a.w = nw; a.h = nh;
+      a.x = cw.x - (ix * nw * gcs - iy * nh * gsn);
+      a.y = cw.y - (ix * nw * gsn + iy * nh * gcs);
       a.cache = new Map();
       buildWeave(a);
       return;
     }
     const sh = ensureShapeOverride(a, ix, iy);
+    // 内部手柄（孔洞 / 缺口 / 壁 / 丝路 / 外框顶点）存的都是局部坐标：光标先转回局部系再写
+    const pl = lpOf(p.x, p.y);
     if (h.kind === 'islandMove') {
       const isl = sh.islands[h.i];
       if (!isl) return;
-      isl.cx = p.x - ox;
-      isl.cy = p.y - oy;
+      isl.cx = pl.x;
+      isl.cy = pl.y;
     } else if (h.kind === 'islandR') {
       const isl = sh.islands[h.i];
       if (!isl) return;
       // 孔洞大小不限：只保证不把整格吃干净（留 1% 边），要多大拉多大
-      isl.r = Math.max(6, Math.min(Math.min(a.w, a.h) * 0.99, Math.hypot(p.x - ox - isl.cx, p.y - oy - isl.cy)));
+      isl.r = Math.max(6, Math.min(Math.min(a.w, a.h) * 0.99, Math.hypot(pl.x - isl.cx, pl.y - isl.cy)));
     } else if (h.kind === 'notchMove' || h.kind === 'notchR') {
       if (!sh.notch) return;
       if (h.kind === 'notchMove') {
-        sh.notch.cx = p.x - ox;
-        sh.notch.cy = p.y - oy;
+        sh.notch.cx = pl.x;
+        sh.notch.cy = pl.y;
       } else {
-        sh.notch.r = Math.max(6, Math.hypot(p.x - ox - sh.notch.cx, p.y - oy - sh.notch.cy));
+        sh.notch.r = Math.max(6, Math.hypot(pl.x - sh.notch.cx, pl.y - sh.notch.cy));
       }
     } else if (h.kind === 'notchV') {
       if (!sh.notchPts || !sh.notchPts[h.vi]) return;
-      sh.notchPts[h.vi] = { x: p.x - ox, y: p.y - oy };
+      sh.notchPts[h.vi] = { x: pl.x, y: pl.y };
     } else if (h.kind === 'notchMid') {
       if (!sh.notchPts) return;
       if (h.newIdx == null) {
-        sh.notchPts.splice(h.vi + 1, 0, { x: p.x - ox, y: p.y - oy });
+        sh.notchPts.splice(h.vi + 1, 0, { x: pl.x, y: pl.y });
         h.newIdx = h.vi + 1;
       } else {
-        sh.notchPts[h.newIdx] = { x: p.x - ox, y: p.y - oy };
+        sh.notchPts[h.newIdx] = { x: pl.x, y: pl.y };
       }
     } else if (h.kind === 'outlineV') {
       if (!Array.isArray(a.outline) || !a.outline[h.vi]) return;
-      a.outline[h.vi].x = p.x - ox;
-      a.outline[h.vi].y = p.y - oy;
+      a.outline[h.vi].x = pl.x;
+      a.outline[h.vi].y = pl.y;
       if (a.cache && a.cache.clear) a.cache.clear();
       buildWeave(a);
       return;
@@ -13025,10 +13075,10 @@ showSplitPreview();
       // 第一次拖动就插入一个新角点，之后这个手柄一直拖这个新点
       if (!Array.isArray(a.outline)) return;
       if (h.newIdx == null) {
-        a.outline.splice(h.vi + 1, 0, { x: p.x - ox, y: p.y - oy });
+        a.outline.splice(h.vi + 1, 0, { x: pl.x, y: pl.y });
         h.newIdx = h.vi + 1;
       } else {
-        a.outline[h.newIdx] = { x: p.x - ox, y: p.y - oy };
+        a.outline[h.newIdx] = { x: pl.x, y: pl.y };
       }
       if (a.cache && a.cache.clear) a.cache.clear();
       buildWeave(a);
@@ -13039,8 +13089,8 @@ showSplitPreview();
       if (!line) return;
       const pts = line.pts || line;
       if (!pts[h.vi]) return;
-      pts[h.vi].x = p.x - ox;
-      pts[h.vi].y = p.y - oy;
+      pts[h.vi].x = pl.x;
+      pts[h.vi].y = pl.y;
     } else return;
     dropWeaveCellCache(a, key);
     weaveCellContent(a, ix, iy);
@@ -13097,6 +13147,7 @@ showSplitPreview();
     const e = habitat.weaveEdit;
     if (!e || e.agentId !== a.id) return;
     const hs = weaveHandles(a, e.ix, e.iy);
+    const r0 = weaveRotOf(a);
     ctx.save();
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineWidth = 1;
@@ -13109,11 +13160,14 @@ showSplitPreview();
         ctx.fillStyle = '#f0b45a';
         ctx.fillRect(px - (hov ? 5 : 4), py - (hov ? 5 : 4), hov ? 10 : 8, hov ? 10 : 8);
       } else if (h.kind === 'unitEdge') {
-        // 边中点画成短粗条：一看就知道"拉这条边"
+        // 边中点画成短粗条：一看就知道"拉这条边"；块转过的话条也跟着贴边，不会横在斜边上
         ctx.fillStyle = '#f0b45a';
         const L = hov ? 16 : 13, T = hov ? 7 : 6;
+        ctx.save();
+        if (r0) { ctx.translate(px, py); ctx.rotate(r0); ctx.translate(-px, -py); }
         if (h.edge === 'l' || h.edge === 'r') ctx.fillRect(px - T / 2, py - L / 2, T, L);
         else ctx.fillRect(px - L / 2, py - T / 2, L, T);
+        ctx.restore();
       } else if (h.kind === 'unitMove') {
         ctx.strokeStyle = '#f0b45a';
         ctx.lineWidth = hov ? 2 : 1;
@@ -13217,6 +13271,8 @@ showSplitPreview();
     const e = habitat.weaveEdit;
     if (!e || e.agentId !== a.id) return;
     const ox = a.x + e.ix * a.w, oy = a.y + e.iy * a.h;
+    // 这一格的局部偏移 → 世界点（旋转后虚线框、孔圆、壁/丝路都得跟着转）
+    const W = (lx, ly) => weaveToWorld(a, e.ix * a.w + lx, e.iy * a.h + ly);
     const c = weaveCellContent(a, e.ix, e.iy);
     const key = e.ix + ',' + e.iy;
     const sh = (a.custom && a.custom.shapes && a.custom.shapes[key]) || null;
@@ -13228,13 +13284,21 @@ showSplitPreview();
     ctx.strokeStyle = 'rgba(240,180,90,0.85)';
     ctx.lineWidth = 1.5;
     // 正在编辑的这一格
-    ctx.strokeRect(v.px(ox - a.w / 2), v.py(oy - a.h / 2), a.w * v.s, a.h * v.s);
+    (() => {
+      const q = [W(-a.w / 2, -a.h / 2), W(a.w / 2, -a.h / 2), W(a.w / 2, a.h / 2), W(-a.w / 2, a.h / 2)];
+      ctx.beginPath();
+      q.forEach((pt, k) => { const px = v.px(pt.x), py = v.py(pt.y); if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+      ctx.closePath();
+      ctx.stroke();
+    })();
     ctx.setLineDash([]);
-    drawChip(ctx, v.px(ox - a.w / 2), v.py(oy - a.h / 2), '编辑：第 ' +
+    const qNW = W(-a.w / 2, -a.h / 2);
+    drawChip(ctx, v.px(qNW.x), v.py(qNW.y), '编辑：第 ' +
       (habitat.agents.filter(x => x.kind === 'weave').findIndex(x => x.id === a.id) + 1) + ' 块', '#F0B45A');
     // 孔：虚线圆 + 圆心十字 + 半径读数（拖哪个孔就高亮哪个）
     islands.forEach((isl, i) => {
-      const cx = v.px(ox + isl.cx), cy = v.py(oy + isl.cy), rr = Math.max(1, isl.r * v.s);
+      const qc = W(isl.cx, isl.cy);
+      const cx = v.px(qc.x), cy = v.py(qc.y), rr = Math.max(1, isl.r * v.s);
       const dragging = habitat.drag && habitat.drag.kind === 'weaveHandle' && habitat.drag.handle.i === i;
       ctx.setLineDash([6, 4]);
       ctx.strokeStyle = dragging ? 'rgba(185,230,218,0.95)' : 'rgba(121,203,182,0.55)';
@@ -13248,14 +13312,16 @@ showSplitPreview();
       ctx.moveTo(cx, cy - 5); ctx.lineTo(cx, cy + 5);
       ctx.stroke();
       if (dragging || i === 0) {
+        const qr = W(isl.cx + isl.r, isl.cy);
         ctx.beginPath();
-        ctx.moveTo(cx, cy); ctx.lineTo(cx + rr, cy);
+        ctx.moveTo(cx, cy); ctx.lineTo(v.px(qr.x), v.py(qr.y));
         ctx.stroke();
         drawChip(ctx, cx, cy - rr, 'Ø ' + Math.round(isl.r * 2) + ' px', '#79CBB6');
       }
     });
     if (notch) {
-      const cx = v.px(ox + notch.cx), cy = v.py(oy + notch.cy), rr = Math.max(1, notch.r * v.s);
+      const qn = W(notch.cx, notch.cy);
+      const cx = v.px(qn.x), cy = v.py(qn.y), rr = Math.max(1, notch.r * v.s);
       ctx.setLineDash([4, 5]);
       ctx.strokeStyle = 'rgba(240,180,90,0.6)';
       ctx.beginPath();
@@ -13277,7 +13343,8 @@ showSplitPreview();
       ctx.lineWidth = wi === hlW ? 2 : 1.2;
       ctx.beginPath();
       pts.forEach((q, k) => {
-        const px = v.px(ox + q.x), py = v.py(oy + q.y);
+        const w0 = W(q.x, q.y);
+        const px = v.px(w0.x), py = v.py(w0.y);
         if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       });
       ctx.stroke();
@@ -13290,7 +13357,8 @@ showSplitPreview();
       ctx.setLineDash([7, 4]);
       ctx.beginPath();
       pts.forEach((q, k) => {
-        const px = v.px(ox + q.x), py = v.py(oy + q.y);
+        const w0 = W(q.x, q.y);
+        const px = v.px(w0.x), py = v.py(w0.y);
         if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       });
       ctx.stroke();
@@ -13305,7 +13373,8 @@ showSplitPreview();
       ctx.setLineDash([6, 4]);
       ctx.beginPath();
       npCurve.forEach((q, k) => {
-        const px = v.px(ox + q.x), py = v.py(oy + q.y);
+        const w0 = W(q.x, q.y);
+        const px = v.px(w0.x), py = v.py(w0.y);
         if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       });
       ctx.closePath();
@@ -13322,14 +13391,16 @@ showSplitPreview();
       ctx.setLineDash([4, 3]);
       ctx.beginPath();
       draftLine.forEach((q, k) => {
-        const px = v.px(ox + q.x), py = v.py(oy + q.y);
+        const w0 = W(q.x, q.y);
+        const px = v.px(w0.x), py = v.py(w0.y);
         if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       });
       if (e.mode === 'notch' && draft.length >= 3) ctx.closePath();
       ctx.stroke();
       draft.forEach((q) => {
         ctx.fillStyle = 'rgba(120,210,255,0.85)';
-        ctx.fillRect(v.px(ox + q.x) - 2.5, v.py(oy + q.y) - 2.5, 5, 5);
+        const w0 = W(q.x, q.y);
+        ctx.fillRect(v.px(w0.x) - 2.5, v.py(w0.y) - 2.5, 5, 5);
       });
       ctx.setLineDash([]);
     }
@@ -15372,6 +15443,16 @@ showSplitPreview();
       const sh = a && a.custom && a.custom.shapes && a.custom.shapes['0,0'];
       return (sh && sh.islands) ? sh.islands.length : 0;
     },
+    // QA：手柄几何（旋转后也应该是"丝在哪、手柄就在哪"）
+    handles: (id, ix, iy) => {
+      const a = habitat.agents.find(z => z.id === id);
+      if (!a) return [];
+      return weaveHandles(a, Number(ix) || 0, Number(iy) || 0).map(h => ({
+        kind: h.kind, x: +h.x.toFixed(1), y: +h.y.toFixed(1),
+        sx: h.sx, sy: h.sy, edge: h.edge,
+      }));
+    },
+
     duplicate: () => { const a = duplicateSelectedWeave(); return a ? a.id : null; },
     copyUnit: () => { const list = selectedWeaveUnits(); if (!list.length) return null; captureWeaveClip(list); return list[list.length - 1].id; },
     copyUnits: (ids) => {
@@ -17157,13 +17238,29 @@ showSplitPreview();
     const box = bboxOf([...sel]);
     if (box) {
       const x = v.px(box.l), y = v.py(box.t), w = (box.r - box.l) * v.s, h = (box.b - box.t) * v.s;
+      // 只选了一块、而且它是转过的织网：选框跟着它转（画成斜框），
+      // 否则「斜的丝 + 正的虚框 + 斜的手柄」三套坐标系互相打脸（r49y）
+      const solo = sel.size === 1 ? byId([...sel][0]) : null;
+      const sr = (solo && solo.kind === 'weave' && (solo.rot || 0)) ? (solo.rot || 0) : 0;
       octx.save();
       octx.strokeStyle = 'rgba(121,203,182,0.95)';
       octx.lineWidth = 1.4;
       octx.setLineDash([6, 4]);
-      octx.strokeRect(x, y, w, h);
-      octx.fillStyle = 'rgba(121,203,182,0.10)';
-      octx.fillRect(x, y, w, h);
+      if (sr) {
+        const cs = Math.cos(sr), sn = Math.sin(sr);
+        const q = [[-solo.w / 2, -solo.h / 2], [solo.w / 2, -solo.h / 2], [solo.w / 2, solo.h / 2], [-solo.w / 2, solo.h / 2]]
+          .map(([lx, ly]) => ({ x: solo.x + lx * cs - ly * sn, y: solo.y + lx * sn + ly * cs }));
+        octx.beginPath();
+        q.forEach((pt, k) => { const px = v.px(pt.x), py = v.py(pt.y); if (k === 0) octx.moveTo(px, py); else octx.lineTo(px, py); });
+        octx.closePath();
+        octx.fillStyle = 'rgba(121,203,182,0.10)';
+        octx.fill();
+        octx.stroke();
+      } else {
+        octx.strokeRect(x, y, w, h);
+        octx.fillStyle = 'rgba(121,203,182,0.10)';
+        octx.fillRect(x, y, w, h);
+      }
       octx.setLineDash([]);
       octx.fillStyle = 'rgba(121,203,182,0.95)';
       octx.font = '11px ui-monospace,monospace';
@@ -17295,19 +17392,23 @@ showSplitPreview();
   // 编辑态里，手柄（角/边中点/中心）附近要点就给原生手柄，别抢
   function nearHandle(a, p) {
     const v = H().view();
-    const pts = [
-      [a.x, a.y],
-      [a.x - a.w / 2, a.y - a.h / 2], [a.x + a.w / 2, a.y - a.h / 2],
-      [a.x - a.w / 2, a.y + a.h / 2], [a.x + a.w / 2, a.y + a.h / 2],
-      [a.x, a.y - a.h / 2], [a.x, a.y + a.h / 2],
-      [a.x - a.w / 2, a.y], [a.x + a.w / 2, a.y],
+    const r = Number(a.rot) || 0, cs = Math.cos(r), sn = Math.sin(r);
+    const W = (lx, ly) => (r
+      ? { x: a.x + lx * cs - ly * sn, y: a.y + lx * sn + ly * cs }
+      : { x: a.x + lx, y: a.y + ly });
+    const local = [
+      [0, 0],
+      [-a.w / 2, -a.h / 2], [a.w / 2, -a.h / 2], [-a.w / 2, a.h / 2], [a.w / 2, a.h / 2],
+      [0, -a.h / 2], [0, a.h / 2], [-a.w / 2, 0], [a.w / 2, 0],
     ];
-    return pts.some(q => Math.hypot(q[0] - p.x, q[1] - p.y) * v.s < 22);
+    return local.some(([lx, ly]) => { const q = W(lx, ly); return Math.hypot(q.x - p.x, q.y - p.y) * v.s < 22; });
   }
   if (worldEl) {
     worldEl.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
-      pending = { snap: baseOf(agents().map(a => a.id)), t: Date.now() };
+      // 进入单块编辑时不记吸附快照：不然拖手柄改尺寸会被这一层的「对齐到别人的边」
+      // 在下一帧偷偷补一个位移，缩放出来的框就跟手不一样的（r49y）
+      pending = inEditMode() ? null : { snap: baseOf(agents().map(a => a.id)), t: Date.now() };
       drag = null; own = null;
       const p = toWorld(e);
       const hit = hitWeave(p);
@@ -17316,8 +17417,8 @@ showSplitPreview();
         return;
       }
       marquee = null;
-      if (inEditMode() && nearHandle(hit, p)) return;   // 压在手柄上：交给原生拖拽
-      if (inEditMode() && sel.size < 2 && !groupOf(hit.id)) return; // 编辑单块：交给原生
+      if (inEditMode() && nearHandle(hit, p)) { pending = null; return; }   // 压在手柄上：交给原生拖拽
+      if (inEditMode() && sel.size < 2 && !groupOf(hit.id)) { pending = null; return; } // 编辑单块：交给原生
       const ids = moveSet(hit.id);
       own = { ids, base: baseOf(ids), start: p, anchor: hit.id };
     }, true);
