@@ -4510,6 +4510,8 @@ if (window.parent !== window) {
         <option value="line">折线（原样）</option>
       </select></div>
       <div class="row"><label>丝线柔度</label><input type="range" id="habSilkSoft" min="0" max="3" step="1" value="0"><span class="hab-note" id="habSilkSoftVal" style="margin:0">0</span></div>
+      <div class="row"><label>丝向均衡</label><input type="range" id="habSilkBalance" min="0" max="1" step="0.05" value="0"><span class="hab-note" id="habSilkBalanceVal" style="margin:0">0.00</span></div>
+      <p class="hab-note"><b>0.00 = 原样</b>：丝路都是一段一段朝同一个方向铺的，撞到块边就压到边上，所以每块总有一角更密、对角发虚（块转过角度后那一角也跟着转，看着就怪）。<b>往上拉＝把一部分丝整段转 180°</b>（起点还在原落点），密的角会分到对面去：<b>0.5</b> 约四分之一反向，<b>1.00</b> 约一半反向（最均匀，两头都密）。只改丝的走向，不改丝量、粗细和亮度。</p>
       <div class="row" id="habSilkCrossRow"><label>交叉处亮度</label><input type="range" id="habSilkCross" min="0" max="1" step="0.05" value="1"><span class="hab-note" id="habSilkCrossVal" style="margin:0">1.00</span></div>
       <p class="hab-note"><b>1.00 = 不干预</b>（丝照原来那样叠）。往左拉＝把「几根丝叠在一起才亮出来的白斑」压下去：<b>0.50</b> 只削最亮的那四分之一，<b>0.00</b> 压到中灰（交叉不再比丝亮）。只压亮点、不动一根根的丝，所以丝亮度滑条怎么调它都有效。</p>
       <p class="hab-note">和描线器里的「平滑强度」是同一个数：上面改，这里跟着改；这里改，上面也回写。</p>
@@ -7646,6 +7648,8 @@ showSplitPreview();
     // 柔度是否被用户亲手调过：没调过的（旧工程里的 1/2）每次载入都归到 0，调过的就照他存的走
     silkSoftUser: false,
     silkCross: 1,
+    // r49y-3：丝向均衡。0 = 原样（丝都朝一个方向铺，撞边堆在同一侧）；>0 = 按比例把一部分丝整段反向
+    silkBalance: 0,
     // r49：模拟编排 / 时间区间。rangeEnd=null 表示「还没定」，此时跟随建议值；一旦填写或点采用就锁定
     timeline: { mode: 'all', interval: 2, speed: 0.2, rangeStart: 0, rangeEnd: null, tail: 3 },
     // r49：成品预览。为真时只画会出现在导出里的东西
@@ -8219,6 +8223,11 @@ showSplitPreview();
   }
 
   // r49v：交叉处亮度。0 = 压到中灰（交叉不再比丝亮）；1 = 不干预（原来的叠加亮度）；值越小越压
+  // r49y-3：丝向均衡。0 = 原样；1 = 一半丝整段转 180°，密度对称
+  function silkBalanceLevel() {
+    const v = Number(habitat.silkBalance);
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
+  }
   function silkCrossLevel() {
     const v = habitat.silkCross;
     const n = Number.isFinite(v) ? v : 1;
@@ -8411,7 +8420,16 @@ showSplitPreview();
       px0 += (rng() - 0.5) * W * 0.16;
       py0 += (rng() - 0.5) * H * 0.16;
     }
-    const baseAng = weaveBandAngle(cell) + (rng() - 0.5) * 0.6 + vi * 0.35;
+    /* r49y-3：丝向均衡（0 = 原样）。
+       一条丝 = 一段实测笔迹缩放后铺出去，方向基本一致，撞到块边就被压到边框上收口；
+       于是整块总是「顺着丝方向的那一角」特别密、对角发虚。块转过 90° 之后这块密角跟着转走，
+       就变成用户说的「原来左下角多、转完右上角多」。
+       这里按比例（hash 决定，不是每块都一样）把一部分丝整段转 180°——起点仍在原落点，
+       铺的方向相反，密的角落就被摊到对面去；丝量、种子、角度抖动都没变。 */
+    const balK = silkBalanceLevel();
+    // 最高只反一半：全都反向只是把「密的那一头」镜像到对面，还是偏；一半反向才两头都密、中间平
+    const flipAng = (balK > 0 && weaveHash01(bi, 977, seed) < balK * 0.5) ? Math.PI : 0;
+    const baseAng = weaveBandAngle(cell) + (rng() - 0.5) * 0.6 + vi * 0.35 + flipAng;
     const wob = Math.max(0.6, minWH * 0.003);
     const wallR = minWH * 0.02;
     let cur = [];
@@ -8610,6 +8628,7 @@ showSplitPreview();
     setR('habSilkSmooth', d.silkSmooth, 'habSilkSmoothVal', String(d.silkSmooth));
     setR('habSilkSoft', silkSoftLevel(), 'habSilkSoftVal', String(silkSoftLevel()));
     setR('habSilkCross', silkCrossLevel(), 'habSilkCrossVal', silkCrossLevel().toFixed(2));
+    setR('habSilkBalance', silkBalanceLevel(), 'habSilkBalanceVal', silkBalanceLevel().toFixed(2));
   }
 
   /* ===================== r49：模拟编排与时间轴（唯一时间来源） =====================
@@ -8779,7 +8798,7 @@ showSplitPreview();
         ? 'p' + h.pts.length + ':' + Math.round(h.pts.reduce((s2, q) => s2 + q.x, 0)) + ':' + Math.round(h.pts.reduce((s2, q) => s2 + q.y, 0))
         : 'c' + Math.round(h.cx) + ':' + Math.round(h.cy) + ':' + Math.round(h.r)).join(';')
       : '';
-    const key = cellKey + ',' + dens.toFixed(2) + holesSig;
+    const key = cellKey + ',' + dens.toFixed(2) + '|b' + silkBalanceLevel().toFixed(2) + holesSig;
     const hit = agent.cache.get(key);
     if (hit) return hit;
     const seed = (((agent.seed >>> 0) ^ Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263)) ^ 0x9e3779b9) >>> 0;
@@ -9199,7 +9218,7 @@ showSplitPreview();
     const key = agent.seam + '|' + mates.map(a => a.id).join(',') + '|' + Math.round(l) + ',' + Math.round(t) + ','
       + Math.round(w) + ',' + Math.round(h) + '|' + (src.seed >>> 0) + '|' + Math.round((src.tone || 1) * 100)
       + '|' + Math.round((src.coverage || 0.55) * 100) + '|' + Math.round((src.worms || 6)) + '|' + Math.round((src.strata || 1))
-      + '|' + holesKey + '|r' + Math.round(th * 1000) + ':' + mates.map(a => Math.round(weaveRotOf(a) * 180 / Math.PI)).join('.');
+      + '|' + holesKey + '|b' + silkBalanceLevel().toFixed(2) + '|r' + Math.round(th * 1000) + ':' + mates.map(a => Math.round(weaveRotOf(a) * 180 / Math.PI)).join('.');
     const hit = SEAM.map.get(agent.seam);
     if (hit && hit.key === key) return hit.info;
     const master = Object.assign({}, src, {
@@ -11677,6 +11696,20 @@ showSplitPreview();
         invalidateWeaveSilk('raster');
       });
     }
+    const silkBalEl = document.getElementById('habSilkBalance');
+    if (silkBalEl) {
+      silkBalEl.value = String(silkBalanceLevel());
+      const lab0 = document.getElementById('habSilkBalanceVal');
+      if (lab0) lab0.textContent = silkBalanceLevel().toFixed(2);
+      silkBalEl.addEventListener('input', () => {
+        habitat.silkBalance = Math.max(0, Math.min(1, parseFloat(silkBalEl.value) || 0));
+        const lab = document.getElementById('habSilkBalanceVal');
+        if (lab) lab.textContent = silkBalanceLevel().toFixed(2);
+        // 换丝向要重新生成丝（几何变了），位图缓存一起清
+        invalidateWeaveSilk('content');
+        try { sig = ''; } catch (e) {}
+      });
+    }
     const silkCrossEl = document.getElementById('habSilkCross');
     if (silkCrossEl) {
       silkCrossEl.value = String(silkCrossLevel());
@@ -13797,6 +13830,7 @@ showSplitPreview();
       silkSoft: silkSoftLevel(),
       silkSoftUser: !!habitat.silkSoftUser,
       silkCross: silkCrossLevel(),
+      silkBalance: silkBalanceLevel(),
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
@@ -14144,6 +14178,7 @@ showSplitPreview();
       silkSoft: silkSoftLevel(),
       silkSoftUser: !!habitat.silkSoftUser,
       silkCross: silkCrossLevel(),
+      silkBalance: silkBalanceLevel(),
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
@@ -15392,6 +15427,11 @@ showSplitPreview();
     habitat.silkSoftUser = !!data.silkSoftUser;
     if (!habitat.silkSoftUser && (habitat.silkSoft === 1 || habitat.silkSoft === 2)) habitat.silkSoft = 0;
     habitat.silkCross = Number.isFinite(data.silkCross) ? Math.max(0, Math.min(1, data.silkCross)) : 1;
+    habitat.silkBalance = Number.isFinite(data.silkBalance) ? Math.max(0, Math.min(1, data.silkBalance)) : 0;
+    const balEl2 = document.getElementById('habSilkBalance');
+    if (balEl2) balEl2.value = String(silkBalanceLevel());
+    const balLab2 = document.getElementById('habSilkBalanceVal');
+    if (balLab2) balLab2.textContent = silkBalanceLevel().toFixed(2);
     const crossEl2 = document.getElementById('habSilkCross');
     if (crossEl2) crossEl2.value = String(silkCrossLevel());
     const crossLab = document.getElementById('habSilkCrossVal');
