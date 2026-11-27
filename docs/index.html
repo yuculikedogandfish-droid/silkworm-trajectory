@@ -9160,7 +9160,8 @@ showSplitPreview();
     const r0 = weaveRotOf(mates[0]);
     const same = mates.every(a => seamFrameOk(weaveRotOf(a) - r0));
     const th = same ? r0 : 0;
-    const P = { x: mates.reduce((n, a) => n + a.x, 0) / mates.length, y: mates.reduce((n, a) => n + a.y, 0) / mates.length };
+    // 局部系原点：th≠0 时取组心（数值更居中）；th=0 时必须是世界原点——否则 identity 变换下整片会被平移掉一个组心距（混角里第一块是正放时就会错位）
+    const P = th ? { x: mates.reduce((n, a) => n + a.x, 0) / mates.length, y: mates.reduce((n, a) => n + a.y, 0) / mates.length } : { x: 0, y: 0 };
     const cs = Math.cos(th), sn = Math.sin(th);
     const toF = (x, y) => ({ x: (x - P.x) * cs + (y - P.y) * sn, y: -(x - P.x) * sn + (y - P.y) * cs });
     const units = {};
