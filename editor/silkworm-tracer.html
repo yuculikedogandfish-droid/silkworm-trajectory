@@ -4597,6 +4597,8 @@ if (window.parent !== window) {
           <option value="16" selected>画质：高（16 Mbps）</option>
           <option value="28">画质：很高（28 Mbps）</option>
           <option value="40">画质：母版级（40 Mbps）</option>
+          <option value="80">画质：母版+（80 Mbps）</option>
+          <option value="120">画质：丝线特写（120 Mbps）</option>
         </select>
         <select id="habVidKf" title="关键帧越稀：画面越平顺（没有亮度起伏），拖进度条越慢；越密：拖时间线立刻出画，但每个关键帧会有一次极轻的亮度台阶">
           <option value="20" selected>关键帧：平顺（20 秒）</option>
@@ -4604,6 +4606,14 @@ if (window.parent !== window) {
           <option value="0">关键帧：全片一个</option>
         </select>
       </div>
+      <div class="row" style="margin:8px 0 0;align-items:center;gap:8px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.45;color:#cfe0d5;cursor:pointer"><input type="checkbox" id="habCamShow" checked style="flex:0 0 auto"> <span>显示取景框（导出就按这个框）</span></label>
+      </div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <button type="button" id="habCamFit">把块群装进框</button>
+        <button type="button" id="habCamReset">取消取景（自动适配）</button>
+      </div>
+      <p class="hab-note" id="habCamInfo">取景框的比例＝上面选的导出分辨率。框里拖动＝平移取景，拖四个角＝缩放取景（比例锁定）；框外变暗。成品预览、导出视频、导出帧序列都严格按这个框出图。</p>
       <label style="display:flex;align-items:center;gap:6px;margin:6px 0 0;font-size:12px;line-height:1.45;color:#cfe0d5;cursor:pointer"><input type="checkbox" id="habVidClip" checked style="flex:0 0 auto"> <span>同时出剪辑副本（半分辨率 · 关键帧 3 秒）</span></label>
       <p class="hab-note" style="margin:2px 0 0">成片按上面的关键帧档位出（平顺、没有亮度起伏）；剪辑副本单独一份、关键帧密，专门拖时间线挑帧。两份共用一次渲染。</p>
       <div id="habVidCustomRow" style="display:none">
@@ -4692,6 +4702,8 @@ if (window.parent !== window) {
         <option value="custom">自定（画布上点）</option>
       </select></div>
       <div class="row"><button type="button" id="habRotPick">在画布上点旋转中心</button><button type="button" id="habRotZero">朝向归零</button></div>
+      <div class="row"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="habSeamRotAll"> 成片一起转（无缝组）</label></div>
+      <p class="hab-note">默认<b>只转选中的块</b>：哪怕它属于一片无缝组，也只动它自己——这时那片会自动取消无缝（提示一次），因为一片丝不能有两种朝向。要做「整片一起转」就勾上左边这个开关。
       <p class="hab-note" id="habRotStat">选中一块或多块：Delete 删除；旋转按「旋转中心」整体转，转完还能继续拖。位置 X/Y 始终是场地坐标（块心），不跟着块内轴走；块转过角度后，编辑时画布上会多出一条「块内横轴/竖轴」的淡淡参照线，告诉你这一块自己的横竖在哪。</p>
       <div id="habWeavePanel" hidden>
         <h3>出场与时长</h3>
@@ -4749,6 +4761,19 @@ if (window.parent !== window) {
           <button type="button" class="hab-tool" data-wtool="path" aria-pressed="false">加丝路</button>
           <button type="button" class="hab-tool" data-wtool="outline" aria-pressed="false">外框</button>
         </div>
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 0">
+          <label style="font-size:12px;color:#cfe0d5">新孔形状</label>
+          <select id="habHoleShape" style="width:auto">
+            <option value="circle" selected>圆形</option>
+            <option value="ellipse">椭圆（可拖长轴/短轴）</option>
+          </select>
+          <span id="habHoleRatioWrap" style="display:none;align-items:center;gap:6px">
+            <label style="font-size:12px;color:#cfe0d5">扁度</label>
+            <input type="range" id="habHoleRatio" min="0.15" max="1" step="0.05" value="0.45" style="width:92px">
+            <span id="habHoleRatioVal" style="font-size:12px;opacity:.75">0.45</span>
+          </span>
+        </div>
+        <p class="hab-note" id="habHoleTip">圆形：拖青圈改直径。椭圆：多一个纵向手柄，长轴 / 短轴分开拖；椭圆的朝向跟着块转（块转 30° 孔也跟着斜 30°）。</p>
         <p class="hab-note" id="habWeaveEditNote">还没进入编辑。</p>
         <ul class="hab-legend" id="habWeaveLegend">
           <li><i class="lg-corner"></i>橙色方点：拖它改整块大小</li>
@@ -7652,6 +7677,12 @@ showSplitPreview();
     silkBalance: 0,
     // r49：模拟编排 / 时间区间。rangeEnd=null 表示「还没定」，此时跟随建议值；一旦填写或点采用就锁定
     timeline: { mode: 'all', interval: 2, speed: 0.2, rangeStart: 0, rangeEnd: null, tail: 3 },
+    // r49z：新孔的默认形状（circle / ellipse）与椭圆的扁度（ry = rx * ratio）
+    holeShape: 'circle',
+    holeRatio: 0.45,
+    // r49z：取景框（导出画面）。cam = {x,y,w,h} 世界坐标矩形，h 由导出分辨率比例决定；null = 自动适配块群
+    cam: null,
+    camShow: true,
     // r49：成品预览。为真时只画会出现在导出里的东西
     finalPreview: false,
   };
@@ -7922,6 +7953,47 @@ showSplitPreview();
   }
 
   // 可织区域判定：格内（或自定义轮廓内）、圆孔外、缺口外（用显式几何，避免 SDF 符号约定混淆）
+  // r49z：孔洞几何。圆 = 只有 r；椭圆 = rx + ry（轴向对齐格子，靠块旋转变斜）
+  function holeRXY(h) {
+    const rx = Math.max(1, Number.isFinite(h.rx) ? h.rx : (Number.isFinite(h.r) ? h.r : 10));
+    const ry = Math.max(1, Number.isFinite(h.ry) ? h.ry : (Number.isFinite(h.r) ? h.r : rx));
+    return [rx, ry];
+  }
+  function holeIsEllipse(h) {
+    if (!h) return false;
+    const [rx, ry] = holeRXY(h);
+    return Math.abs(rx - ry) > 0.5;
+  }
+  // 归一化半径：<1 在孔里，=1 在孔缘
+  function holeNorm(h, x, y) {
+    const rx = holeRXY(h)[0], ry = holeRXY(h)[1];
+    return Math.hypot((x - h.cx) / rx, (y - h.cy) / ry);
+  }
+  // 到孔缘的近似距离（孔外为正、孔内为负），单位是世界单位
+  function holeDistOut(h, x, y) {
+    const rx = holeRXY(h)[0], ry = holeRXY(h)[1];
+    return (holeNorm(h, x, y) - 1) * Math.min(rx, ry);
+  }
+  // 把点沿径向外推到孔缘之外 pad 处；已经在外就返回 null
+  function holePushOut(h, x, y, pad) {
+    const rx = holeRXY(h)[0], ry = holeRXY(h)[1];
+    const minR = Math.min(rx, ry);
+    const need = 1 + Math.max(0, pad) / Math.max(1e-6, minR);
+    let u = (x - h.cx) / rx, v = (y - h.cy) / ry;
+    const nd = Math.hypot(u, v) || 1e-6;
+    if (nd >= need) return null;
+    const k = need / nd;
+    return { x: h.cx + u * k * rx, y: h.cy + v * k * ry, d: Math.abs((nd - 1) * minR) };
+  }
+  // 孔缘外法线（椭圆的真法线 = 梯度方向）
+  function holeNormalAt(h, x, y) {
+    const rx = holeRXY(h)[0], ry = holeRXY(h)[1];
+    const u = (x - h.cx) / rx, v = (y - h.cy) / ry;
+    let nx = u / rx, ny = v / ry;
+    const L = Math.hypot(nx, ny) || 1e-6;
+    return { nx: nx / L, ny: ny / L };
+  }
+
   function weaveAllowed(cell, x, y, margin) {
     const m = margin || 2;
     if (cell.outline && cell.outline.length >= 3) {
@@ -7940,7 +8012,7 @@ showSplitPreview();
     }
     const islands = cell.islands || (cell.island ? [cell.island] : []);
     for (let k = 0; k < islands.length; k++) {
-      if (Math.hypot(x - islands[k].cx, y - islands[k].cy) < islands[k].r + m) return false;
+      if (holeDistOut(islands[k], x, y) < m) return false;
     }
     // 并集织场里带过来的额外孔洞（接成一片：每格自己的圆孔 / 缺口）
     if (Array.isArray(cell.holes)) {
@@ -7949,7 +8021,7 @@ showSplitPreview();
         if (h.pts) {
           const cv = h._curve || (h._curve = weaveNotchCurve(h.pts));
           if (weaveInPoly(cv, x, y) || weavePolyDist(cv, x, y) < m) return false;
-        } else if (Math.hypot(x - h.cx, y - h.cy) < h.r + m) return false;
+        } else if (holeDistOut(h, x, y) < m) return false;
       }
     }
     return true;
@@ -8017,8 +8089,7 @@ showSplitPreview();
     }
     const islands = cell.islands || (cell.island ? [cell.island] : []);
     for (let k = 0; k < islands.length; k++) {
-      const isl = islands[k];
-      d = Math.max(d, -(Math.hypot(x - isl.cx, y - isl.cy) - isl.r));
+      d = Math.max(d, -holeDistOut(islands[k], x, y));
     }
     if (Array.isArray(cell.holes)) {
       for (let k = 0; k < cell.holes.length; k++) {
@@ -8028,7 +8099,7 @@ showSplitPreview();
           const nd = weavePolyDist(cv, x, y);
           d = Math.max(d, weaveInPoly(cv, x, y) ? nd : -nd);
         } else {
-          d = Math.max(d, -(Math.hypot(x - h.cx, y - h.cy) - h.r));
+          d = Math.max(d, -holeDistOut(h, x, y));
         }
       }
     }
@@ -8224,6 +8295,8 @@ showSplitPreview();
 
   // r49v：交叉处亮度。0 = 压到中灰（交叉不再比丝亮）；1 = 不干预（原来的叠加亮度）；值越小越压
   // r49y-3：丝向均衡。0 = 原样；1 = 一半丝整段转 180°，密度对称
+  // r49z：旋转的作用范围。默认 false = 只转选中的块；true = 无缝组整片一起转（r49y-2 的旧行为）
+  function seamRotAllOn() { return !!habitat.seamRotAll; }
   function silkBalanceLevel() {
     const v = Number(habitat.silkBalance);
     return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
@@ -8442,58 +8515,71 @@ showSplitPreview();
     };
     const ang = baseAng;
     const sc = fit * (0.94 + rng() * 0.14);
-    const cs = Math.cos(ang), sn = Math.sin(ang);
-    // 让 route[0] 落在落点上（这一条丝从这里开始爬）
-    const ox = last.x - (route[0] * sc * cs - route[1] * sc * sn);
-    const oy = last.y - (route[0] * sc * sn + route[1] * sc * cs);
-    for (let k = 0; k < sn2; k += 2) {
-      const kx = route[k * 2] * sc, ky = route[k * 2 + 1] * sc;
-      const px = ox + kx * cs - ky * sn + (rng() - 0.5) * wob;
-      const py = oy + kx * sn + ky * cs + (rng() - 0.5) * wob;
-      if (weaveAllowed(cell, px, py, 2)) { push(px, py); continue; }
-      // —— 撞壁 ——
-      const circ = weaveWallNormal(cell, px, py);
-      if (!circ) {
-        // 撞的是块的外框：把点压到框上继续走。
-        // 这样跨块接缝处不会被硬切成"一堆断头"，而是丝一直铺到框边再被裁掉。
-        const ef = weaveWallProject(cell, px, py, 1.2);
-        if (ef) push(ef.x, ef.y);
-        continue;
-      }
-      // 圆形壁（孔 / 缺口）：真实蚕不会把丝织到孔里：丝在壁面收口（端点落在壁上），
-      // 然后跳过孔洞，从孔另一侧重新起一段丝。中间那段空白正好被孔遮住，看不出断口；
-      // 不做贴壁圆弧（那会沿孔口连成一条亮环），也不做镜面折返（那是锐角）。
-      const e = weaveWallProject(cell, px, py, 1.4);
-      if (e) push(e.x, e.y);
-      flush();
-      // 碰壁之后蚕会摆头换方向再试几次：从接触点朝两侧短距离试探，每次都被壁挡回。
-      // 这些短段散在壁外侧、长度和方向都不同，所以孔口密度是「试出来的」，
-      // 不是另画一圈——不会连成等半径亮环，也不会出现镜面锐角。
-      const bdx = px - last.x, bdy = py - last.y;
-      const bd = (bdx || bdy) ? Math.atan2(bdy, bdx) : 0;
-      const tries = 2;
-      for (let t2 = 0; t2 < tries; t2++) {
-        const dz = (t2 % 2 ? 1 : -1) * (Math.PI / 2 + (rng() - 0.5) * 0.9);
-        let sx = last.x, sy = last.y, sdir = bd + dz;
-        const trial = [];
-        for (let s = 0; s < 12; s++) {
-          const stp = 1.5 + rng() * 1.3;
-          sx += Math.cos(sdir) * stp;
-          sy += Math.sin(sdir) * stp;
-          if (!weaveAllowed(cell, sx, sy, 1)) break;
-          trial.push({ x: sx, y: sy });
-          sdir += (rng() - 0.5) * 0.6;
+    /* r49z：撞壁不再断笔，改「走一步看一步」。
+       实测丝路先拆成一段一段（长度 + 绝对朝向）；走的时候只维护当前位置和朝向。
+       撞到外框/孔壁：贴上去 → 顺壁滑一小段（这就是「碰壁丝痕」）→ 按壁面镜面掉头，同一笔继续吐。
+       形状是「朝向 + 长度」逐步走的，所以反射不会把后面的花纹拉直、拉歪；
+       一条丝从头到尾是一笔，不再有断头。 */
+    const steps = [];
+    for (let i2 = 1; i2 < sn2; i2++) {
+      const dx = (route[i2 * 2] - route[(i2 - 1) * 2]) * sc;
+      const dy = (route[i2 * 2 + 1] - route[(i2 - 1) * 2 + 1]) * sc;
+      const len = Math.hypot(dx, dy);
+      if (len > 1e-3) steps.push({ len: Math.min(len, minWH * 0.10), a: Math.atan2(dy, dx) });
+    }
+    let px1 = px0, py1 = py0;
+    let off = 0;              // 撞壁带来的朝向偏移（之后每一段都带着它）
+    let bounces = 0;
+    push(px1, py1);
+    for (let i2 = 0; i2 < steps.length; i2++) {
+      const st = steps[i2];
+      let h = ang + st.a + off;
+      let qx = px1 + Math.cos(h) * st.len + (rng() - 0.5) * wob;
+      let qy = py1 + Math.sin(h) * st.len + (rng() - 0.5) * wob;
+      if (!weaveAllowed(cell, qx, qy, 1.6)) {
+        let okB = false;
+        for (let b = 0; b < 5 && !okB; b++) {
+          if (bounces++ > 30) break;
+          const c = weaveWallProject(cell, qx, qy, 1.2);
+          let vx = 0, vy = 0;
+          if (c) { vx = c.x - qx; vy = c.y - qy; }
+          if (!vx && !vy) {
+            const hw = cell.w / 2 - 2, hh = cell.h / 2 - 2;
+            if (Math.abs(qx) > hw) { vx = -Math.sign(qx) || -1; vy = 0; }
+            else if (Math.abs(qy) > hh) { vx = 0; vy = -Math.sign(qy) || -1; }
+            else { vx = px1 - qx; vy = py1 - qy; }
+          }
+          const L = Math.hypot(vx, vy) || 1e-6; vx /= L; vy /= L;   // 向内法线
+          const cx = c ? c.x : qx + vx * 1.2, cy = c ? c.y : qy + vy * 1.2;
+          // ① 碰壁点（略微内收，丝不会糊在裁切线上）
+          const ins0 = 1.0 + rng() * 1.8;
+          push(cx + vx * ins0, cy + vy * ins0);
+          // ② 顺壁滑一小段：短、带抖、越滑越往内一点点
+          const tx = -vy, ty = vx;
+          const sgn = (Math.cos(h) * tx + Math.sin(h) * ty) >= 0 ? 1 : -1;
+          const run = minWH * (0.018 + rng() * 0.045);
+          const stp = 2 + Math.floor(rng() * 2);
+          for (let s3 = 1; s3 <= stp; s3++) {
+            const t2 = run * (s3 / stp);
+            const ins = ins0 + t2 * 0.28;
+            const ax = cx + vx * ins + tx * sgn * t2 * 0.75 + (rng() - 0.5) * 1.2;
+            const ay = cy + vy * ins + ty * sgn * t2 * 0.75 + (rng() - 0.5) * 1.2;
+            if (weaveAllowed(cell, ax, ay, 0.6)) push(ax, ay);
+          }
+          // ③ 关于壁的切向做镜面：朝向掉进来，再偏一点，不会正对墙来回弹
+          const tAng = Math.atan2(ty, tx);
+          const hNew = 2 * tAng - h + sgn * (0.10 + rng() * 0.22);
+          off = hNew - ang - st.a;
+          px1 = last.x; py1 = last.y;
+          h = ang + st.a + off;
+          qx = px1 + Math.cos(h) * st.len;
+          qy = py1 + Math.sin(h) * st.len;
+          okB = weaveAllowed(cell, qx, qy, 1.6);
         }
-        if (trial.length > 2) segs.push(trial);
+        if (!okB) break;
       }
-      let okJ = -1;
-      for (let j = k + 1; j < Math.min(sn2, k + 60); j++) {
-        const qx = route[j * 2] * sc, qy = route[j * 2 + 1] * sc;
-        const wx = ox + qx * cs - qy * sn, wy = oy + qx * sn + qy * cs;
-        if (weaveAllowed(cell, wx, wy, 2)) { okJ = j; break; }
-      }
-      if (okJ < 0) break;
-      k = okJ - 1;
+      px1 = qx; py1 = qy;
+      push(px1, py1);
     }
     flush();
     return segs;
@@ -8867,7 +8953,7 @@ showSplitPreview();
       }
       return { x: qx, y: qy };
     };
-    const nearHole = (x, y) => holeCenters.some(o => Math.hypot(x - o.cx, y - o.cy) < o.r + 9)
+    const nearHole = (x, y) => holeCenters.some(o => holeDistOut(o, x, y) < 9)
       || (cell.outline && cell.outline.length >= 3 && weavePolyDist(cell.outline, x, y) < 9)
       || (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3 && weavePolyDist(cell._notchCurve || (cell._notchCurve = weaveNotchCurve(cell.notchPts)), x, y) < 9)
       || (Array.isArray(cell.holes) && cell.holes.some(h => h.pts && weavePolyDist(h._curve || (h._curve = weaveNotchCurve(h.pts)), x, y) < 9));
@@ -9115,10 +9201,24 @@ showSplitPreview();
     // r49y-2：成片（同一个 seam 组）是一个整体——转其中一块就等于转整片，
     // 否则一片丝会被拆成两种朝向，缝上的丝立刻错位（用户说的「成片转过之后就对不上了」）。
     try {
-      const seamIds = new Set(list.filter(a => a.seam).map(a => a.seam));
-      if (seamIds.size) {
-        const extra = habitat.agents.filter(a => a.kind === 'weave' && a.seam && seamIds.has(a.seam) && list.indexOf(a) < 0);
-        if (extra.length) list = list.concat(extra);
+      if (seamRotAllOn()) {
+        const seamIds = new Set(list.filter(a => a.seam).map(a => a.seam));
+        if (seamIds.size) {
+          const extra = habitat.agents.filter(a => a.kind === 'weave' && a.seam && seamIds.has(a.seam) && list.indexOf(a) < 0);
+          if (extra.length) list = list.concat(extra);
+        }
+      } else {
+        // 只转选中的块：它在一片无缝组里 → 先解散这片，免得同一片丝出现两种朝向
+        const seamIds = new Set(list.filter(a => a.seam).map(a => a.seam));
+        if (seamIds.size) {
+          const mates = habitat.agents.filter(a => a.kind === 'weave' && a.seam && seamIds.has(a.seam));
+          if (mates.length > 1) {
+            mates.forEach(b => { b.seam = null; b.seamMode = null; });
+            if (window.__studioHabitat && window.__studioHabitat.toast) {
+              window.__studioHabitat.toast('只转了选中的块，这片（' + mates.length + ' 块）已取消无缝。', 'ok');
+            }
+          }
+        }
       }
     } catch (e) {}
     const cs = Math.cos(rad), sn = Math.sin(rad);
@@ -9206,7 +9306,12 @@ showSplitPreview();
       const dc = Math.cos(u.d), ds = Math.sin(u.d);
       const mv = (cx, cy) => ({ x: u.x + cx * dc - cy * ds, y: u.y + cx * ds + cy * dc });
       const isl = cellA.islands || (cellA.island ? [cellA.island] : []);
-      isl.forEach(o => { const q = mv(o.cx, o.cy); holes.push({ cx: q.x, cy: q.y, r: o.r }); });
+      isl.forEach(o => {
+        const q = mv(o.cx, o.cy);
+        holes.push(holeIsEllipse(o)
+          ? { cx: q.x, cy: q.y, rx: holeRXY(o)[0], ry: holeRXY(o)[1] }
+          : { cx: q.x, cy: q.y, r: holeRXY(o)[0] });
+      });
       if (cellA.notch) { const q = mv(cellA.notch.cx, cellA.notch.cy); holes.push({ cx: q.x, cy: q.y, r: cellA.notch.r }); }
       if (Array.isArray(cellA.notchPts) && cellA.notchPts.length >= 3) {
         holes.push({ pts: cellA.notchPts.map(q0 => mv(q0.x, q0.y)) });
@@ -9401,7 +9506,11 @@ showSplitPreview();
         // 已织满的块用离屏位图（每帧不再重画上万点）
         // 位图宽度 = 这一格在目标画面上的实际像素宽（下限 256、上限 2048）。
         // 以前固定 512，2K/3K 导出时块「织满」那一刻会从矢量掉成糊图，看着像卡一下。
-        const pxW = Math.round(Math.max(256, Math.min(2048, cw * Math.max(1, v.s))));
+        // r49z：位图宽 = 这一格在成品画面上的实际像素宽；导出（composing）时上限放到 4096，
+        // 否则取景框一拉近，块被画到 3000+ px 宽却只贴一张 2048 的位图 → 越放大越糊
+        const needPx = Math.round(cw * Math.max(1, v.s));
+        const capPx = habitat.composing ? 4096 : 2048;
+        const pxW = Math.round(Math.max(256, Math.min(capPx, needPx)));
         const eo = edgeMode ? 14 : 0;
         const img = weaveRasterFor(edgeSrc || src, content, cw, ch, light, tone, strata, pxW, eo);
         if (seam) {
@@ -9529,12 +9638,8 @@ showSplitPreview();
     };
     const islands = cell.islands || (cell.island ? [cell.island] : []);
     islands.forEach(isl => {
-      const dx = x - isl.cx, dy = y - isl.cy;
-      const d = Math.hypot(dx, dy) || 1e-6;
-      if (d < isl.r + p) {
-        const rr = isl.r + p + 0.6;
-        keep(isl.cx + dx / d * rr, isl.cy + dy / d * rr, Math.abs(isl.r + p - d));
-      }
+      const q = holePushOut(isl, x, y, p);
+      if (q) keep(q.x, q.y, q.d);
     });
     if (cell.notch) {
       const dx = x - cell.notch.cx, dy = y - cell.notch.cy;
@@ -9572,12 +9677,8 @@ showSplitPreview();
       for (let k = 0; k < cell.holes.length; k++) {
         const h = cell.holes[k];
         if (!h.pts) {
-          const dx = x - h.cx, dy = y - h.cy;
-          const d = Math.hypot(dx, dy) || 1e-6;
-          if (d < h.r + p) {
-            const rr = h.r + p + 0.6;
-            keep(h.cx + dx / d * rr, h.cy + dy / d * rr, Math.abs(h.r + p - d));
-          }
+          const q = holePushOut(h, x, y, p);
+          if (q) keep(q.x, q.y, q.d);
           continue;
         }
         const pts = h._curve || (h._curve = weaveNotchCurve(h.pts));
@@ -9614,19 +9715,20 @@ showSplitPreview();
   // 撞壁法线：越界点若是掉进圆孔/缺口，返回孔心指向该点的单位法线 + 壁面接触点
   function weaveWallNormal(cell, x, y) {
     let best = null;
-    const test = (cx0, cy0, r) => {
-      const dx = x - cx0, dy = y - cy0;
-      const d = Math.hypot(dx, dy) || 1e-6;
-      if (d >= r + 2) return;
-      const gap = r + 2 - d;
+    // r49z：椭圆也走这里——法线用真法线（梯度方向），接触点沿同一射线推到孔缘外 2
+    const test = (h) => {
+      const gap = 2 - holeDistOut(h, x, y);
+      if (gap <= 0) return;
+      const n = holeNormalAt(h, x, y);
+      const q = holePushOut(h, x, y, 2);
       if (!best || gap > best.gap) {
-        best = { nx: dx / d, ny: dy / d, cx: cx0 + (dx / d) * (r + 2), cy: cy0 + (dy / d) * (r + 2), gap,
-          ccx: cx0, ccy: cy0, r };
+        best = { nx: n.nx, ny: n.ny, cx: q ? q.x : x, cy: q ? q.y : y, gap,
+          ccx: h.cx, ccy: h.cy, r: holeRXY(h)[0], rx: holeRXY(h)[0], ry: holeRXY(h)[1] };
       }
     };
     const islands = cell.islands || (cell.island ? [cell.island] : []);
-    islands.forEach(isl => test(isl.cx, isl.cy, isl.r));
-    if (cell.notch) test(cell.notch.cx, cell.notch.cy, cell.notch.r);
+    islands.forEach(isl => test(isl));
+    if (cell.notch) test(cell.notch);
     if (Array.isArray(cell.notchPts) && cell.notchPts.length >= 3) {
       const pts = cell._notchCurve || (cell._notchCurve = weaveNotchCurve(cell.notchPts));
       const inside = weaveInPoly(pts, x, y);
@@ -9656,7 +9758,7 @@ showSplitPreview();
     if (Array.isArray(cell.holes)) {
       for (let k = 0; k < cell.holes.length; k++) {
         const h = cell.holes[k];
-        if (!h.pts) { test(h.cx, h.cy, h.r); continue; }
+        if (!h.pts) { test(h); continue; }
         const pts = h._curve || (h._curve = weaveNotchCurve(h.pts));
         const inside = weaveInPoly(pts, x, y);
         const d = weavePolyDist(pts, x, y);
@@ -9715,7 +9817,7 @@ showSplitPreview();
     const cwX = cw + eo * 2, chX = ch + eo * 2;
     // r49：位图必须带样式，样式一变 key 就变，不会把旧观感留在画面上
     const look = silkLookOf(resolveUnitStyle(agent));
-    const W0 = Math.max(256, Math.min(2048, Math.round(pxW || 512)));
+    const W0 = Math.max(256, Math.min(4096, Math.round(pxW || 512)));
     const key = (agent.seed >>> 0) + '|' + Math.round(cw) + 'x' + Math.round(ch) + '|o' + eo + '|' + tone.toFixed(2) + '|' + layers
       + '|' + look.width.toFixed(2) + '|' + look.gain.toFixed(2) + '|' + look.mode + '|w' + W0
       + '|' + (silkBezierOn() ? 'bez' : 'line') + '|s' + silkSoftLevel() + '|p' + pt;
@@ -10376,10 +10478,133 @@ showSplitPreview();
     };
   }
 
+  // r49z：取景框。比例永远等于当前导出分辨率，h 由 w 推出来，所以换分辨率不会变形
+  function camAspect() {
+    const r = ledResolve();
+    return Math.max(0.05, (r.w || 4) / (r.h || 3));
+  }
+  function camRect() {
+    const c = habitat.cam;
+    if (!c || !(c.w > 1)) return null;
+    const asp = camAspect();
+    const w = c.w, h = w / asp;
+    return { x: c.x - w / 2, y: c.y - h / 2, w: w, h: h };
+  }
+  // 没锁取景时的「自动构图」：块群外接框按导出比例、留 6% 余量（和导出的自动适配同一套）
+  function camAutoRect() {
+    const list = habitat.agents.filter(a => a.kind === 'weave');
+    if (!list.length) return null;
+    let l = Infinity, r = -Infinity, t = Infinity, b = -Infinity;
+    list.forEach(a => {
+      const rr = weaveRotOf(a), cs = Math.abs(Math.cos(rr)), sn = Math.abs(Math.sin(rr));
+      const hw = (a.w * cs + a.h * sn) / 2, hh = (a.w * sn + a.h * cs) / 2;
+      l = Math.min(l, a.x - hw); r = Math.max(r, a.x + hw);
+      t = Math.min(t, a.y - hh); b = Math.max(b, a.y + hh);
+    });
+    const asp = camAspect();
+    const bw = Math.max(1, r - l), bh = Math.max(1, b - t);
+    const w = Math.max(bw, bh * asp) / 0.94;
+    const h = w / asp;
+    return { x: (l + r) / 2 - w / 2, y: (t + b) / 2 - h / 2, w: w, h: h };
+  }
+  // 画面上要画的取景框：锁了用锁的，没锁用自动构图（拖一下即锁定）
+  function camPreviewRect() { return camRect() || camAutoRect(); }
+
+  // 块群（织网单元）的外接框 → 装进取景框，四周留 4%
+  function camFitToBlocks() {
+    const list = habitat.agents.filter(a => a.kind === 'weave');
+    if (!list.length) { toast('还没有织网单元，先放一块再取景。', 'err'); return; }
+    let l = Infinity, r = -Infinity, t = Infinity, b = -Infinity;
+    list.forEach(a => {
+      const rr = weaveRotOf(a), cs = Math.abs(Math.cos(rr)), sn = Math.abs(Math.sin(rr));
+      const hw = (a.w * cs + a.h * sn) / 2, hh = (a.w * sn + a.h * cs) / 2;
+      l = Math.min(l, a.x - hw); r = Math.max(r, a.x + hw);
+      t = Math.min(t, a.y - hh); b = Math.max(b, a.y + hh);
+    });
+    const asp = camAspect();
+    const bw = Math.max(1, r - l), bh = Math.max(1, b - t);
+    const w = Math.max(bw, bh * asp) * 1.08;
+    habitat.cam = { x: (l + r) / 2, y: (t + b) / 2, w: w, h: w / asp };
+    syncCamUI();
+  }
+  function bindHoleUI() {
+    const sel = document.getElementById('habHoleShape');
+    const wrap = document.getElementById('habHoleRatioWrap');
+    const ratio = document.getElementById('habHoleRatio');
+    const val = document.getElementById('habHoleRatioVal');
+    const sync = () => {
+      if (wrap) wrap.style.display = habitat.holeShape === 'ellipse' ? 'inline-flex' : 'none';
+      if (ratio) ratio.value = String(habitat.holeRatio);
+      if (val) val.textContent = Number(habitat.holeRatio).toFixed(2);
+    };
+    if (sel) {
+      sel.value = habitat.holeShape;
+      sel.addEventListener('change', () => { habitat.holeShape = sel.value === 'ellipse' ? 'ellipse' : 'circle'; sync(); });
+    }
+    if (ratio) ratio.addEventListener('input', () => {
+      habitat.holeRatio = Math.max(0.15, Math.min(1, parseFloat(ratio.value) || 0.45));
+      sync();
+    });
+    sync();
+  }
+  function bindCamUI() {
+    const box = document.getElementById('habCamShow');
+    if (box) box.addEventListener('change', () => { habitat.camShow = !!box.checked; syncCamUI(); });
+    const fitB = document.getElementById('habCamFit');
+    if (fitB) fitB.addEventListener('click', () => { camFitToBlocks(); toast('已把块群装进取景框（导出按这个框出图）。', 'ok'); });
+    const rs = document.getElementById('habCamReset');
+    if (rs) rs.addEventListener('click', () => { habitat.cam = null; syncCamUI(); toast('已取消取景，导出回到「自动适配块群」。', 'ok'); });
+  }
+  function syncCamUI() {
+    const box = document.getElementById('habCamShow');
+    if (box) box.checked = !!habitat.camShow;
+    const info = document.getElementById('habCamInfo');
+    if (info) {
+      const r = ledResolve();
+      const c = camPreviewRect();
+      let dpi = '';
+      if (c) {
+        const pxPerUnit = r.w / Math.max(1e-6, c.w);
+        const units = habitat.agents.filter(x => x.kind === 'weave');
+        let best = null;
+        units.forEach(x => {
+          const cs = Math.abs(Math.cos(weaveRotOf(x))), sn = Math.abs(Math.sin(weaveRotOf(x)));
+          const wpx = (x.w * cs + x.h * sn) * pxPerUnit;
+          if (!best || wpx > best.px) best = { px: wpx, w: x.w, h: x.h };
+        });
+        if (best) {
+          const cover = Math.round(best.px / Math.max(1, r.w) * 100);
+          dpi = ' 最大一块在成品里约 ' + Math.round(best.px) + ' px 宽（占画面 ' + cover + '%）。';
+          dpi += cover < 25
+            ? '画面里块偏小 → 想更清楚就把取景框往内收（拉近）。'
+            : (cover > 70
+              ? '块基本铺满画面，再拉近只会裁掉内容、不会更清楚；嫌糊就调高码率或降帧率。'
+              : '占比合适。再拉近会更清楚，但会裁掉边缘；嫌整体糊优先调高码率。');
+        }
+      }
+      info.textContent = '取景框比例＝' + r.w + '×' + r.h + '。框里拖动＝平移取景，拖四个角＝缩放取景（比例锁定）；框外变暗。' +
+        (c ? '当前取景：' + Math.round(c.w) + ' × ' + Math.round(c.h) + '（世界单位），导出就按这个框出图。' + dpi
+           : '当前＝自动适配块群（没有锁取景）；拖动框或点「把块群装进框」就锁住。');
+    }
+  }
+
   // 取景对齐导出：块群占安全框 92%，中心对准
   function fitFinalPreviewView() {
     if (!world.width || !world.height) return;
     const rc = previewRect();
+    const cam0 = camRect();
+    if (cam0) {
+      // 有锁定取景框：把那个世界矩形正好铺到安全框上（等比，框内构图不变）
+      const s0 = Math.min(rc.w / cam0.w, rc.h / cam0.h);
+      const a0 = arenaSpec();
+      const span0 = a0.kind === 'circle' ? a0.r * 2 : Math.max(a0.hw, a0.hh) * 2;
+      const base0 = Math.min(world.width, world.height) / (span0 * 1.35);
+      habViewport.zoom = Math.max(0.12, Math.min(8, s0 / base0));
+      habViewport.panX = (rc.x + rc.w / 2) - world.width / 2 - ((cam0.x + cam0.w / 2)) * s0;
+      habViewport.panY = (rc.y + rc.h / 2) - world.height / 2 - ((cam0.y + cam0.h / 2)) * s0;
+      updateHabZoomLabel();
+      return;
+    }
     const b = ledBounds();
     const bw = Math.max(1, b.x1 - b.x0), bh = Math.max(1, b.y1 - b.y0);
     const s = Math.min(rc.w * 0.94 / bw, rc.h * 0.94 / bh);
@@ -11299,9 +11524,10 @@ showSplitPreview();
       while (dDeg > 180) dDeg -= 360; while (dDeg < -180) dDeg += 360;
       if (Math.abs(dDeg) < 0.05) return;
       if (window.__studioHabitat && window.__studioHabitat.rotateUnits) {
-        // 属于无缝组时整片一起转（引擎会摊开同组），枢轴取整片中心而不是某一块的块心
+        // 勾了「成片一起转」且这块属于无缝组：枢轴取整片中心（整片绕自己转）；
+        // 没勾：只转这一块，枢轴就是它自己的块心，位置不动
         let piv = { x: a.x, y: a.y };
-        if (a.seam) {
+        if (a.seam && seamRotAllOn()) {
           const mates = window.__studioHabitat.agents().filter(b => b.kind === 'weave' && b.seam === a.seam);
           if (mates.length > 1) {
             let l = Infinity, r = -Infinity, t = Infinity, b2 = -Infinity;
@@ -12100,6 +12326,30 @@ showSplitPreview();
       return;
     }
     const p = screenToHab(ev);
+    // r49z：取景框优先吃掉按下（框内=平移取景，四角=等比缩放取景）
+    if (habitat.camShow && !habitat.finalPreview) {
+      const cr = camPreviewRect();
+      if (cr) {
+        const v0 = view();
+        const tol = 13 / v0.s;
+        const cs2 = Math.cos(0), sn2 = Math.sin(0);
+        const corners = [
+          { id: 'tl', x: cr.x, y: cr.y }, { id: 'tr', x: cr.x + cr.w, y: cr.y },
+          { id: 'bl', x: cr.x, y: cr.y + cr.h }, { id: 'br', x: cr.x + cr.w, y: cr.y + cr.h },
+        ];
+        const hitC = corners.find(c => Math.hypot(c.x - p.x, c.y - p.y) <= tol);
+        const insideCam = p.x >= cr.x && p.x <= cr.x + cr.w && p.y >= cr.y && p.y <= cr.y + cr.h;
+        if (hitC || insideCam) {
+          habitat.drag = {
+            kind: 'cam', corner: hitC ? hitC.id : '',
+            px0: p.x, py0: p.y, cam0: { x: cr.x, y: cr.y, w: cr.w, h: cr.h },
+          };
+          try { world.setPointerCapture(ev.pointerId); } catch (_) {}
+          ev.preventDefault();
+          return;
+        }
+      }
+    }
     // 按轮廓新建：点几下画出外框顶点，双击封闭后建单元
     if (habitat.newOutline) {
       habitat.newOutline.push({ x: p.x, y: p.y });
@@ -12618,6 +12868,28 @@ showSplitPreview();
       habViewport.panY = d.panY + ev.clientY - d.y;
       return;
     }
+    if (d.kind === 'cam') {
+      const p2 = screenToHab(ev);
+      const dx = p2.x - d.px0, dy = p2.y - d.py0;
+      const c0 = d.cam0;
+      const asp = camAspect();
+      if (!d.corner) {
+        habitat.cam = { x: c0.x + c0.w / 2 + dx, y: c0.y + c0.h / 2 + dy, w: c0.w, h: c0.w / asp };
+      } else {
+        // 对角固定，等比缩放：取拖动方向在宽/高里的较大变化
+        const anchorX = (d.corner === 'tl' || d.corner === 'bl') ? c0.x + c0.w : c0.x;
+        const anchorY = (d.corner === 'tl' || d.corner === 'tr') ? c0.y + c0.h : c0.y;
+        const dirX = (d.corner === 'tl' || d.corner === 'bl') ? -1 : 1;
+        const dirY = (d.corner === 'tl' || d.corner === 'tr') ? -1 : 1;
+        const wantW = Math.max(24, Math.abs(p2.x - anchorX));
+        const wantH = Math.max(24 * asp, Math.abs(p2.y - anchorY));
+        const w = Math.max(24, Math.max(wantW, wantH * asp));
+        const h = w / asp;
+        habitat.cam = { x: anchorX + dirX * w / 2, y: anchorY + dirY * h / 2, w: w, h: h };
+      }
+      syncCamUI();
+      return;
+    }
     if (d.kind === 'weaveHandle') {
       applyWeaveHandleDrag(d.handle, screenToHab(ev));
       syncEditNote();
@@ -12655,6 +12927,7 @@ showSplitPreview();
       syncRoutePanel();
       return;
     }
+    if (d.kind === 'cam') { habitat.drag = null; syncCamUI(); return; }
     if (d.kind !== 'agent') return;
     habitat.drag = null;
     const agent = habitat.agents.find(a => a.id === d.id);
@@ -12845,10 +13118,12 @@ showSplitPreview();
     const d = habitat.drag;
     if (d && d.kind === 'weaveHandle') {
       const k = d.handle.kind;
-      if ((k === 'islandR' || k === 'islandMove') && islands[d.handle.i]) {
+      if ((k === 'islandR' || k === 'islandRy' || k === 'islandMove') && islands[d.handle.i]) {
         const isl = islands[d.handle.i];
-        const rr = Math.round(isl.r * 2);
-        return '孔心 (' + Math.round(isl.cx) + ', ' + Math.round(isl.cy) + ') · 直径 ' + rr + ' px';
+        const rx = holeRXY(isl)[0], ry = holeRXY(isl)[1];
+        return '孔心 (' + Math.round(isl.cx) + ', ' + Math.round(isl.cy) + ') · ' +
+          (holeIsEllipse(isl) ? '椭圆 ' + Math.round(rx * 2) + '×' + Math.round(ry * 2) + ' px'
+                              : '直径 ' + Math.round(rx * 2) + ' px');
       }
       if (k === 'notchR' || k === 'notchMove') {
         return '缺口 直径 ' + Math.round((sh && sh.notch ? sh.notch.r : 0) * 2) + ' px';
@@ -12858,7 +13133,7 @@ showSplitPreview();
       if (k === 'wallV' || k === 'pathV') return '拖动' + (k === 'wallV' ? '壁' : '丝路') + '顶点';
       if (k === 'outlineV') return '拖动外框顶点';
     }
-    if (islands.length) return '本格 ' + islands.length + ' 个孔 · 最大 Ø ' + Math.round(Math.max(...islands.map(o => o.r)) * 2) + ' px';
+    if (islands.length) return '本格 ' + islands.length + ' 个孔 · 最大 Ø ' + Math.round(Math.max(...islands.map(o => Math.max(holeRXY(o)[0], holeRXY(o)[1]))) * 2) + ' px';
     return '';
   }
 
@@ -13001,11 +13276,17 @@ showSplitPreview();
     }
     pushUndo();
     const r = Math.max(16, Math.round(Math.min(a.w, a.h) * 0.18));
-    sh.islands.push({ cx: lx, cy: ly, r });
+    if (habitat.holeShape === 'ellipse') {
+      const ratio = Math.max(0.15, Math.min(1, Number(habitat.holeRatio) || 0.45));
+      sh.islands.push({ cx: lx, cy: ly, rx: r, ry: Math.max(6, Math.round(r * ratio)) });
+    } else {
+      sh.islands.push({ cx: lx, cy: ly, r });
+    }
     dropWeaveCellCache(a, key);
     weaveCellContent(a, cx0, cy0);
     syncEditNote();
-    toast('已在这一点加了第 ' + sh.islands.length + ' 个孔：拖青圈改大小，右键可删。', 'ok');
+    toast('已在这一点加了第 ' + sh.islands.length + ' 个孔：拖青圈改大小' +
+      (habitat.holeShape === 'ellipse' ? '（横圈改长轴、竖圈改短轴）' : '') + '，右键可删。', 'ok');
     return sh.islands[sh.islands.length - 1];
   }
 
@@ -13014,7 +13295,8 @@ showSplitPreview();
     unitEdge: '拖：只改这一边',
     unitMove: '拖：整块挪位置',
     islandMove: '拖：挪孔洞',
-    islandR: '拖：改孔洞大小',
+    islandR: '拖：改孔洞长轴（横）',
+    islandRy: '拖：改孔洞短轴（竖）',
     notchMove: '拖：挪缺口',
     notchR: '拖：改缺口大小',
     wallV: '拖：改壁顶点（Alt+点删）',
@@ -13032,7 +13314,7 @@ showSplitPreview();
       // 角点 / 边中点 / 整块挪动 是「随时都能用」的手柄，不分工具
       if (k === 'unitCorner' || k === 'unitEdge' || k === 'unitMove' || k === 'outlineMid') return true;
       if (tool === 'shape') return true;
-      if (tool === 'hole') return k === 'islandMove' || k === 'islandR' || k === 'unitCorner' || k === 'unitMove';
+      if (tool === 'hole') return k === 'islandMove' || k === 'islandR' || k === 'islandRy' || k === 'unitCorner' || k === 'unitMove';
       if (tool === 'notch') return k === 'notchMove' || k === 'notchR' || k === 'notchV' || k === 'notchMid' || k === 'unitCorner' || k === 'unitMove';
       if (tool === 'wall') return k === 'wallV' || k === 'unitCorner' || k === 'unitMove';
       if (tool === 'path') return k === 'pathV' || k === 'unitCorner' || k === 'unitMove';
@@ -13056,9 +13338,11 @@ showSplitPreview();
     const qM = W(0, 0);
     add({ kind: 'unitMove', x: qM.x, y: qM.y });
     (c.cell.islands || []).forEach((isl, i) => {
-      const q1 = W(isl.cx, isl.cy), q2 = W(isl.cx + isl.r, isl.cy);
+      const rx = holeRXY(isl)[0], ry = holeRXY(isl)[1];
+      const q1 = W(isl.cx, isl.cy), q2 = W(isl.cx + rx, isl.cy), q3 = W(isl.cx, isl.cy + ry);
       add({ kind: 'islandMove', i, x: q1.x, y: q1.y });
       add({ kind: 'islandR', i, x: q2.x, y: q2.y });
+      if (holeIsEllipse({ rx, ry, r: rx })) add({ kind: 'islandRy', i, x: q3.x, y: q3.y });
     });
     if (c.cell.notch) {
       const q1 = W(c.cell.notch.cx, c.cell.notch.cy), q2 = W(c.cell.notch.cx + c.cell.notch.r, c.cell.notch.cy);
@@ -13170,7 +13454,21 @@ showSplitPreview();
       const isl = sh.islands[h.i];
       if (!isl) return;
       // 孔洞大小不限：只保证不把整格吃干净（留 1% 边），要多大拉多大
-      isl.r = Math.max(6, Math.min(Math.min(a.w, a.h) * 0.99, Math.hypot(pl.x - isl.cx, pl.y - isl.cy)));
+      const cap = Math.min(a.w, a.h) * 0.99;
+      if (Number.isFinite(isl.rx) || Number.isFinite(isl.ry)) {
+        isl.rx = Math.max(6, Math.min(cap, Math.abs(pl.x - isl.cx)));
+        if (!Number.isFinite(isl.ry)) isl.ry = isl.rx;
+        delete isl.r;
+      } else {
+        isl.r = Math.max(6, Math.min(cap, Math.hypot(pl.x - isl.cx, pl.y - isl.cy)));
+      }
+    } else if (h.kind === 'islandRy') {
+      const isl = sh.islands[h.i];
+      if (!isl) return;
+      const cap = Math.min(a.w, a.h) * 0.99;
+      isl.ry = Math.max(6, Math.min(cap, Math.abs(pl.y - isl.cy)));
+      if (!Number.isFinite(isl.rx)) isl.rx = isl.ry;
+      delete isl.r;
     } else if (h.kind === 'notchMove' || h.kind === 'notchR') {
       if (!sh.notch) return;
       if (h.kind === 'notchMove') {
@@ -13453,13 +13751,19 @@ showSplitPreview();
       (habitat.agents.filter(x => x.kind === 'weave').findIndex(x => x.id === a.id) + 1) + ' 块', '#F0B45A');
     // 孔：虚线圆 + 圆心十字 + 半径读数（拖哪个孔就高亮哪个）
     islands.forEach((isl, i) => {
+      const rx = holeRXY(isl)[0], ry = holeRXY(isl)[1];
       const qc = W(isl.cx, isl.cy);
-      const cx = v.px(qc.x), cy = v.py(qc.y), rr = Math.max(1, isl.r * v.s);
+      const cx = v.px(qc.x), cy = v.py(qc.y), rr = Math.max(1, Math.max(rx, ry) * v.s);
       const dragging = habitat.drag && habitat.drag.kind === 'weaveHandle' && habitat.drag.handle.i === i;
       ctx.setLineDash([6, 4]);
       ctx.strokeStyle = dragging ? 'rgba(185,230,218,0.95)' : 'rgba(121,203,182,0.55)';
+      // 孔缘：圆直接画，椭圆按格子局部系采点（跟着块的旋转一起斜）
       ctx.beginPath();
-      ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+      for (let t = 0; t <= 48; t++) {
+        const a0 = t / 48 * Math.PI * 2;
+        const qq = W(isl.cx + Math.cos(a0) * rx, isl.cy + Math.sin(a0) * ry);
+        if (t === 0) ctx.moveTo(v.px(qq.x), v.py(qq.y)); else ctx.lineTo(v.px(qq.x), v.py(qq.y));
+      }
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.strokeStyle = 'rgba(121,203,182,0.75)';
@@ -13467,12 +13771,20 @@ showSplitPreview();
       ctx.moveTo(cx - 5, cy); ctx.lineTo(cx + 5, cy);
       ctx.moveTo(cx, cy - 5); ctx.lineTo(cx, cy + 5);
       ctx.stroke();
+      // 两条半径线：横 = 长轴，竖 = 短轴（椭圆时竖线同时也是一根手柄的引线）
+      const qr = W(isl.cx + rx, isl.cy), qd = W(isl.cx, isl.cy + ry);
+      ctx.strokeStyle = 'rgba(121,203,182,0.5)';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy); ctx.lineTo(v.px(qr.x), v.py(qr.y));
+      ctx.moveTo(cx, cy); ctx.lineTo(v.px(qd.x), v.py(qd.y));
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(185,230,218,0.9)';
+      ctx.fillRect(v.px(qr.x) - 3, v.py(qr.y) - 3, 6, 6);
+      if (holeIsEllipse(isl)) ctx.fillRect(v.px(qd.x) - 3, v.py(qd.y) - 3, 6, 6);
       if (dragging || i === 0) {
-        const qr = W(isl.cx + isl.r, isl.cy);
-        ctx.beginPath();
-        ctx.moveTo(cx, cy); ctx.lineTo(v.px(qr.x), v.py(qr.y));
-        ctx.stroke();
-        drawChip(ctx, cx, cy - rr, 'Ø ' + Math.round(isl.r * 2) + ' px', '#79CBB6');
+        drawChip(ctx, cx, cy - rr,
+          holeIsEllipse(isl) ? '椭圆 ' + Math.round(rx * 2) + '×' + Math.round(ry * 2) + ' px'
+                             : 'Ø ' + Math.round(rx * 2) + ' px', '#79CBB6');
       }
     });
     if (notch) {
@@ -13831,6 +14143,9 @@ showSplitPreview();
       silkSoftUser: !!habitat.silkSoftUser,
       silkCross: silkCrossLevel(),
       silkBalance: silkBalanceLevel(),
+      seamRotAll: seamRotAllOn(),
+      cam: habitat.cam ? { x: habitat.cam.x, y: habitat.cam.y, w: habitat.cam.w, h: habitat.cam.h } : null,
+      camShow: !!habitat.camShow,
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
@@ -14179,6 +14494,7 @@ showSplitPreview();
       silkSoftUser: !!habitat.silkSoftUser,
       silkCross: silkCrossLevel(),
       silkBalance: silkBalanceLevel(),
+      seamRotAll: seamRotAllOn(),
       // r49：编排与时间区间。rangeEnd=null 表示未锁定（跟随建议值）
       timeline: timelineSnapshot(),
       simTime: habitat.simTime,
@@ -14364,13 +14680,14 @@ showSplitPreview();
       });
     }
     (cell.islands || []).forEach(isl => {
+      const [irx, iry] = holeRXY(isl);
       const pts = [];
       const N = 48;
       for (let k = 0; k < N; k++) {
         const t = Math.PI * 2 * k / N;
-        pts.push({ x: a.x + isl.cx + Math.cos(t) * isl.r, y: a.y + isl.cy + Math.sin(t) * isl.r });
+        pts.push({ x: a.x + isl.cx + Math.cos(t) * irx, y: a.y + isl.cy + Math.sin(t) * iry });
       }
-      polys.push({ kind: 'hole', closed: true, pts, r: isl.r });
+      polys.push({ kind: 'hole', closed: true, pts, r: Math.max(irx, iry), rx: irx, ry: iry });
     });
     if (cell.notch) {
       polys.push({
@@ -14502,6 +14819,8 @@ showSplitPreview();
     if (vidHInput) vidHInput.addEventListener('input', syncVidResUI);
     syncVidResUI();
   }
+  try { bindCamUI(); syncCamUI(); } catch (e) {}
+  try { bindHoleUI(); } catch (e) {}
 
   /* ============ 母版 native 渲染模式（?native=1） ============ */
 
@@ -14546,8 +14865,21 @@ showSplitPreview();
     };
   }
 
-  // 母版/网页录制共用的取景：把块群外接框按 94% 装进屏体，换分辨率构图不变形
+  // 母版/网页录制共用的取景：有取景框就严格按取景框出图；否则把块群外接框按 94% 装进屏体
   function ledFrameView(scene, W, H) {
+    // r49z：取景框（世界坐标矩形，比例已等于导出比例）→ 铺满整张画布
+    const cm = (typeof camRect === 'function' && habitat.camShow !== false) ? camRect() : null;
+    if (cm) {
+      const sc = Math.min(W / cm.w, H / cm.h);
+      const ccx = cm.x + cm.w / 2, ccy = cm.y + cm.h / 2;
+      return {
+        w: W, h: H, s: sc,
+        cx: W / 2 - ccx * sc,
+        cy: H / 2 - ccy * sc,
+        px: x => W / 2 - ccx * sc + x * sc,
+        py: y => H / 2 - ccy * sc + y * sc,
+      };
+    }
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     scene.units.forEach(u => {
       minX = Math.min(minX, u.x - u.w / 2);
@@ -15212,7 +15544,7 @@ showSplitPreview();
     const durSecs = rg0 ? Math.max(2, Math.round((rg0.end - rg0.start) * 10) / 10) : secs;
     const total = Math.max(2, Math.round(durSecs * fps));
     const bitSel = document.getElementById('habVidBit');
-    const mbps = Math.max(4, Math.min(60, parseFloat(bitSel ? bitSel.value : '16') || 16));
+    const mbps = Math.max(4, Math.min(160, parseFloat(bitSel ? bitSel.value : '16') || 16));
     const bit = Math.round(mbps * 1e6);
     // 关键帧档位：平顺 20 秒 / 跟手 3 秒 / 全片只一个（0）
     const kfSel = document.getElementById('habVidKf');
@@ -15428,6 +15760,14 @@ showSplitPreview();
     if (!habitat.silkSoftUser && (habitat.silkSoft === 1 || habitat.silkSoft === 2)) habitat.silkSoft = 0;
     habitat.silkCross = Number.isFinite(data.silkCross) ? Math.max(0, Math.min(1, data.silkCross)) : 1;
     habitat.silkBalance = Number.isFinite(data.silkBalance) ? Math.max(0, Math.min(1, data.silkBalance)) : 0;
+    habitat.seamRotAll = !!data.seamRotAll;
+    habitat.cam = (data.cam && Number.isFinite(data.cam.x) && Number.isFinite(data.cam.w) && data.cam.w > 1)
+      ? { x: data.cam.x, y: data.cam.y, w: data.cam.w, h: Number.isFinite(data.cam.h) ? data.cam.h : data.cam.w * 3 / 4 }
+      : null;
+    habitat.camShow = data.camShow !== false;
+    try { syncCamUI(); } catch (e) {}
+    const sraEl = document.getElementById('habSeamRotAll');
+    if (sraEl) sraEl.checked = habitat.seamRotAll;
     const balEl2 = document.getElementById('habSilkBalance');
     if (balEl2) balEl2.value = String(silkBalanceLevel());
     const balLab2 = document.getElementById('habSilkBalanceVal');
@@ -15571,6 +15911,14 @@ showSplitPreview();
     pushUndo: () => pushUndo(), undoStep: () => undoStep(),
     weaveRot: (id) => { const a = habitat.agents.find(z => z.id === id); return a ? weaveRotOf(a) : 0; },
     silkCross: () => silkCrossLevel(),
+    seamRotAllState: () => seamRotAllOn(),
+    camRect: () => camRect(),
+    camPreviewRect: () => camPreviewRect(),
+    camShow: () => !!habitat.camShow,
+    camAspect: () => camAspect(),
+    camRes: () => { const r = ledResolve(); return { w: r.w, h: r.h }; },
+    camFit: () => camFitToBlocks(),
+    camClear: () => { habitat.cam = null; syncCamUI(); },
     rotateUnits: (ids, pivot, deg, noUndo) => {
       const set = new Set(ids || []);
       const list = habitat.agents.filter(a => a.kind === 'weave' && set.has(a.id));
@@ -17442,6 +17790,48 @@ showSplitPreview();
       octx.strokeRect(x0, y0, x1 - x0, y1 - y0);
       octx.restore();
     }
+    // r49z：取景框（导出画面）。框外压暗，四个角可拖，中间可拖
+    try {
+      if (H().camShow && H().camShow() && !H().state().finalPreview) {
+        const cr = H().camPreviewRect ? H().camPreviewRect() : H().camRect();
+        if (cr) {
+          const x0 = v.px(cr.x), y0 = v.py(cr.y), x1 = v.px(cr.x + cr.w), y1 = v.py(cr.y + cr.h);
+          octx.save();
+          // 框外压暗（用 evenodd：整块画布挖掉框内）
+          octx.beginPath();
+          octx.rect(0, 0, ov.width, ov.height);
+          octx.rect(x0, y0, x1 - x0, y1 - y0);
+          octx.fillStyle = 'rgba(4,5,5,0.62)';
+          octx.fill('evenodd');
+          // 框线
+          octx.strokeStyle = 'rgba(255,196,92,0.92)';
+          octx.lineWidth = 1.4;
+          octx.setLineDash([]);
+          octx.strokeRect(x0 + 0.5, y0 + 0.5, (x1 - x0) - 1, (y1 - y0) - 1);
+          // 三分线
+          octx.strokeStyle = 'rgba(255,196,92,0.16)';
+          octx.lineWidth = 1;
+          [1, 2].forEach(k => {
+            const gx = x0 + (x1 - x0) * k / 3, gy = y0 + (y1 - y0) * k / 3;
+            octx.beginPath(); octx.moveTo(gx, y0); octx.lineTo(gx, y1); octx.stroke();
+            octx.beginPath(); octx.moveTo(x0, gy); octx.lineTo(x1, gy); octx.stroke();
+          });
+          // 四角手柄
+          octx.fillStyle = 'rgba(255,196,92,0.95)';
+          [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].forEach(([hx, hy]) => {
+            octx.fillRect(hx - 4, hy - 4, 8, 8);
+          });
+          // 标签
+          octx.fillStyle = 'rgba(255,206,120,0.95)';
+          octx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+          let resTxt = '';
+          try { const rr = H().camRes(); resTxt = ' · 输出 ' + rr.w + '×' + rr.h + ' px'; } catch (e) {}
+          octx.fillText('取景框（拖动＝平移 · 拖角＝缩放）' + resTxt, x0 + 6, y0 - 6);
+          octx.restore();
+        }
+      }
+    } catch (e) {}
+
     guides.forEach(g => {
       octx.save();
       octx.strokeStyle = 'rgba(255,140,190,0.95)';
@@ -18306,6 +18696,11 @@ showSplitPreview();
     setV('habAdjRot', Math.round(d)); setT('habAdjRotVal', Math.round(d) + '°');
   }
 
+  // r49z：旋转范围开关（宿主里的 habitat.seamRotAll，默认关＝只转选中的块）
+  function seamRotAllOn() {
+    try { return !!(window.__studioHabitat && window.__studioHabitat.seamRotAllState && window.__studioHabitat.seamRotAllState()); }
+    catch (e) { return false; }
+  }
   function expandSeamList(list) {
     const ids = new Set(list.map(a => a.id));
     const seams = new Set(list.filter(a => a.seam).map(a => a.seam));
@@ -18317,8 +18712,21 @@ showSplitPreview();
     const list0 = selUnits();
     if (!list0.length) { H().toast('先在画布或图层列表里选中要转的块。', 'err'); return; }
     if (!Number.isFinite(deg) || !deg) return;
-    const list = expandSeamList(list0);
-    if (list.length > list0.length) H().hint('这一块属于一片无缝组：整片 ' + list.length + ' 块一起转，缝上的丝才连得住。');
+    const whole = seamRotAllOn();
+    let list = whole ? expandSeamList(list0) : list0.slice();
+    if (!whole) {
+      // 只转选中的块：它若在一片无缝组里，那片丝不可能只转一块还连着 → 先把这片解散（说清楚，不静默）
+      const seams = new Set(list0.filter(a => a.seam).map(a => a.seam));
+      let n = 0;
+      if (seams.size) {
+        H().agents().forEach(b => {
+          if (b.kind === 'weave' && b.seam && seams.has(b.seam)) { b.seam = null; b.seamMode = null; n++; }
+        });
+      }
+      if (n > 1) H().toast('只转了选中的块，所以这一片（' + n + ' 块）已取消无缝。要整片一起转，勾「成片一起转（无缝组）」。', 'ok');
+    } else if (list.length > list0.length) {
+      H().hint('这一块属于一片无缝组：整片 ' + list.length + ' 块一起转，缝上的丝才连得住。');
+    }
     const p = pivotPoint(list);
     H().pushUndo();
     G().rotate(list, p, deg * Math.PI / 180);
@@ -18337,7 +18745,16 @@ showSplitPreview();
   bindBtn('habRotZero', () => {
     const list0 = selUnits();
     if (!list0.length) { H().toast('先选中要归零的块。', 'err'); return; }
-    const list = expandSeamList(list0);
+    const whole = seamRotAllOn();
+    const list = whole ? expandSeamList(list0) : list0.slice();
+    if (!whole && list0.some(a => a.seam)) {
+      const seams = new Set(list0.filter(a => a.seam).map(a => a.seam));
+      let n = 0;
+      H().agents().forEach(b => {
+        if (b.kind === 'weave' && b.seam && seams.has(b.seam)) { b.seam = null; b.seamMode = null; n++; }
+      });
+      if (n > 1) H().toast('只归零选中的块，这一片（' + n + ' 块）已取消无缝。', 'ok');
+    }
     // 成片：整片绕自己的中心转回去（各块位置跟着走，缝保持连着）；单块：原地归零（位置不动）
     const th = G().rot(list[0]);
     const allSame = list.every(a => Math.abs(G().rot(a) - th) < 1e-4);
@@ -18366,6 +18783,14 @@ showSplitPreview();
       H().hint('在画布上点一下，就把那一点设成旋转中心（之后所有旋转都绕它）。');
     }
     paintPivot();
+  }
+  const sraBox = $('habSeamRotAll');
+  if (sraBox) {
+    sraBox.checked = seamRotAllOn();
+    sraBox.addEventListener('change', () => {
+      habitat.seamRotAll = !!sraBox.checked;
+      H().toast(sraBox.checked ? '旋转 = 无缝组整片一起转（旧行为）。' : '旋转 = 只转选中的块（无缝组会自动解散）。', 'ok');
+    });
   }
   bindBtn('habRotPick', () => togglePick());
   const pv = $('habRotPivot');
